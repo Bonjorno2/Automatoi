@@ -1,5 +1,5 @@
 import { createRng } from "./rng";
-import { addItem, total } from "./inventory";
+import { addItem, removeItem, total } from "./inventory";
 import {
   BOT_CAPACITY,
   FIELD_RADIUS,
@@ -12,6 +12,7 @@ import type {
   Command,
   CommandResult,
   Direction,
+  Item,
   Machine,
   MachineKind,
   ModuleName,
@@ -151,7 +152,14 @@ export class World {
   /** Advance the world by one tick. */
   tick(): void {
     this.time++;
+    this.growCrops();
     for (const bot of this.bots.values()) this.advance(bot);
+  }
+
+  private growCrops(): void {
+    for (const tile of this.tiles) {
+      if (tile.crop && tile.crop.growth < WHEAT_GROWTH_TICKS) tile.crop.growth++;
+    }
   }
 
   private advance(bot: Bot): void {
@@ -176,6 +184,8 @@ export class World {
         return this.doMove(bot, cmd.dir);
       case "harvest":
         return this.doHarvest(bot);
+      case "plant":
+        return this.doPlant(bot, cmd.item);
       default:
         return fail(`${cmd.kind} is not implemented`);
     }
@@ -198,6 +208,15 @@ export class World {
     if (total(bot.inventory) >= BOT_CAPACITY) return fail("inventory full");
     addItem(bot.inventory, tile.crop.item, 1);
     tile.crop = null;
+    return ok(true);
+  }
+
+  private doPlant(bot: Bot, item: Item): Outcome {
+    const tile = this.tileAt(bot.pos);
+    if (!tile || tile.terrain !== "soil" || tile.crop) return ok(false);
+    if ((bot.inventory[item] ?? 0) < 1) return ok(false);
+    removeItem(bot.inventory, item, 1);
+    tile.crop = { item, growth: 0 };
     return ok(true);
   }
 
