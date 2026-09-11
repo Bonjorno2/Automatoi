@@ -196,8 +196,14 @@ export class World {
         return this.doDeposit(bot, cmd.dir, cmd.item, cmd.count);
       case "withdraw":
         return this.doWithdraw(bot, cmd.dir, cmd.item, cmd.count);
-      default:
-        return fail(`${cmd.kind} is not implemented`);
+      case "send":
+        return this.doSend(bot, cmd.channel, cmd.payload);
+      case "receive":
+        return this.doReceive(bot, cmd.channel);
+      default: {
+        const never: never = cmd;
+        return fail(`unknown command ${String(never)}`);
+      }
     }
   }
 
@@ -272,6 +278,26 @@ export class World {
       addItem(bot.inventory, item, n);
     }
     return ok(n);
+  }
+
+  private doSend(bot: Bot, channel: string, payload: unknown): Outcome {
+    let delivered = 0;
+    for (const other of this.bots.values()) {
+      if (other.id === bot.id || !other.modules.has("radio")) continue;
+      other.inbox.push({ channel, payload, from: bot.id });
+      delivered++;
+    }
+    return ok(delivered);
+  }
+
+  private doReceive(bot: Bot, channel?: string): Outcome {
+    const idx = bot.inbox.findIndex((m) => channel === undefined || m.channel === channel);
+    if (idx < 0) {
+      bot.blockedOn = "radio";
+      return RETRY;
+    }
+    const [msg] = bot.inbox.splice(idx, 1);
+    return ok(msg);
   }
 
   // ---- player (UI) actions, gated by research stock ----
