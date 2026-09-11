@@ -17,6 +17,7 @@ import type {
   MachineKind,
   ModuleName,
   ResearchState,
+  ScanTile,
   Tile,
   Vec,
 } from "./types";
@@ -186,6 +187,8 @@ export class World {
         return this.doHarvest(bot);
       case "plant":
         return this.doPlant(bot, cmd.item);
+      case "scan":
+        return this.doScan(bot, cmd.radius);
       default:
         return fail(`${cmd.kind} is not implemented`);
     }
@@ -218,6 +221,27 @@ export class World {
     removeItem(bot.inventory, item, 1);
     tile.crop = { item, growth: 0 };
     return ok(true);
+  }
+
+  private doScan(bot: Bot, radius: number): Outcome {
+    const r = Math.max(0, Math.floor(radius));
+    const out: ScanTile[] = [];
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        const p = { x: bot.pos.x + dx, y: bot.pos.y + dy };
+        const tile = this.tileAt(p);
+        if (!tile) continue;
+        out.push({
+          x: p.x,
+          y: p.y,
+          terrain: tile.terrain,
+          crop: tile.crop ? { ...tile.crop } : null,
+          bot: this.botAt(p)?.id ?? null,
+          machine: this.machineAt(p)?.kind ?? null,
+        });
+      }
+    }
+    return ok(out);
   }
 
   // ---- player (UI) actions, gated by research stock ----
