@@ -9,6 +9,7 @@ import type {
   Bot,
   Command,
   CommandResult,
+  Direction,
   Machine,
   MachineKind,
   ModuleName,
@@ -38,6 +39,15 @@ const MODULE_FOR: Partial<Record<Command["kind"], ModuleName>> = {
 };
 
 const capitalise = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
+
+const DIR: Record<Direction, Vec> = {
+  north: { x: 0, y: -1 },
+  south: { x: 0, y: 1 },
+  east: { x: 1, y: 0 },
+  west: { x: -1, y: 0 },
+};
+
+const add = (a: Vec, b: Vec): Vec => ({ x: a.x + b.x, y: a.y + b.y });
 
 export class World {
   readonly seed: number;
@@ -160,9 +170,37 @@ export class World {
     switch (cmd.kind) {
       case "wait":
         return ok(undefined);
+      case "move":
+        return this.doMove(bot, cmd.dir);
       default:
         return fail(`${cmd.kind} is not implemented`);
     }
+  }
+
+  private doMove(bot: Bot, dir: Direction): Outcome {
+    const target = add(bot.pos, DIR[dir]);
+    if (!this.inBounds(target) || this.machineAt(target)) return ok(false);
+    if (this.botAt(target)) {
+      bot.blockedOn = "bot";
+      return RETRY;
+    }
+    bot.pos = target;
+    return ok(true);
+  }
+
+  // ---- player (UI) actions, gated by research stock ----
+
+  /** Place a new bot using a spare chassis from research. */
+  deployBot(pos: Vec): Bot {
+    if (this.research.spareChassis < 1) throw new Error("no spare chassis");
+    this.assertFree(pos);
+    this.research.spareChassis--;
+    return this.addBot(pos, ["harvester"]);
+  }
+
+  private assertFree(pos: Vec): void {
+    if (!this.inBounds(pos)) throw new Error("out of bounds");
+    if (this.botAt(pos) || this.machineAt(pos)) throw new Error("tile occupied");
   }
 
   // ---- entity creation (private until research gates them) ----
