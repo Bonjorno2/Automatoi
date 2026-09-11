@@ -85,3 +85,38 @@ export interface ResearchState {
   spareModules: Partial<Record<ModuleName, number>>;
   spareChassis: number;
 }
+
+export interface BotSnapshot {
+  id: number;
+  pos: Vec;
+  inventory: Inventory;
+  modules: ModuleName[];
+  busy: boolean;
+  blockedOn: BlockedOn;
+}
+
+export interface MachineSnapshot {
+  id: number;
+  kind: MachineKind;
+  pos: Vec;
+  inventory: Inventory;
+}
+
+export interface ResearchSnapshot {
+  unlocked: ResearchName[];
+  queue: ResearchName[];
+  progress: number;
+  spareModules: Partial<Record<ModuleName, number>>;
+  spareChassis: number;
+}
+
+export interface WorldSnapshot {
+  seed: number;
+  width: number;
+  height: number;
+  time: number;
+  tiles: Tile[];
+  bots: BotSnapshot[];
+  machines: MachineSnapshot[];
+  research: ResearchSnapshot;
+}

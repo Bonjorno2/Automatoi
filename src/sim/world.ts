@@ -22,6 +22,7 @@ import type {
   ScanTile,
   Tile,
   Vec,
+  WorldSnapshot,
 } from "./types";
 
 export interface WorldOptions {
@@ -150,6 +151,41 @@ export class World {
     const r = bot.result;
     bot.result = null;
     return r;
+  }
+
+  /** Plain, JSON-safe copy of the world for rendering and saving. */
+  snapshot(): WorldSnapshot {
+    return {
+      seed: this.seed,
+      width: this.width,
+      height: this.height,
+      time: this.time,
+      tiles: this.tiles.map((t) => ({
+        terrain: t.terrain,
+        crop: t.crop ? { ...t.crop } : null,
+      })),
+      bots: [...this.bots.values()].map((b) => ({
+        id: b.id,
+        pos: { ...b.pos },
+        inventory: { ...b.inventory },
+        modules: [...b.modules],
+        busy: b.action !== null,
+        blockedOn: b.blockedOn,
+      })),
+      machines: [...this.machines.values()].map((m) => ({
+        id: m.id,
+        kind: m.kind,
+        pos: { ...m.pos },
+        inventory: { ...m.inventory },
+      })),
+      research: {
+        unlocked: [...this.research.unlocked],
+        queue: [...this.research.queue],
+        progress: this.research.progress,
+        spareModules: { ...this.research.spareModules },
+        spareChassis: this.research.spareChassis,
+      },
+    };
   }
 
   /** Advance the world by one tick. */
