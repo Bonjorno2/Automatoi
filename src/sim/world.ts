@@ -3,6 +3,7 @@ import { addItem, removeItem, total } from "./inventory";
 import {
   BOT_CAPACITY,
   FIELD_RADIUS,
+  RESEARCH_COST,
   TICK_COST,
   WHEAT_GROWTH_TICKS,
   WILD_WHEAT_CHANCE,
@@ -16,6 +17,7 @@ import type {
   Machine,
   MachineKind,
   ModuleName,
+  ResearchName,
   ResearchState,
   ScanTile,
   Tile,
@@ -155,6 +157,7 @@ export class World {
     this.time++;
     this.growCrops();
     for (const bot of this.bots.values()) this.advance(bot);
+    this.advanceResearch();
   }
 
   private growCrops(): void {
@@ -292,6 +295,59 @@ export class World {
   private assertFree(pos: Vec): void {
     if (!this.inBounds(pos)) throw new Error("out of bounds");
     if (this.botAt(pos) || this.machineAt(pos)) throw new Error("tile occupied");
+  }
+
+  // ---- research ----
+
+  queueResearch(name: ResearchName): void {
+    if (!(name in RESEARCH_COST)) throw new Error(`unknown research ${name}`);
+    if (this.research.unlocked.has(name)) throw new Error(`${name} already researched`);
+    if (this.research.queue.includes(name)) throw new Error(`${name} already queued`);
+    this.research.queue.push(name);
+  }
+
+  installModule(botId: number, module: ModuleName): void {
+    const bot = this.getBot(botId);
+    const spare = this.research.spareModules[module] ?? 0;
+    if (spare < 1) throw new Error(`no spare ${module} module`);
+    if (bot.modules.has(module)) throw new Error(`bot ${botId} already has ${module}`);
+    this.research.spareModules[module] = spare - 1;
+    bot.modules.add(module);
+  }
+
+  private console(): Machine {
+    for (const m of this.machines.values()) if (m.kind === "console") return m;
+    throw new Error("world has no console");
+  }
+
+  private advanceResearch(): void {
+    const r = this.research;
+    const current = r.queue[0];
+    if (!current) return;
+    const console = this.console();
+    if ((console.inventory.wheat ?? 0) < 1) return;
+    removeItem(console.inventory, "wheat", 1);
+    r.progress++;
+    if (r.progress < RESEARCH_COST[current]) return;
+    r.queue.shift();
+    r.progress = 0;
+    r.unlocked.add(current);
+    this.grant(current);
+  }
+
+  private grant(name: ResearchName): void {
+    switch (name) {
+      case "chassis":
+        this.research.spareChassis++;
+        return;
+      case "planter":
+      case "scanner":
+      case "radio":
+        this.research.spareModules[name] = (this.research.spareModules[name] ?? 0) + 1;
+        return;
+      case "crate":
+        return; // unlocks placeMachine("crate"), nothing to stock
+    }
   }
 
   // ---- entity creation (private until research gates them) ----
