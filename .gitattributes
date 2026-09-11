@@ -1,0 +1,11 @@
+# Normalise text files to LF in the repository and on checkout. Without this,
+# a global core.autocrlf=true rewrites every file to CRLF in the working tree,
+# which is where the "LF will be replaced by CRLF" warnings come from.
+* text=auto eol=lf
+
+# Binary files git should never touch.
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff binary
+*.woff2 binary
