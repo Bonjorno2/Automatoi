@@ -189,6 +189,10 @@ export class World {
         return this.doPlant(bot, cmd.item);
       case "scan":
         return this.doScan(bot, cmd.radius);
+      case "deposit":
+        return this.doDeposit(bot, cmd.dir, cmd.item, cmd.count);
+      case "withdraw":
+        return this.doWithdraw(bot, cmd.dir, cmd.item, cmd.count);
       default:
         return fail(`${cmd.kind} is not implemented`);
     }
@@ -244,6 +248,29 @@ export class World {
     return ok(out);
   }
 
+  private doDeposit(bot: Bot, dir: Direction, item: Item, count: number): Outcome {
+    const machine = this.machineAt(add(bot.pos, DIR[dir]));
+    if (!machine) return fail(`no machine to the ${dir}`);
+    const n = Math.min(Math.max(0, Math.floor(count)), bot.inventory[item] ?? 0);
+    if (n > 0) {
+      removeItem(bot.inventory, item, n);
+      addItem(machine.inventory, item, n);
+    }
+    return ok(n);
+  }
+
+  private doWithdraw(bot: Bot, dir: Direction, item: Item, count: number): Outcome {
+    const machine = this.machineAt(add(bot.pos, DIR[dir]));
+    if (!machine) return fail(`no machine to the ${dir}`);
+    const room = BOT_CAPACITY - total(bot.inventory);
+    const n = Math.min(Math.max(0, Math.floor(count)), machine.inventory[item] ?? 0, room);
+    if (n > 0) {
+      removeItem(machine.inventory, item, n);
+      addItem(bot.inventory, item, n);
+    }
+    return ok(n);
+  }
+
   // ---- player (UI) actions, gated by research stock ----
 
   /** Place a new bot using a spare chassis from research. */
@@ -252,6 +279,14 @@ export class World {
     this.assertFree(pos);
     this.research.spareChassis--;
     return this.addBot(pos, ["harvester"]);
+  }
+
+  /** Place a machine the player has researched. */
+  placeMachine(kind: MachineKind, pos: Vec): Machine {
+    if (kind === "console") throw new Error("cannot place a second console");
+    if (!this.research.unlocked.has(kind)) throw new Error(`${kind} not researched`);
+    this.assertFree(pos);
+    return this.addMachine(kind, pos);
   }
 
   private assertFree(pos: Vec): void {
