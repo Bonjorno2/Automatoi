@@ -1,7 +1,14 @@
 import { createRng } from "./rng";
-import { FIELD_RADIUS, WHEAT_GROWTH_TICKS, WILD_WHEAT_CHANCE } from "./config";
+import {
+  FIELD_RADIUS,
+  TICK_COST,
+  WHEAT_GROWTH_TICKS,
+  WILD_WHEAT_CHANCE,
+} from "./config";
 import type {
   Bot,
+  Command,
+  CommandResult,
   Machine,
   MachineKind,
   ModuleName,
@@ -15,6 +22,22 @@ export interface WorldOptions {
   width?: number;
   height?: number;
 }
+
+const RETRY = Symbol("retry");
+type Outcome = CommandResult | typeof RETRY;
+
+const ok = (value: unknown): CommandResult => ({ ok: true, value });
+const fail = (error: string): CommandResult => ({ ok: false, error });
+
+const MODULE_FOR: Partial<Record<Command["kind"], ModuleName>> = {
+  harvest: "harvester",
+  plant: "planter",
+  scan: "scanner",
+  send: "radio",
+  receive: "radio",
+};
+
+const capitalise = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 
 export class World {
   readonly seed: number;
@@ -87,6 +110,59 @@ export class World {
     const bot = this.bots.get(id);
     if (!bot) throw new Error(`no bot ${id}`);
     return bot;
+  }
+
+  // ---- command loop ----
+
+  /** Attach a command to a bot. Validation failures resolve immediately. */
+  issue(botId: number, command: Command): void {
+    const bot = this.getBot(botId);
+    if (bot.action) throw new Error(`bot ${botId} is busy`);
+    bot.result = null;
+    const needed = MODULE_FOR[command.kind];
+    if (needed && !bot.modules.has(needed)) {
+      bot.result = fail(`Bot ${botId} has no ${capitalise(needed)} module`);
+      return;
+    }
+    const cost = command.kind === "wait" ? command.ticks : TICK_COST[command.kind];
+    bot.action = { command, remaining: cost };
+  }
+
+  /** Return and clear the bot's pending result, or null if none yet. */
+  takeResult(botId: number): CommandResult | null {
+    const bot = this.getBot(botId);
+    const r = bot.result;
+    bot.result = null;
+    return r;
+  }
+
+  /** Advance the world by one tick. */
+  tick(): void {
+    this.time++;
+    for (const bot of this.bots.values()) this.advance(bot);
+  }
+
+  private advance(bot: Bot): void {
+    if (!bot.action) return;
+    bot.action.remaining--;
+    if (bot.action.remaining > 0) return;
+    const outcome = this.execute(bot, bot.action.command);
+    if (outcome === RETRY) {
+      bot.action.remaining = 1;
+      return;
+    }
+    bot.action = null;
+    bot.blockedOn = null;
+    bot.result = outcome;
+  }
+
+  private execute(bot: Bot, cmd: Command): Outcome {
+    switch (cmd.kind) {
+      case "wait":
+        return ok(undefined);
+      default:
+        return fail(`${cmd.kind} is not implemented`);
+    }
   }
 
   // ---- entity creation (private until research gates them) ----
