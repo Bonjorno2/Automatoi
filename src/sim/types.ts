@@ -1,0 +1,87 @@
+export type Direction = "north" | "south" | "east" | "west";
+export type Terrain = "grass" | "soil";
+export type Item = "wheat";
+export type ModuleName = "harvester" | "planter" | "scanner" | "radio";
+export type MachineKind = "console" | "crate";
+export type ResearchName = "planter" | "scanner" | "crate" | "chassis" | "radio";
+
+export interface Vec {
+  x: number;
+  y: number;
+}
+
+export interface Crop {
+  item: Item;
+  /** Ticks grown so far. Mature when >= WHEAT_GROWTH_TICKS. */
+  growth: number;
+}
+
+export interface Tile {
+  terrain: Terrain;
+  crop: Crop | null;
+}
+
+export type Inventory = Partial<Record<Item, number>>;
+
+export interface Message {
+  channel: string;
+  payload: unknown;
+  from: number;
+}
+
+export type Command =
+  | { kind: "wait"; ticks: number }
+  | { kind: "move"; dir: Direction }
+  | { kind: "harvest" }
+  | { kind: "plant"; item: Item }
+  | { kind: "scan"; radius: number }
+  | { kind: "deposit"; dir: Direction; item: Item; count: number }
+  | { kind: "withdraw"; dir: Direction; item: Item; count: number }
+  | { kind: "send"; channel: string; payload: unknown }
+  | { kind: "receive"; channel?: string };
+
+export type CommandResult =
+  | { ok: true; value: unknown }
+  | { ok: false; error: string };
+
+export interface Action {
+  command: Command;
+  remaining: number;
+}
+
+export type BlockedOn = "bot" | "radio" | null;
+
+export interface Bot {
+  id: number;
+  pos: Vec;
+  inventory: Inventory;
+  modules: Set<ModuleName>;
+  action: Action | null;
+  result: CommandResult | null;
+  inbox: Message[];
+  blockedOn: BlockedOn;
+}
+
+export interface Machine {
+  id: number;
+  kind: MachineKind;
+  pos: Vec;
+  inventory: Inventory;
+}
+
+export interface ScanTile {
+  x: number;
+  y: number;
+  terrain: Terrain;
+  crop: Crop | null;
+  bot: number | null;
+  machine: MachineKind | null;
+}
+
+export interface ResearchState {
+  unlocked: Set<ResearchName>;
+  queue: ResearchName[];
+  progress: number;
+  spareModules: Partial<Record<ModuleName, number>>;
+  spareChassis: number;
+}
