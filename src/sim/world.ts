@@ -1,5 +1,7 @@
 import { createRng } from "./rng";
+import { addItem, total } from "./inventory";
 import {
+  BOT_CAPACITY,
   FIELD_RADIUS,
   TICK_COST,
   WHEAT_GROWTH_TICKS,
@@ -172,6 +174,8 @@ export class World {
         return ok(undefined);
       case "move":
         return this.doMove(bot, cmd.dir);
+      case "harvest":
+        return this.doHarvest(bot);
       default:
         return fail(`${cmd.kind} is not implemented`);
     }
@@ -185,6 +189,15 @@ export class World {
       return RETRY;
     }
     bot.pos = target;
+    return ok(true);
+  }
+
+  private doHarvest(bot: Bot): Outcome {
+    const tile = this.tileAt(bot.pos);
+    if (!tile?.crop || tile.crop.growth < WHEAT_GROWTH_TICKS) return ok(false);
+    if (total(bot.inventory) >= BOT_CAPACITY) return fail("inventory full");
+    addItem(bot.inventory, tile.crop.item, 1);
+    tile.crop = null;
     return ok(true);
   }
 
