@@ -1,3 +1,4 @@
+import { Worker } from "node:worker_threads";
 import { World } from "../sim/world";
 import type { CommandResult } from "../sim/types";
 import {
@@ -147,5 +148,69 @@ export class Colony {
       modules: [...bot.modules],
       busy: bot.action !== null,
     };
+  }
+}
+
+export type ScriptStatus = "done" | "error" | "hung" | "stopped";
+
+export interface ScriptOutcome {
+  botId: number;
+  status: ScriptStatus;
+  message?: string;
+  logs: string[];
+}
+
+/**
+ * A Colony that can run player scripts in workers.
+ *
+ * The loop is demand-driven: requests are served the moment they appear, the
+ * world only ticks while a command is counting down, and control is yielded to
+ * the event loop in between so the worker can actually make progress.
+ */
+export class ScriptColony extends Colony {
+  private readonly workers = new Map<number, Worker>();
+
+  async run(botId: number, source: string): Promise<ScriptOutcome> {
+    const sab = this.channels.get(botId)?.sab ?? this.attach(botId);
+    const logs: string[] = [];
+    let settled: { status: ScriptStatus; message?: string } | undefined;
+
+    const worker = new Worker(new URL("./worker-entry.ts", import.meta.url), {
+      workerData: { sab, botId, source },
+    });
+    this.workers.set(botId, worker);
+
+    worker.on("message", (m: { kind: string; message?: string }) => {
+      if (m.kind === "log") logs.push(String(m.message));
+      else if (m.kind === "done") settled ??= { status: "done" };
+      else if (m.kind === "error") settled ??= { status: "error", message: m.message };
+    });
+    worker.on("error", (err) => { settled ??= { status: "error", message: err.message }; });
+
+    try {
+      while (!settled) {
+        this.serve();
+        if (this.anyInFlight()) {
+          this.world.tick();
+          this.publishAll();
+          this.deliver();
+        }
+        await new Promise((r) => setImmediate(r));
+      }
+      return { botId, logs, ...settled };
+    } finally {
+      await this.stop(botId);
+    }
+  }
+
+  async stop(botId: number): Promise<void> {
+    const worker = this.workers.get(botId);
+    if (!worker) return;
+    this.workers.delete(botId);
+    await worker.terminate();
+  }
+
+  async stopAll(): Promise<void> {
+    await Promise.all([...this.workers.keys()].map((id) => this.stop(id)));
   }
 }
