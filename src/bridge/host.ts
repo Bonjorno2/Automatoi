@@ -2,7 +2,7 @@ import { Worker } from "node:worker_threads";
 import { World } from "../sim/world";
 import type { CommandResult } from "../sim/types";
 import {
-  REQUEST, RESULT, REQ_LEN, RES_LEN, RES_OK, STATE,
+  IDLE, REQUEST, RESULT, REQ_LEN, RES_LEN, RES_OK, STATE,
   createChannel, ctrlOf, mirrorOf, readFrame, reqOf, resOf, writeFrame,
 } from "./protocol.ts";
 import type { HostRequest, MirrorState } from "./protocol.ts";
@@ -10,6 +10,8 @@ import { publishMirror } from "./mirror.ts";
 
 export interface ColonyOptions {
   world: World;
+  /** Idle time, in ms, after which a script is presumed stuck. */
+  hungMs?: number;
 }
 
 /** A bot's readable state as `colony.bots()` returns it. */
@@ -28,14 +30,18 @@ interface Channel {
    * host would re-issue the same command on every tick.
    */
   pending: boolean;
+  /** Host-side wall-clock time this channel last received a request. Drives the watchdog. */
+  lastActive: number;
 }
 
 export class Colony {
   readonly world: World;
+  protected readonly hungMs: number;
   protected readonly channels = new Map<number, Channel>();
 
   constructor(opts: ColonyOptions) {
     this.world = opts.world;
+    this.hungMs = opts.hungMs ?? 2000;
   }
 
   /** Give a bot a channel. The mirror is published at once so a script may read before its first call. */
@@ -47,6 +53,7 @@ export class Colony {
       botId, sab,
       ctrl: ctrlOf(sab), req: reqOf(sab), res: resOf(sab), mirror: mirrorOf(sab),
       pending: false,
+      lastActive: Date.now(),
     };
     this.channels.set(botId, channel);
     this.publish(channel);
@@ -84,6 +91,7 @@ export class Colony {
       if (Atomics.load(ch.ctrl, STATE) !== REQUEST) continue;
       if (ch.pending) continue; // already handed to the sim, still counting down
       ch.pending = true;
+      ch.lastActive = Date.now();
       const request = readFrame(ch.req, Atomics.load(ch.ctrl, REQ_LEN)) as HostRequest;
       const immediate = this.dispatch(ch, request);
       if (immediate) this.reply(ch, immediate);
@@ -167,15 +175,22 @@ export interface ScriptOutcome {
  * world only ticks while a command is counting down, and control is yielded to
  * the event loop in between so the worker can actually make progress.
  */
+type Settled = { status: ScriptStatus; message?: string };
+
 export class ScriptColony extends Colony {
   private readonly workers = new Map<number, Worker>();
+  private readonly settlers = new Map<number, (o: Settled) => void>();
   private pendingRuns = 0;
   private looping = false;
 
   async run(botId: number, source: string): Promise<ScriptOutcome> {
     const sab = this.channels.get(botId)?.sab ?? this.attach(botId);
     const logs: string[] = [];
-    let settled: { status: ScriptStatus; message?: string } | undefined;
+    let settled: Settled | undefined;
+    // First call wins: a worker's dying "error" message must not overwrite a
+    // verdict the watchdog or stop() already delivered.
+    const settle = (o: Settled): void => { settled ??= o; };
+    this.settlers.set(botId, settle);
 
     const worker = new Worker(new URL("./worker-entry.ts", import.meta.url), {
       workerData: { sab, botId, source },
@@ -184,10 +199,10 @@ export class ScriptColony extends Colony {
 
     worker.on("message", (m: { kind: string; message?: string }) => {
       if (m.kind === "log") logs.push(String(m.message));
-      else if (m.kind === "done") settled ??= { status: "done" };
-      else if (m.kind === "error") settled ??= { status: "error", message: m.message };
+      else if (m.kind === "done") settle({ status: "done" });
+      else if (m.kind === "error") settle({ status: "error", message: m.message });
     });
-    worker.on("error", (err) => { settled ??= { status: "error", message: err.message }; });
+    worker.on("error", (err) => settle({ status: "error", message: err.message }));
 
     this.pendingRuns++;
     try {
@@ -196,6 +211,7 @@ export class ScriptColony extends Colony {
       return { botId, logs, ...settled };
     } finally {
       this.pendingRuns--;
+      this.settlers.delete(botId);
       await this.stop(botId);
     }
   }
@@ -212,10 +228,31 @@ export class ScriptColony extends Colony {
           this.publishAll();
           this.deliver();
         }
+        this.checkHung();
         await new Promise((r) => setImmediate(r));
       }
     } finally {
       this.looping = false;
+    }
+  }
+
+  /**
+   * A channel idle for longer than `hungMs` means its script never asked for
+   * anything — a bare infinite loop. A channel parked on a request (STATE
+   * stays REQUEST, e.g. a blocking `receive()`) has asked; the sim just hasn't
+   * answered yet, and never counts as hung however long that takes.
+   */
+  private checkHung(): void {
+    for (const [botId, worker] of this.workers) {
+      const ch = this.channels.get(botId);
+      if (!ch) continue;
+      if (Atomics.load(ch.ctrl, STATE) !== IDLE) continue;
+      if (Date.now() - ch.lastActive <= this.hungMs) continue;
+      this.settlers.get(botId)?.({
+        status: "hung",
+        message: `bot ${botId} made no world call for ${this.hungMs}ms`,
+      });
+      void worker.terminate();
     }
   }
 
