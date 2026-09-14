@@ -169,6 +169,8 @@ export interface ScriptOutcome {
  */
 export class ScriptColony extends Colony {
   private readonly workers = new Map<number, Worker>();
+  private pendingRuns = 0;
+  private looping = false;
 
   async run(botId: number, source: string): Promise<ScriptOutcome> {
     const sab = this.channels.get(botId)?.sab ?? this.attach(botId);
@@ -187,8 +189,23 @@ export class ScriptColony extends Colony {
     });
     worker.on("error", (err) => { settled ??= { status: "error", message: err.message }; });
 
+    this.pendingRuns++;
     try {
-      while (!settled) {
+      void this.drive();
+      while (!settled) await new Promise((r) => setImmediate(r));
+      return { botId, logs, ...settled };
+    } finally {
+      this.pendingRuns--;
+      await this.stop(botId);
+    }
+  }
+
+  /** One shared drive loop, however many scripts are running, so bots block independently. */
+  private async drive(): Promise<void> {
+    if (this.looping) return;
+    this.looping = true;
+    try {
+      while (this.pendingRuns > 0) {
         this.serve();
         if (this.anyInFlight()) {
           this.world.tick();
@@ -197,9 +214,8 @@ export class ScriptColony extends Colony {
         }
         await new Promise((r) => setImmediate(r));
       }
-      return { botId, logs, ...settled };
     } finally {
-      await this.stop(botId);
+      this.looping = false;
     }
   }
 
