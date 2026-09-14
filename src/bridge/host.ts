@@ -260,10 +260,30 @@ export class ScriptColony extends Colony {
     const worker = this.workers.get(botId);
     if (!worker) return;
     this.workers.delete(botId);
+    this.settlers.get(botId)?.({ status: "stopped" });
     await worker.terminate();
+    this.resetChannel(botId);
   }
 
   async stopAll(): Promise<void> {
     await Promise.all([...this.workers.keys()].map((id) => this.stop(id)));
+  }
+
+  /**
+   * A terminated worker will never collect the result of a command it issued,
+   * so leaving that command counting down would block this bot forever. This
+   * reaches into the sim's bot state directly — the only place the bridge does
+   * so — to abandon it and leave the channel ready for the next worker.
+   */
+  private resetChannel(botId: number): void {
+    const ch = this.channels.get(botId);
+    if (!ch) return;
+    const bot = this.world.getBot(botId);
+    bot.action = null;
+    bot.result = null;
+    bot.blockedOn = null;
+    ch.pending = false;
+    Atomics.store(ch.ctrl, STATE, IDLE);
+    ch.lastActive = Date.now();
   }
 }
