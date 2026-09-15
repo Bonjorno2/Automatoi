@@ -600,6 +600,14 @@ which is the tie-break Task 3 already chose, now visible in practice.
 
 PixiJS replaces the text readout, reading a snapshot per frame and never mutating — `world.snapshot()` already exists and is JSON-safe. `RealtimeClock` grows the interpolation alpha it deliberately does not have yet, which is the second half of the accumulator this milestone only half-built.
 
+**Milestone 4 should also own the hands phase, and probably before the
+renderer.** Finding 1 above is the sharpest thing this milestone turned up:
+`placeMachine`, `installModule` and the spare chassis exist on `World` and are
+reachable from nothing. Until that is wired, research pays out into a void,
+four snippet chips cannot run, and the second bot — the thing the veteran
+playtest is meant to time — does not exist. A renderer makes the game look
+finished; the hands phase makes the loop close.
+
 Two things deliberately deferred:
 
 - **Where the sim runs.** Decision 1 puts it on the main thread provisionally. Milestone 4 is the first time there is a frame budget to measure, and therefore the first time the question can be answered rather than guessed.
