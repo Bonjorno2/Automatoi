@@ -60,7 +60,22 @@
       }
       button:hover, select:hover { background: #3f3f3f; }
       button:disabled { opacity: 0.45; cursor: default; }
-      #readout { margin: 0; color: #9cdcfe; white-space: pre; font-size: 12px; }
+      #panel { display: flex; flex-direction: column; gap: 0.5rem; }
+      .cargo { display: flex; align-items: center; gap: 0.4rem; font-size: 11px; }
+      .cargo-label { color: #888; min-width: 3.2rem; }
+      .cargo-count { color: #9cdcfe; }
+      .bar {
+        flex: 1;
+        height: 0.6rem;
+        background: #181818;
+        border: 1px solid #3a3a3a;
+        border-radius: 2px;
+        overflow: hidden;
+      }
+      .bar i { display: block; height: 100%; background: #c8b84a; transition: width 120ms linear; }
+      .bar i.full { background: #d8703c; }
+      .research { margin: 0; padding: 0; list-style: none; font-size: 11px; color: #9be06a; }
+      .research .muted { color: #666; }
       #log {
         margin: 0;
         padding: 0.5rem;
@@ -136,7 +151,7 @@
         </select>
       </div>
       <p class="hint">Ctrl+S restarts this bot's script.</p>
-      <p id="readout"></p>
+      <div id="panel"></div>
       <ul id="log"></ul>
       <p id="status">starting…</p>
     </aside>

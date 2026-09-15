@@ -7,6 +7,7 @@ import { createTileLayer } from "../render/tiles.ts";
 import { createActorLayer } from "../render/actors.ts";
 import { createMarkLayer, heldMarks } from "../render/marks.ts";
 import { createInspector } from "../render/inspector.ts";
+import { createHud, createSidePanel } from "../render/hud.ts";
 
 /**
  * Cross-origin isolation is checked before anything else. Without it
@@ -42,13 +43,15 @@ const tiles = createTileLayer(stage.staticLayer, stage.tickLayer, stage.geometry
 const actors = createActorLayer(stage.frameLayer, stage.geometry);
 const marks = createMarkLayer(stage.frameLayer);
 const inspector = createInspector(worldEl, stage.frameLayer, grid, stage.geometry);
+const hud = createHud(stage.app.stage, { width: stage.app.screen.width, height: stage.app.screen.height });
+const sidePanel = createSidePanel(document.querySelector<HTMLElement>("#panel")!);
 stage.onResize = (g) => {
   tiles.resize(g, snap);
   actors.resize(g);
+  hud.resize(g, { width: worldEl.clientWidth, height: worldEl.clientHeight });
 };
 
 const panel = createConsolePanel(document.querySelector("#log")!, statusEl);
-const readoutEl = document.querySelector("#readout")!;
 const pauseButton = document.querySelector<HTMLButtonElement>("#pause")!;
 
 /**
@@ -114,7 +117,6 @@ inspector.onSelect = (botId) => {
   selectedBotId = botId;
 };
 
-// The world readout dies in Task 7, once the HUD carries what it says.
 let drawnTick = -1;
 function draw(): void {
   snap = session.world.snapshot();
@@ -129,13 +131,9 @@ function draw(): void {
   // and marks decay against the wall clock rather than the sim's.
   marks.update(session.world.drainEvents(), heldMarks(snap), performance.now(), stage.geometry);
   inspector.update(snap, stage.geometry);
+  hud.update(snap, { paused: session.clock.paused, speed: session.clock.speed });
+  sidePanel.update(snap, selectedBotId);
 
-  const v = session.view();
-  readoutEl.textContent =
-    `tick    ${v.time}\n` +
-    `pos     ${v.pos.x}, ${v.pos.y}\n` +
-    `wheat   ${v.inventory.wheat ?? 0}\n` +
-    `state   ${v.paused ? "paused" : v.busy ? "busy" : "idle"}  ${v.speed}x`;
   requestAnimationFrame(draw);
 }
 requestAnimationFrame(draw);

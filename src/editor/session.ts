@@ -10,16 +10,6 @@ export interface SessionOptions {
   hz?: number;
 }
 
-/** Everything the page needs to draw, read fresh each frame. */
-export interface SessionView {
-  time: number;
-  pos: { x: number; y: number };
-  inventory: Record<string, number | undefined>;
-  busy: boolean;
-  paused: boolean;
-  speed: number;
-}
-
 /**
  * Owns the world, the colony and the loop that drives them.
  *
@@ -76,15 +66,10 @@ export class GameSession {
     return this.colony.stop(this.botId);
   }
 
-  view(): SessionView {
-    const bot = this.world.getBot(this.botId);
-    return {
-      time: this.world.time,
-      pos: { ...bot.pos },
-      inventory: { ...bot.inventory },
-      busy: bot.action !== null,
-      paused: this.clock.paused,
-      speed: this.clock.speed,
-    };
-  }
+  /*
+   * `view()` used to live here, flattening one bot's state for the milestone 3
+   * text readout. The renderer reads `world.snapshot()` directly and the
+   * readout is gone, so a hand-maintained projection of one bot is a second
+   * source of truth with no consumer.
+   */
 }
