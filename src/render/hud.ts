@@ -25,6 +25,24 @@ export function researchLines(snapshot: WorldSnapshot): string[] {
 }
 
 /**
+ * What research has produced and nobody has installed.
+ *
+ * Milestone 4's finding 1: progress was visible and completion was not, so a
+ * spare planter module could exist that no part of the screen ever mentioned.
+ * A player who looked away for two seconds had no way to discover they owned
+ * it. In Task 7 these lines become the thing you click to install.
+ */
+export function stockLines(snapshot: WorldSnapshot): string[] {
+  const lines: string[] = [];
+  for (const [module, n] of Object.entries(snapshot.research.spareModules)) {
+    if ((n ?? 0) > 0) lines.push(n === 1 ? `${module} module` : `${module} module x${n}`);
+  }
+  const chassis = snapshot.research.spareChassis;
+  if (chassis > 0) lines.push(chassis === 1 ? "spare chassis" : `spare chassis x${chassis}`);
+  return lines;
+}
+
+/**
  * How full a bot is, in [0, 1].
  *
  * A number the player never saw before. The snippet book has a "Don't overfill"
@@ -87,7 +105,24 @@ export function createHud(parent: Container, pane: Size): Hud {
   };
 }
 
-/** The DOM half: the side panel's cargo bar and research queue. */
+function fillList(root: HTMLElement, lines: string[], empty: string | null): void {
+  root.textContent = "";
+  if (lines.length === 0) {
+    if (empty === null) return;
+    const li = document.createElement("li");
+    li.className = "muted";
+    li.textContent = empty;
+    root.append(li);
+    return;
+  }
+  for (const line of lines) {
+    const li = document.createElement("li");
+    li.textContent = line;
+    root.append(li);
+  }
+}
+
+/** The DOM half: the side panel's cargo bar, research queue and stock. */
 export interface SidePanel {
   update(snapshot: WorldSnapshot, selectedBotId: number | null): void;
 }
@@ -99,12 +134,14 @@ export function createSidePanel(root: HTMLElement): SidePanel {
       <span class="bar"><i></i></span>
       <span class="cargo-count"></span>
     </div>
-    <ul class="research"></ul>`;
+    <ul class="research"></ul>
+    <ul class="stock"></ul>`;
 
   const fill = root.querySelector<HTMLElement>(".bar i")!;
   const count = root.querySelector<HTMLElement>(".cargo-count")!;
   const label = root.querySelector<HTMLElement>(".cargo-label")!;
   const research = root.querySelector<HTMLElement>(".research")!;
+  const stock = root.querySelector<HTMLElement>(".stock")!;
 
   return {
     update(snapshot, selectedBotId) {
@@ -115,20 +152,10 @@ export function createSidePanel(root: HTMLElement): SidePanel {
       fill.classList.toggle("full", carried >= BOT_CAPACITY);
       count.textContent = `${carried}/${BOT_CAPACITY}`;
 
-      const lines = researchLines(snapshot);
-      research.textContent = "";
-      if (lines.length === 0) {
-        const li = document.createElement("li");
-        li.className = "muted";
-        li.textContent = "nothing researching";
-        research.append(li);
-        return;
-      }
-      for (const line of lines) {
-        const li = document.createElement("li");
-        li.textContent = line;
-        research.append(li);
-      }
+      fillList(research, researchLines(snapshot), "nothing researching");
+      // No placeholder: an empty stock list is the normal state and a line
+      // saying so would compete with the one thing here worth noticing.
+      fillList(stock, stockLines(snapshot), null);
     },
   };
 }
