@@ -74,3 +74,75 @@ describe("RealtimeClock", () => {
     expect(clock.ticksDue(false)).toBe(80);
   });
 });
+
+describe("interpolation alpha", () => {
+  it("starts at zero", () => {
+    const { clock } = fakeClock({ hz: 20 });
+    expect(clock.alpha).toBe(0);
+  });
+
+  it("reports how far into the current tick the wall clock has travelled", () => {
+    const { clock, advance } = fakeClock({ hz: 20 }); // 50ms per tick
+    advance(25);
+    expect(clock.ticksDue(false)).toBe(0);
+    expect(clock.alpha).toBeCloseTo(0.5, 10);
+  });
+
+  it("carries only the remainder past a tick boundary", () => {
+    const { clock, advance } = fakeClock({ hz: 20 });
+    advance(75); // one tick due, 25ms carried
+    expect(clock.ticksDue(false)).toBe(1);
+    expect(clock.alpha).toBeCloseTo(0.5, 10);
+  });
+
+  it("never reaches one", () => {
+    const { clock, advance } = fakeClock({ hz: 20, maxCatchUp: 1000 });
+    for (const ms of [49.9, 50, 99.999, 1234.5]) {
+      advance(ms);
+      clock.ticksDue(false);
+      expect(clock.alpha).toBeLessThan(1);
+      expect(clock.alpha).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("advances at the clock's speed", () => {
+    const { clock, advance } = fakeClock({ hz: 20 });
+    clock.speed = 2;
+    advance(12.5); // 25ms of simulated time at 2x
+    clock.ticksDue(false);
+    expect(clock.alpha).toBeCloseTo(0.5, 10);
+  });
+
+  it("reads zero while paused, so actors rest on tiles", () => {
+    const { clock, advance } = fakeClock({ hz: 20 });
+    advance(25);
+    clock.ticksDue(false);
+    expect(clock.alpha).toBeCloseTo(0.5, 10);
+    clock.paused = true;
+    expect(clock.alpha).toBe(0);
+  });
+
+  it("does not resume mid-tick after a pause", () => {
+    const { clock, advance } = fakeClock({ hz: 20 });
+    advance(25);
+    clock.ticksDue(false);
+    clock.paused = true;
+    advance(10_000); // a lunch break
+    clock.ticksDue(false);
+    clock.paused = false;
+    expect(clock.alpha).toBe(0);
+  });
+
+  it("reads zero after a clamped catch-up", () => {
+    // The debt is forgiven rather than deferred, so there is no partial tick
+    // left over to slide a returning tab's actors out of.
+    const { clock, advance } = fakeClock({ hz: 20, maxCatchUp: 8 });
+    advance(5000);
+    expect(clock.ticksDue(false)).toBe(8);
+    expect(clock.alpha).toBe(0);
+  });
+
+  it("is zero on a DemandClock", () => {
+    expect(new DemandClock().alpha).toBe(0);
+  });
+});

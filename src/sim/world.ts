@@ -24,12 +24,16 @@ import type {
   Vec,
   WorldSnapshot,
 } from "./types";
+import type { WorldEvent } from "./events";
 
 export interface WorldOptions {
   seed: number;
   width?: number;
   height?: number;
 }
+
+/** Events retained between drains. Oldest are dropped past this. */
+const MAX_EVENTS = 64;
 
 const RETRY = Symbol("retry");
 type Outcome = CommandResult | typeof RETRY;
@@ -47,7 +51,8 @@ const MODULE_FOR: Partial<Record<Command["kind"], ModuleName>> = {
 
 const capitalise = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 
-const DIR: Record<Direction, Vec> = {
+/** Exported so a renderer can interpolate a move without restating the mapping. */
+export const DIR: Record<Direction, Vec> = {
   north: { x: 0, y: -1 },
   south: { x: 0, y: 1 },
   east: { x: 1, y: 0 },
@@ -72,6 +77,18 @@ export class World {
   };
   time = 0;
   private nextId = 1;
+
+  /**
+   * Events since the last drain, oldest first, capped.
+   *
+   * Capped because nothing guarantees a consumer: a headless test drains never,
+   * and an uncapped list would grow for as long as the test ran. Dropping the
+   * oldest is right for the only consumer there is — a renderer showing what
+   * just happened does not want a backlog from ten seconds ago.
+   */
+  private events: WorldEvent[] = [];
+  /** Machines already reported as starved, so the event fires on the edge only. */
+  private starved = new Set<number>();
 
   constructor(opts: WorldOptions) {
     this.seed = opts.seed;
@@ -142,7 +159,25 @@ export class World {
       return;
     }
     const cost = command.kind === "wait" ? command.ticks : TICK_COST[command.kind];
-    bot.action = { command, remaining: cost };
+    bot.action = { command, remaining: cost, total: cost };
+  }
+
+  /**
+   * Take every event since the last call, and clear them.
+   *
+   * The only reader. `snapshot()` deliberately does not carry events: a
+   * snapshot is a statement about what the world *is*, and two worlds that
+   * diverge only in what they recently failed at are still the same world.
+   */
+  drainEvents(): WorldEvent[] {
+    const out = this.events;
+    this.events = [];
+    return out;
+  }
+
+  private emit(event: WorldEvent): void {
+    if (this.events.length >= MAX_EVENTS) this.events.shift();
+    this.events.push(event);
   }
 
   /** Return and clear the bot's pending result, or null if none yet. */
@@ -171,12 +206,21 @@ export class World {
         modules: [...b.modules],
         busy: b.action !== null,
         blockedOn: b.blockedOn,
+        action: b.action
+          ? {
+              kind: b.action.command.kind,
+              dir: b.action.command.kind === "move" ? b.action.command.dir : null,
+              remaining: b.action.remaining,
+              total: b.action.total,
+            }
+          : null,
       })),
       machines: [...this.machines.values()].map((m) => ({
         id: m.id,
         kind: m.kind,
         pos: { ...m.pos },
         inventory: { ...m.inventory },
+        starved: this.starved.has(m.id),
       })),
       research: {
         unlocked: [...this.research.unlocked],
@@ -245,8 +289,19 @@ export class World {
 
   private doMove(bot: Bot, dir: Direction): Outcome {
     const target = add(bot.pos, DIR[dir]);
-    if (!this.inBounds(target) || this.machineAt(target)) return ok(false);
+    if (!this.inBounds(target) || this.machineAt(target)) {
+      // Milestone 3's findings 2 and 3: walking into the world's edge and
+      // walking into the Research Console are the same silent failure, and a
+      // naive `while (true)` loop does both forever without a single signal.
+      this.emit({ kind: "bump", botId: bot.id, pos: { ...bot.pos }, dir });
+      return ok(false);
+    }
     if (this.botAt(target)) {
+      // On the edge only: a bot can wait here for many ticks, and one event per
+      // tick of waiting is a stream, not a signal.
+      if (bot.blockedOn !== "bot") {
+        this.emit({ kind: "blocked", botId: bot.id, pos: { ...bot.pos }, on: "bot" });
+      }
       bot.blockedOn = "bot";
       return RETRY;
     }
@@ -256,8 +311,14 @@ export class World {
 
   private doHarvest(bot: Bot): Outcome {
     const tile = this.tileAt(bot.pos);
-    if (!tile?.crop || tile.crop.growth < WHEAT_GROWTH_TICKS) return ok(false);
-    if (total(bot.inventory) >= BOT_CAPACITY) return fail("inventory full");
+    if (!tile?.crop || tile.crop.growth < WHEAT_GROWTH_TICKS) {
+      this.emit({ kind: "refused", botId: bot.id, pos: { ...bot.pos }, command: "harvest" });
+      return ok(false);
+    }
+    if (total(bot.inventory) >= BOT_CAPACITY) {
+      this.emit({ kind: "full", botId: bot.id, pos: { ...bot.pos } });
+      return fail("inventory full");
+    }
     addItem(bot.inventory, tile.crop.item, 1);
     tile.crop = null;
     return ok(true);
@@ -265,8 +326,12 @@ export class World {
 
   private doPlant(bot: Bot, item: Item): Outcome {
     const tile = this.tileAt(bot.pos);
-    if (!tile || tile.terrain !== "soil" || tile.crop) return ok(false);
-    if ((bot.inventory[item] ?? 0) < 1) return ok(false);
+    const refuse = (): Outcome => {
+      this.emit({ kind: "refused", botId: bot.id, pos: { ...bot.pos }, command: "plant" });
+      return ok(false);
+    };
+    if (!tile || tile.terrain !== "soil" || tile.crop) return refuse();
+    if ((bot.inventory[item] ?? 0) < 1) return refuse();
     removeItem(bot.inventory, item, 1);
     tile.crop = { item, growth: 0 };
     return ok(true);
@@ -329,6 +394,9 @@ export class World {
   private doReceive(bot: Bot, channel?: string): Outcome {
     const idx = bot.inbox.findIndex((m) => channel === undefined || m.channel === channel);
     if (idx < 0) {
+      if (bot.blockedOn !== "radio") {
+        this.emit({ kind: "blocked", botId: bot.id, pos: { ...bot.pos }, on: "radio" });
+      }
       bot.blockedOn = "radio";
       return RETRY;
     }
@@ -385,15 +453,30 @@ export class World {
   private advanceResearch(): void {
     const r = this.research;
     const current = r.queue[0];
-    if (!current) return;
     const console = this.console();
-    if ((console.inventory.wheat ?? 0) < 1) return;
+    if (!current) {
+      this.starved.delete(console.id);
+      return;
+    }
+    if ((console.inventory.wheat ?? 0) < 1) {
+      // A research queued with nothing to eat is a machine starved for input.
+      // Before this event there was no signal at all: the player queued the
+      // planter, forgot to deliver, and watched a progress bar that never
+      // moved for a reason nothing on screen explained.
+      if (!this.starved.has(console.id)) {
+        this.emit({ kind: "starved", machineId: console.id, pos: { ...console.pos } });
+        this.starved.add(console.id);
+      }
+      return;
+    }
+    this.starved.delete(console.id);
     removeItem(console.inventory, "wheat", 1);
     r.progress++;
     if (r.progress < RESEARCH_COST[current]) return;
     r.queue.shift();
     r.progress = 0;
     r.unlocked.add(current);
+    this.emit({ kind: "research", name: current, pos: { ...console.pos } });
     this.grant(current);
   }
 

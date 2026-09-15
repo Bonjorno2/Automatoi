@@ -47,6 +47,11 @@ export type CommandResult =
 export interface Action {
   command: Command;
   remaining: number;
+  /**
+   * Ticks this action started with. The sim never reads it; a renderer needs it
+   * to know how far through a move a bot is, and `remaining` alone cannot say.
+   */
+  total: number;
 }
 
 export type BlockedOn = "bot" | "radio" | null;
@@ -86,6 +91,15 @@ export interface ResearchState {
   spareChassis: number;
 }
 
+/** What a bot is part-way through, for anything that has to draw it. */
+export interface ActionSnapshot {
+  kind: Command["kind"];
+  /** Only a move has one. */
+  dir: Direction | null;
+  remaining: number;
+  total: number;
+}
+
 export interface BotSnapshot {
   id: number;
   pos: Vec;
@@ -93,6 +107,7 @@ export interface BotSnapshot {
   modules: ModuleName[];
   busy: boolean;
   blockedOn: BlockedOn;
+  action: ActionSnapshot | null;
 }
 
 export interface MachineSnapshot {
@@ -100,6 +115,12 @@ export interface MachineSnapshot {
   kind: MachineKind;
   pos: Vec;
   inventory: Inventory;
+  /**
+   * Wants input it has not got. A state rather than an event, so whatever is
+   * drawing the world can show it for as long as it lasts without tracking
+   * edges of its own.
+   */
+  starved: boolean;
 }
 
 export interface ResearchSnapshot {
