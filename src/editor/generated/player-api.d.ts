@@ -4,7 +4,14 @@
 // --- sim vocabulary ---------------------------------------------------
 type Direction = "north" | "south" | "east" | "west";
 type Terrain = "grass" | "soil";
-type Item = "wheat";
+/**
+ * Everything that can sit in an inventory.
+ *
+ * Only some items are plantable and only some are produced by a recipe; both
+ * facts live in `config.ts` as tables keyed by this union, so adding a member
+ * makes the compiler ask the questions rather than leaving them to be noticed.
+ */
+type Item = "wheat" | "flour" | "bread";
 type ModuleName = "harvester" | "planter" | "scanner" | "radio";
 type MachineKind = "console" | "crate";
 type ResearchName = "planter" | "scanner" | "crate" | "chassis" | "radio";

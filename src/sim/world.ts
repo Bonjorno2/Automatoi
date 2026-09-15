@@ -2,6 +2,7 @@ import { createRng } from "./rng";
 import { addItem, removeItem, total } from "./inventory";
 import {
   BOT_CAPACITY,
+  CROP_GROWTH,
   FIELD_RADIUS,
   RESEARCH_COST,
   TICK_COST,
@@ -60,6 +61,9 @@ export const DIR: Record<Direction, Vec> = {
 };
 
 const add = (a: Vec, b: Vec): Vec => ({ x: a.x + b.x, y: a.y + b.y });
+
+/** Growth at which an item is harvestable. Infinite for anything not a crop. */
+const ripeAt = (item: Item): number => CROP_GROWTH[item] ?? Infinity;
 
 export class World {
   readonly seed: number;
@@ -242,7 +246,8 @@ export class World {
 
   private growCrops(): void {
     for (const tile of this.tiles) {
-      if (tile.crop && tile.crop.growth < WHEAT_GROWTH_TICKS) tile.crop.growth++;
+      if (!tile.crop) continue;
+      if (tile.crop.growth < ripeAt(tile.crop.item)) tile.crop.growth++;
     }
   }
 
@@ -311,7 +316,7 @@ export class World {
 
   private doHarvest(bot: Bot): Outcome {
     const tile = this.tileAt(bot.pos);
-    if (!tile?.crop || tile.crop.growth < WHEAT_GROWTH_TICKS) {
+    if (!tile?.crop || tile.crop.growth < ripeAt(tile.crop.item)) {
       this.emit({ kind: "refused", botId: bot.id, pos: { ...bot.pos }, command: "harvest" });
       return ok(false);
     }
@@ -330,6 +335,9 @@ export class World {
       this.emit({ kind: "refused", botId: bot.id, pos: { ...bot.pos }, command: "plant" });
       return ok(false);
     };
+    // Flour is not a seed. An item with no entry in CROP_GROWTH cannot be
+    // planted, and refusing here is what keeps that rule in one place.
+    if (CROP_GROWTH[item] === undefined) return refuse();
     if (!tile || tile.terrain !== "soil" || tile.crop) return refuse();
     if ((bot.inventory[item] ?? 0) < 1) return refuse();
     removeItem(bot.inventory, item, 1);

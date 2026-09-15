@@ -26,7 +26,9 @@
 
 6. **Tests may change, but only where a deliberate rule change makes them wrong, and every such edit is named below before it is made.** Milestone 4's blanket freeze was right for a milestone that was additive by nature. This one changes rules on purpose. The rule that replaces the freeze: an edit is legitimate when the test asserts an economic fact this milestone deliberately changed, and illegitimate when it asserts a mechanic that still holds. If a test about *mechanics* needs editing, the change is wrong.
 
-   **The only planned edit:** `tests/sim/research.test.ts`'s `fundedWorld` helper stocks the console with wheat, and two of its cases complete `chassis`, which this milestone reprices in bread. The helper will stock every item instead. That test's subject is queue order and grant behaviour, not economics, and making it indifferent to price is what keeps it about its subject.
+   **Planned edit 1:** `tests/sim/research.test.ts`'s `fundedWorld` helper stocks the console with wheat, and two of its cases complete `chassis`, which this milestone reprices in bread. The helper will stock every item instead. That test's subject is queue order and grant behaviour, not economics, and making it indifferent to price is what keeps it about its subject.
+
+   **Planned edit 2, added during Task 2 rather than foreseen:** `tests/render/palette.test.ts` asserts that *every* `Item` has a young and a ripe colour. That was true when the only item was a crop and is now false — flour has no ripeness. The palette's crop table is renamed `CROP` and made partial, and a separate `ITEM_COLOR` covers all three items. The test is edited to assert the thing that is now true: every item has a colour, and every *plantable* item has a ripeness.
 
 ---
 
@@ -39,6 +41,10 @@
 ### Fact 2: a new `Item` member does not silently break the renderer (verify in Task 5)
 
 Milestone 4's Decision 7 claims flour and bread are table rows the compiler will demand. Task 5 tests that claim the cheap way: add the union members *first*, run `npm run typecheck`, and confirm the compiler names every table that needs a row. **If it compiles clean, Decision 7 failed** and something is keyed by a loose string or a default rather than by the union.
+
+> **Result, measured in Task 2 (earlier than planned, because adding the union members is the whole experiment).** One error, naming `palette.ITEM` and both missing rows. Decision 7 held.
+>
+> It also found the decision's limit, which is worth more than the confirmation. The compiler said nothing about `doPlant(item: Item)` accepting flour, because plantability was a bare `WHEAT_GROWTH_TICKS` constant rather than a table — there was nothing keyed by `Item` for it to demand a row of. **A table is only load-bearing where one already exists.** Task 2 turns that constant into `CROP_GROWTH`, which is the table that would have caught it.
 
 ---
 

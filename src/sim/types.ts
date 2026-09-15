@@ -1,6 +1,13 @@
 export type Direction = "north" | "south" | "east" | "west";
 export type Terrain = "grass" | "soil";
-export type Item = "wheat";
+/**
+ * Everything that can sit in an inventory.
+ *
+ * Only some items are plantable and only some are produced by a recipe; both
+ * facts live in `config.ts` as tables keyed by this union, so adding a member
+ * makes the compiler ask the questions rather than leaving them to be noticed.
+ */
+export type Item = "wheat" | "flour" | "bread";
 export type ModuleName = "harvester" | "planter" | "scanner" | "radio";
 export type MachineKind = "console" | "crate";
 export type ResearchName = "planter" | "scanner" | "crate" | "chassis" | "radio";
