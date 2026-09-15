@@ -6,6 +6,7 @@ import { createStage } from "../render/stage.ts";
 import { createTileLayer } from "../render/tiles.ts";
 import { createActorLayer } from "../render/actors.ts";
 import { createMarkLayer, heldMarks } from "../render/marks.ts";
+import { createInspector } from "../render/inspector.ts";
 
 /**
  * Cross-origin isolation is checked before anything else. Without it
@@ -26,7 +27,8 @@ const session = new GameSession();
 session.start();
 
 const grid = { width: session.world.width, height: session.world.height };
-const stage = await createStage(document.querySelector<HTMLElement>("#world")!, grid);
+const worldEl = document.querySelector<HTMLElement>("#world")!;
+const stage = await createStage(worldEl, grid);
 
 /**
  * A fresh snapshot every frame, which Fact 2 of the milestone 4 plan measured
@@ -39,6 +41,7 @@ let snap = session.world.snapshot();
 const tiles = createTileLayer(stage.staticLayer, stage.tickLayer, stage.geometry, snap);
 const actors = createActorLayer(stage.frameLayer, stage.geometry);
 const marks = createMarkLayer(stage.frameLayer);
+const inspector = createInspector(worldEl, stage.frameLayer, grid, stage.geometry);
 stage.onResize = (g) => {
   tiles.resize(g, snap);
   actors.resize(g);
@@ -99,9 +102,17 @@ window.addEventListener("keydown", (e) => {
   }
 });
 
-// Task 6 gives this a way to change. Until then the one bot is always selected,
-// which is the honest answer when there is only one.
-const selectedBotId: number | null = session.botId;
+/**
+ * Clicking a bot selects it; clicking empty space clears the selection.
+ *
+ * With one bot this changes almost nothing visible, which is exactly why it is
+ * built now rather than in milestone 5 — where a second bot, a per-bot script
+ * pane and a module-install target would all want it at once.
+ */
+let selectedBotId: number | null = session.botId;
+inspector.onSelect = (botId) => {
+  selectedBotId = botId;
+};
 
 // The world readout dies in Task 7, once the HUD carries what it says.
 let drawnTick = -1;
@@ -117,6 +128,7 @@ function draw(): void {
   // Drained every frame, not every tick: an undrained event is a lost signal,
   // and marks decay against the wall clock rather than the sim's.
   marks.update(session.world.drainEvents(), heldMarks(snap), performance.now(), stage.geometry);
+  inspector.update(snap, stage.geometry);
 
   const v = session.view();
   readoutEl.textContent =
