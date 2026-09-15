@@ -95,9 +95,11 @@ live in namespaces named after the hardware.
 // Always present
 bot.move("east");          // blocks until arrived
 bot.pos();                 // { x, y }
-bot.inventory();           // [{ item, count }]
+bot.inventory();           // { wheat: 3 }, so `bot.inventory().wheat ?? 0`
 bot.wait(ticks);
 bot.log("hello");          // this bot's console panel
+bot.deposit("north", "wheat", 5);  // machine verbs, see below
+bot.withdraw("north", "wheat", 5);
 
 // Present only when the module is installed
 bot.harvester.harvest();
@@ -117,11 +119,25 @@ colony.time();
 Rules:
 
 - Namespaces are the tutorial. Autocomplete on `bot.` lists what you have.
+- **Verbs that operate a machine live on `bot` directly, not in a namespace.**
+  A crate is a machine standing on a tile, not a chassis module, so there is no
+  hardware to name a namespace after. `deposit` and `withdraw` are therefore
+  always visible and fail with the sim's message when no crate is adjacent.
+  Namespaces name chassis hardware; machine verbs name what the bot can reach.
 - Blocking is per-bot. One bot waiting on `receive()` never stalls another.
 - Nothing is hidden from the type file. The full `.d.ts` always ships.
   Uninstalled modules are typed `undefined`, so `bot.scanner?.scan(2)` is
   honest TypeScript. Calling an uninstalled module is a runtime error:
   "Bot 3 has no Scanner module."
+
+  **These two promises pull against each other, and the tie is broken toward
+  the error message.** A namespace that were genuinely `undefined` at runtime
+  could not produce that message — the call would die in the engine without
+  ever reaching the sim, which is the only part that knows which module is
+  missing. So module namespaces are optional in the *type* and always present
+  at *runtime*. `bot.scanner?.scan(2)` typechecks and reports properly; the
+  price is that `if (bot.scanner)` is true whatever the chassis carries, so
+  runtime feature detection reads `modules` from a bot view instead.
 
 ## Architecture
 

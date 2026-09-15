@@ -10,14 +10,36 @@ export interface BotApi {
   move(dir: Direction): boolean;
   wait(ticks: number): void;
   pos(): { x: number; y: number };
+  /** Keyed by item, so a beginner writes `bot.inventory().wheat ?? 0`. */
   inventory(): Record<string, number | undefined>;
   log(message: string): void;
+  /**
+   * Machine verbs. Unlike the module namespaces below these live on `bot`
+   * directly: a crate is a machine standing on a tile, not a chassis module,
+   * so there is no hardware namespace to hang them on. They fail with the
+   * sim's own message when no crate is adjacent.
+   */
   deposit(dir: Direction, item: Item, count: number): number;
   withdraw(dir: Direction, item: Item, count: number): number;
-  harvester: { harvest(): boolean };
-  planter: { plant(item: Item): boolean };
-  scanner: { scan(radius: number): ScanTile[] };
-  radio: { send(channel: string, payload: unknown): number; receive(channel?: string): Message };
+
+  /**
+   * Module namespaces, declared optional so the shipped `.d.ts` is honest
+   * about what a given chassis may not have and `bot.scanner?.scan(2)`
+   * typechecks.
+   *
+   * Deliberate asymmetry: they are optional in the *type* but always present
+   * at *runtime*. Making them genuinely undefined would replace the design's
+   * promised "Bot 1 has no Scanner module" with a bare TypeError from the
+   * engine, because the call would never reach the sim that knows how to say
+   * that. The cost is that `if (bot.scanner)` is true whatever the chassis
+   * carries; read `modules` from a bot view for real feature detection.
+   *
+   * Do not "fix" this by dropping the `?` or by returning undefined.
+   */
+  harvester?: { harvest(): boolean };
+  planter?: { plant(item: Item): boolean };
+  scanner?: { scan(radius: number): ScanTile[] };
+  radio?: { send(channel: string, payload: unknown): number; receive(channel?: string): Message };
 }
 
 export interface ColonyApi {
