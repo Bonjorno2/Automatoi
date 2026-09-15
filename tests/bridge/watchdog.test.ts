@@ -1,6 +1,25 @@
 import { World } from "../../src/sim/world";
 import { ScriptColony } from "../../src/bridge/host.ts";
 
+describe("watchdog staleness", () => {
+  it("does not inherit idle time from before the run started", async () => {
+    // A player leaves the editor open, then presses Run. The channel has been
+    // idle far longer than hungMs, but the new script has done nothing wrong.
+    //
+    // hungMs has to clear worker startup — a few hundred ms of module loading —
+    // or this measures that instead of the staleness it is aiming at.
+    const colony = new ScriptColony({ world: new World({ seed: 1 }), hungMs: 1000 });
+    try {
+      colony.attach(1);
+      await new Promise((r) => setTimeout(r, 1200));
+      const outcome = await colony.run(1, `bot.move("east");`);
+      expect(outcome.status).toBe("done");
+    } finally {
+      await colony.stopAll();
+    }
+  }, 20_000);
+});
+
 describe("watchdog", () => {
   it("terminates a script that never calls into the world", async () => {
     const c = new ScriptColony({ world: new World({ seed: 1 }), hungMs: 100 });

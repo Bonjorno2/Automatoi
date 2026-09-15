@@ -7,13 +7,19 @@
   },
   "type": "module",
   "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "generate:dts": "node scripts/generate-dts.ts"
   },
   "devDependencies": {
     "@types/node": "^22.20.2",
+    "monaco-editor": "^0.52.2",
     "typescript": "^5.6.0",
+    "vite": "^5.4.21",
     "vitest": "^2.1.0"
   }
 }

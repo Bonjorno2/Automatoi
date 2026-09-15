@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Automatori</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        height: 100vh;
+        display: grid;
+        grid-template-columns: 1fr 22rem;
+        font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+        background: #1e1e1e;
+        color: #d4d4d4;
+      }
+      #editor { height: 100vh; min-width: 0; }
+      #side {
+        border-left: 1px solid #333;
+        padding: 0.75rem;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+      }
+      #status { margin: 0; color: #888; font-size: 11px; }
+      #controls { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+      button, select {
+        font: inherit;
+        background: #333;
+        color: #d4d4d4;
+        border: 1px solid #555;
+        border-radius: 3px;
+        padding: 0.25rem 0.6rem;
+        cursor: pointer;
+      }
+      button:hover, select:hover { background: #3f3f3f; }
+      button:disabled { opacity: 0.45; cursor: default; }
+      #readout { margin: 0; color: #9cdcfe; white-space: pre; font-size: 12px; }
+      #log {
+        margin: 0;
+        padding: 0.5rem;
+        list-style: none;
+        background: #181818;
+        border: 1px solid #333;
+        border-radius: 3px;
+        flex: 1;
+        min-height: 8rem;
+        overflow-y: auto;
+        font-size: 12px;
+      }
+      #log li { padding: 0.1rem 0; border-bottom: 1px solid #222; }
+      .hint { color: #666; font-size: 11px; margin: 0; }
+      #book {
+        position: fixed;
+        top: 2.5rem;
+        left: 2rem;
+        width: 26rem;
+        max-height: 80vh;
+        overflow-y: auto;
+        padding: 0.9rem;
+        background: #252526;
+        border: 1px solid #454545;
+        border-radius: 6px;
+        box-shadow: 0 10px 30px rgb(0 0 0 / 0.5);
+        z-index: 10;
+      }
+      #book h2 { margin: 0 0 0.2rem; font-size: 13px; }
+      .chip {
+        display: block;
+        width: 100%;
+        text-align: left;
+        margin-top: 0.6rem;
+        padding: 0.5rem 0.6rem;
+        background: #2d2d2d;
+      }
+      .chip strong { color: #dcdcaa; }
+      .chip-need {
+        color: #c586c0;
+        font-style: normal;
+        font-size: 11px;
+        margin-left: 0.5rem;
+      }
+      .chip-blurb { display: block; color: #999; font-size: 11px; margin: 0.15rem 0 0.35rem; }
+      .chip pre {
+        margin: 0;
+        padding: 0.4rem 0.5rem;
+        background: #1e1e1e;
+        border-radius: 3px;
+        color: #9cdcfe;
+        font-size: 11px;
+        white-space: pre-wrap;
+        overflow-x: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="editor"></div>
+    <aside id="side">
+      <div id="controls">
+        <button id="run" type="button">Run</button>
+        <button id="stop" type="button">Stop</button>
+        <button id="pause" type="button">Pause</button>
+        <button id="step" type="button">Step</button>
+        <button id="book-toggle" type="button">Book</button>
+        <select id="speed" aria-label="Speed">
+          <option value="0.5">0.5x</option>
+          <option value="1" selected>1x</option>
+          <option value="2">2x</option>
+          <option value="4">4x</option>
+        </select>
+      </div>
+      <p class="hint">Ctrl+S restarts this bot's script.</p>
+      <p id="readout"></p>
+      <ul id="log"></ul>
+      <p id="status">starting…</p>
+    </aside>
+    <script type="module" src="/src/editor/main.ts"></script>
+  </body>
+</html>

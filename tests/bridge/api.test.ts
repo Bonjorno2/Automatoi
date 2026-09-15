@@ -73,7 +73,7 @@ describe("blocking calls", () => {
     const { bot } = makeApi(sab, 1);
     const worker = await answerWith(sab, false, "Bot 1 has no Scanner module");
     try {
-      expect(() => bot.scanner.scan(1)).toThrow("Bot 1 has no Scanner module");
+      expect(() => bot.scanner!.scan(1)).toThrow("Bot 1 has no Scanner module");
     } finally {
       await worker.terminate();
     }
@@ -87,11 +87,11 @@ describe("blocking calls", () => {
       return { sab, api: makeApi(sab, 1) };
     };
     try {
-      const a = await mk(); a.api.bot.harvester.harvest();
+      const a = await mk(); a.api.bot.harvester!.harvest();
       expect(lastRequest(a.sab)).toEqual({ kind: "command", command: { kind: "harvest" } });
-      const b = await mk(); b.api.bot.planter.plant("wheat");
+      const b = await mk(); b.api.bot.planter!.plant("wheat");
       expect(lastRequest(b.sab)).toEqual({ kind: "command", command: { kind: "plant", item: "wheat" } });
-      const c = await mk(); c.api.bot.radio.send("haul", { x: 1 });
+      const c = await mk(); c.api.bot.radio!.send("haul", { x: 1 });
       expect(lastRequest(c.sab)).toEqual({ kind: "command", command: { kind: "send", channel: "haul", payload: { x: 1 } } });
       const d = await mk(); d.api.colony.research.queue("planter");
       expect(lastRequest(d.sab)).toEqual({ kind: "research", name: "planter" });
@@ -99,4 +99,15 @@ describe("blocking calls", () => {
       await Promise.all(workers.map((w) => w.terminate()));
     }
   }, 10_000);
+});
+
+describe("module namespaces", () => {
+  it("exist at runtime even when the chassis lacks the module", () => {
+    // MIRROR carries the harvester alone, as a freshly landed bot does.
+    const { bot } = makeApi(channel(), 1);
+    expect(bot.harvester).toBeDefined();
+    expect(bot.scanner).toBeDefined();
+    expect(bot.planter).toBeDefined();
+    expect(bot.radio).toBeDefined();
+  });
 });
