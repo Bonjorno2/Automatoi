@@ -4,6 +4,7 @@ import { createSnippetBook } from "./snippet-book.ts";
 import { GameSession } from "./session.ts";
 import { createStage } from "../render/stage.ts";
 import { createTileLayer } from "../render/tiles.ts";
+import { createActorLayer } from "../render/actors.ts";
 
 /**
  * Cross-origin isolation is checked before anything else. Without it
@@ -35,7 +36,11 @@ const stage = await createStage(document.querySelector<HTMLElement>("#world")!, 
  */
 let snap = session.world.snapshot();
 const tiles = createTileLayer(stage.staticLayer, stage.tickLayer, stage.geometry, snap);
-stage.onResize = (g) => tiles.resize(g, snap);
+const actors = createActorLayer(stage.frameLayer, stage.geometry);
+stage.onResize = (g) => {
+  tiles.resize(g, snap);
+  actors.resize(g);
+};
 
 const panel = createConsolePanel(document.querySelector("#log")!, statusEl);
 const readoutEl = document.querySelector("#readout")!;
@@ -92,6 +97,10 @@ window.addEventListener("keydown", (e) => {
   }
 });
 
+// Task 6 gives this a way to change. Until then the one bot is always selected,
+// which is the honest answer when there is only one.
+const selectedBotId: number | null = session.botId;
+
 // The world readout dies in Task 7, once the HUD carries what it says.
 let drawnTick = -1;
 function draw(): void {
@@ -101,6 +110,8 @@ function draw(): void {
     tiles.update(snap);
     drawnTick = snap.time;
   }
+  // Actors every frame: the whole point of alpha is that they move between ticks.
+  actors.update(snap, session.clock.alpha, selectedBotId);
 
   const v = session.view();
   readoutEl.textContent =

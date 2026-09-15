@@ -47,7 +47,8 @@ const MODULE_FOR: Partial<Record<Command["kind"], ModuleName>> = {
 
 const capitalise = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 
-const DIR: Record<Direction, Vec> = {
+/** Exported so a renderer can interpolate a move without restating the mapping. */
+export const DIR: Record<Direction, Vec> = {
   north: { x: 0, y: -1 },
   south: { x: 0, y: 1 },
   east: { x: 1, y: 0 },
@@ -142,7 +143,7 @@ export class World {
       return;
     }
     const cost = command.kind === "wait" ? command.ticks : TICK_COST[command.kind];
-    bot.action = { command, remaining: cost };
+    bot.action = { command, remaining: cost, total: cost };
   }
 
   /** Return and clear the bot's pending result, or null if none yet. */
@@ -171,6 +172,14 @@ export class World {
         modules: [...b.modules],
         busy: b.action !== null,
         blockedOn: b.blockedOn,
+        action: b.action
+          ? {
+              kind: b.action.command.kind,
+              dir: b.action.command.kind === "move" ? b.action.command.dir : null,
+              remaining: b.action.remaining,
+              total: b.action.total,
+            }
+          : null,
       })),
       machines: [...this.machines.values()].map((m) => ({
         id: m.id,

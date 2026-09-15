@@ -234,7 +234,9 @@ get alpha(): number {
 }
 ```
 
-Two properties matter and both are behavioural, not cosmetic. **Paused reads zero**, so a paused world does not hold actors frozen mid-slide at whatever fraction they happened to reach — a paused bot sits on a tile, which is what a player expects to inspect. **Catch-up reads zero**, because `ticksDue` already zeroes the accumulator when it clamps; a tab returning from the background lands actors on tiles rather than sliding them from stale positions.
+Two properties matter and both are behavioural, not cosmetic. **Paused reads zero**, which removes *sub-tick* drift and nothing else — a bot one tick into a two-tick move is genuinely half way between two tiles and a paused renderer should say so; what zero buys is that pausing at a given tick always draws the same frame instead of whatever fraction the wall clock happened to reach. **Catch-up reads zero**, because `ticksDue` already zeroes the accumulator when it clamps; a tab returning from the background resumes from tick boundaries rather than sliding from stale positions.
+
+> Corrected during Task 4. The first draft of this section claimed a paused bot "sits on a tile". It does not, and should not: freezing tick-level progress too would snap a mid-move bot backward onto a tile it has already left. Task 4's manual check is corrected to match.
 
 `DemandClock` gets `alpha = 0` too, so the `Clock` interface stays one type and headless callers are unaffected.
 
@@ -315,7 +317,9 @@ The registry's real job is milestone 5. A mill and an oven are two more rows —
 
 Wire the per-frame update into the existing `draw()` loop in `main.ts`: actors every frame with `clock.alpha`, crops only when `snapshot.time` changed.
 
-**Manual check:** run the two-line opening script. The bot slides east smoothly at 1x, still smoothly at 0.5x, and lands on tile centres at 4x. Pause mid-move: it sits on a tile, not between two. Step once: it advances by exactly one tick's worth.
+**Manual check:** run the two-line opening script. The bot slides east smoothly at 1x, still smoothly at 0.5x, and lands on tile centres at 4x. Pause mid-move: it holds still at the tick-level fraction it reached — half way through a two-tick move means half way between two tiles, and it must not jitter. Step once: it advances by exactly one tick's worth.
+
+**Verification note.** The preview pane this project is developed against delivers **zero** `requestAnimationFrame` callbacks despite reporting `visibilityState: "visible"`, so the draw loop is suspended except when a screenshot forces a paint. Smoothness therefore cannot be sampled frame by frame here. What can be checked, and is: drive the sim into a deterministic mid-move state (issue a move, tick once, pause), force a paint, and read the sprite's position back out of the scene graph. Half way through a two-tick move must read exactly `pos + 0.5`.
 
 **Step 4: Commit**
 

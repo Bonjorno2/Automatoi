@@ -1,5 +1,5 @@
 import { WHEAT_GROWTH_TICKS } from "../sim/config.ts";
-import type { Item, Terrain } from "../sim/types.ts";
+import type { Item, MachineKind, ModuleName, Terrain } from "../sim/types.ts";
 
 /**
  * Every colour in the game, and the arithmetic that picks between them.
@@ -39,11 +39,30 @@ export const ITEM: Record<Item, { young: number; ripe: number }> = {
   wheat: { young: 0x74a047, ripe: 0xc8b84a },
 };
 
+/**
+ * One row per machine kind. Milestone 5's mill and oven are two more rows.
+ */
+export const MACHINE: Record<MachineKind, { body: number; trim: number }> = {
+  console: { body: 0x3f6f8f, trim: 0x86c5e0 },
+  crate: { body: 0x8a6a3a, trim: 0xc9a76a },
+};
+
+/** One row per chassis module, for the pips along a bot's edge. */
+export const MODULE: Record<ModuleName, number> = {
+  harvester: 0xd8703c,
+  planter: 0x6fbf5a,
+  scanner: 0x5aa8d8,
+  radio: 0xc07fd0,
+};
+
 export const COLOR = {
   bot: 0xe0c060,
   botIdle: 0x8d8055,
   botOutline: 0x141409,
-  grid: 0x000000,
+  /** The arc a machine draws while it is working on something. */
+  progress: 0x9be06a,
+  /** The same arc when the machine wants input it does not have. */
+  starved: 0xd8a03c,
   selection: 0xf0f0e0,
 } as const;
 

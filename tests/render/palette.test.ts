@@ -1,4 +1,12 @@
-import { CROP_HEIGHT, ITEM, TERRAIN, cropColor, cropStage } from "../../src/render/palette";
+import {
+  CROP_HEIGHT,
+  ITEM,
+  MACHINE,
+  MODULE,
+  TERRAIN,
+  cropColor,
+  cropStage,
+} from "../../src/render/palette";
 import { WHEAT_GROWTH_TICKS } from "../../src/sim/config";
 
 const isColor = (n: number): boolean => Number.isInteger(n) && n >= 0 && n <= 0xffffff;
@@ -22,6 +30,22 @@ describe("the palette covers every sim union", () => {
       expect(isColor(pair.ripe), name).toBe(true);
     }
     expect(Object.keys(ITEM)).toContain("wheat");
+  });
+
+  it("gives every machine kind a body and a trim", () => {
+    for (const [name, pair] of Object.entries(MACHINE)) {
+      expect(isColor(pair.body), name).toBe(true);
+      expect(isColor(pair.trim), name).toBe(true);
+    }
+    expect(Object.keys(MACHINE).sort()).toEqual(["console", "crate"]);
+  });
+
+  it("gives every module a pip colour, and no two the same", () => {
+    const values = Object.values(MODULE);
+    for (const [name, c] of Object.entries(MODULE)) expect(isColor(c), name).toBe(true);
+    // Pips are read by colour alone; two modules sharing one is unreadable.
+    expect(new Set(values).size).toBe(values.length);
+    expect(Object.keys(MODULE).sort()).toEqual(["harvester", "planter", "radio", "scanner"]);
   });
 });
 

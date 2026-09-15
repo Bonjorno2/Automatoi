@@ -77,10 +77,12 @@ export class RealtimeClock implements Clock {
    * Two of its readings matter more than the arithmetic, and both are
    * behavioural rather than cosmetic:
    *
-   * - **Paused reads zero**, so a paused world does not hold a bot frozen
-   *   two-thirds of the way between two tiles. A player pauses in order to look
-   *   at something, and a thing standing between two tiles is harder to read
-   *   than a thing standing on one.
+   * - **Paused reads zero**, which removes *sub-tick* drift and nothing else.
+   *   A bot one tick into a two-tick move is genuinely half way between two
+   *   tiles, and a paused renderer should say so rather than snapping it onto
+   *   a tile it is not on. What zero buys is that the frozen frame is stable
+   *   and reproducible: pausing at the same tick always draws the same picture,
+   *   instead of whatever fraction of a tick the wall clock happened to reach.
    * - **Catch-up reads zero**, because `ticksDue` zeroes the accumulator when
    *   it clamps. A tab returning from the background lands its actors on tiles
    *   rather than sliding them out of positions that are minutes stale.

@@ -69,6 +69,11 @@ type CommandResult = {
 interface Action {
     command: Command;
     remaining: number;
+    /**
+     * Ticks this action started with. The sim never reads it; a renderer needs it
+     * to know how far through a move a bot is, and `remaining` alone cannot say.
+     */
+    total: number;
 }
 type BlockedOn = "bot" | "radio" | null;
 interface Bot {
@@ -102,6 +107,14 @@ interface ResearchState {
     spareModules: Partial<Record<ModuleName, number>>;
     spareChassis: number;
 }
+/** What a bot is part-way through, for anything that has to draw it. */
+interface ActionSnapshot {
+    kind: Command["kind"];
+    /** Only a move has one. */
+    dir: Direction | null;
+    remaining: number;
+    total: number;
+}
 interface BotSnapshot {
     id: number;
     pos: Vec;
@@ -109,6 +122,7 @@ interface BotSnapshot {
     modules: ModuleName[];
     busy: boolean;
     blockedOn: BlockedOn;
+    action: ActionSnapshot | null;
 }
 interface MachineSnapshot {
     id: number;
