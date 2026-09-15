@@ -2,6 +2,7 @@ import { clearRuntimeErrors, markRuntimeError, mountEditor } from "./editor.ts";
 import { createConsolePanel } from "./console-panel.ts";
 import { createSnippetBook } from "./snippet-book.ts";
 import { GameSession } from "./session.ts";
+import { createStage, drawPlaceholder } from "../render/stage.ts";
 
 /**
  * Cross-origin isolation is checked before anything else. Without it
@@ -20,6 +21,11 @@ if (!isolated) {
 const editor = mountEditor(document.querySelector<HTMLElement>("#editor")!);
 const session = new GameSession();
 session.start();
+
+const grid = { width: session.world.width, height: session.world.height };
+const stage = await createStage(document.querySelector<HTMLElement>("#world")!, grid);
+drawPlaceholder(stage, grid);
+stage.onResize = () => drawPlaceholder(stage, grid);
 
 const panel = createConsolePanel(document.querySelector("#log")!, statusEl);
 const readoutEl = document.querySelector("#readout")!;
@@ -87,5 +93,9 @@ function draw(): void {
   requestAnimationFrame(draw);
 }
 requestAnimationFrame(draw);
+
+// Every manual check in the milestone 4 plan is performed from the page's own
+// console, and several of them measure things no UI exposes.
+if (import.meta.env.DEV) Object.assign(globalThis, { session, stage });
 
 statusEl.textContent = "ready";

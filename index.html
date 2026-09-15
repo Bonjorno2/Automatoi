@@ -10,11 +10,21 @@
         margin: 0;
         height: 100vh;
         display: grid;
-        grid-template-columns: 1fr 22rem;
+        grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) 22rem;
         font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
         background: #1e1e1e;
         color: #d4d4d4;
       }
+      /* Pixi sizes its canvas to this element, so it must not be sized by it. */
+      #world {
+        position: relative;
+        height: 100vh;
+        min-width: 0;
+        overflow: hidden;
+        background: #12140f;
+        border-right: 1px solid #333;
+      }
+      #world canvas { display: block; }
       #editor { height: 100vh; min-width: 0; }
       #side {
         border-left: 1px solid #333;
@@ -96,6 +106,7 @@
     </style>
   </head>
   <body>
+    <div id="world"></div>
     <div id="editor"></div>
     <aside id="side">
       <div id="controls">
