@@ -11,5 +11,10 @@
     "skipLibCheck": true,
     "types": ["node", "vitest/globals"]
   },
-  "include": ["src", "tests"]
+  "include": ["src", "tests", "scripts"],
+  /* The generated file declares `bot` and `colony` as ambient globals for
+     Monaco. Compiling it as part of this project would leak those globals into
+     every source file and mask real errors, so it is checked in isolation by
+     tests/editor/dts.test.ts instead. */
+  "exclude": ["src/editor/generated"]
 }

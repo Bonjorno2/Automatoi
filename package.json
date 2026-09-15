@@ -12,7 +12,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "generate:dts": "node scripts/generate-dts.ts"
   },
   "devDependencies": {
     "@types/node": "^22.20.2",
