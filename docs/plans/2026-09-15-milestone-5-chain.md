@@ -370,12 +370,23 @@ than for a script is exactly what this findings section cannot tell you.
 ## Done criteria for milestone 5
 
 - `npm test` and `npm run typecheck` clean, with **one** named test edit and no others.
+  > Met with a correction: there were **three** edits, not one, and the two
+  > unforeseen ones are named in Decision 6 above. Verified afterwards by
+  > diffing every removed line in `tests/` against the milestone 4 merge: the
+  > only other removals are two import lines that gained a symbol.
 - Wheat becomes flour becomes bread, in machines the player placed by clicking.
 - A machine that cannot work says which way it is stuck: starved or jammed.
 - Research stock is visible, and clicking it installs or places.
 - The second bot exists, is priced in bread, and has its own script.
 - A headless test drives the whole chain to the second bot inside a pinned budget.
 - Milestone 3's finding 1 and milestone 4's findings 1, 5 and 6 are closed.
+  > **Three of four.** Milestone 3's finding 1 (the research reward cannot be
+  > collected) is closed. Milestone 4's finding 1 (completion is invisible) and
+  > finding 5 (the crate's fill level is invented) are closed. **Finding 6 is
+  > not**: nothing distinguishes two bots on the canvas except the selection
+  > ring, and deploying a second bot made that worse rather than better. It is
+  > re-recorded as milestone 5's finding 6 and belongs to whichever milestone
+  > builds the design's "Overseer" fleet view.
 
 ## What milestone 6 will build on this
 
