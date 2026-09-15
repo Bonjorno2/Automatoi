@@ -168,6 +168,21 @@ export interface ScriptOutcome {
   logs: string[];
 }
 
+/**
+ * Callbacks for one run.
+ *
+ * Both exist because the returned promise is the wrong shape for a game. A
+ * player's script is `while (true) { ... }` and never settles, so anything that
+ * waits for the promise to see output would see nothing, ever. The UI watches
+ * these instead and treats the promise as optional.
+ */
+export interface RunOptions {
+  /** Fired as each `bot.log` arrives, not batched until the script ends. */
+  onLog?: (message: string) => void;
+  /** Fired once, the first time a verdict is reached. */
+  onSettle?: (outcome: ScriptOutcome) => void;
+}
+
 export interface ScriptColonyOptions extends ColonyOptions {
   /**
    * How to start a worker. Required here so this file stays free of any
@@ -211,13 +226,22 @@ export class ScriptColony extends Colony {
     this.spawnWorker = opts.spawnWorker;
   }
 
-  async run(botId: number, source: string): Promise<ScriptOutcome> {
+  /**
+   * Start a script. The returned promise resolves when the script settles —
+   * which for a `while (true)` script is never, and that is fine. Callers that
+   * need to see progress pass `onLog` and `onSettle` and ignore the promise.
+   */
+  async run(botId: number, source: string, opts: RunOptions = {}): Promise<ScriptOutcome> {
     const sab = this.channels.get(botId)?.sab ?? this.attach(botId);
     const logs: string[] = [];
     let settled: Settled | undefined;
     // First call wins: a worker's dying "error" message must not overwrite a
     // verdict the watchdog or stop() already delivered.
-    const settle = (o: Settled): void => { settled ??= o; };
+    const settle = (o: Settled): void => {
+      if (settled) return;
+      settled = o;
+      opts.onSettle?.({ botId, logs, ...o });
+    };
     this.settlers.set(botId, settle);
 
     const worker = this.spawnWorker({ sab, botId, source });
@@ -225,7 +249,11 @@ export class ScriptColony extends Colony {
 
     worker.onMessage((raw) => {
       const m = raw as { kind: string; message?: string };
-      if (m.kind === "log") logs.push(String(m.message));
+      if (m.kind === "log") {
+        const message = String(m.message);
+        logs.push(message);
+        opts.onLog?.(message);
+      }
       else if (m.kind === "done") settle({ status: "done" });
       else if (m.kind === "error") settle({ status: "error", message: m.message });
     });
