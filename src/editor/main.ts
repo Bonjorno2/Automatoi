@@ -8,6 +8,8 @@ import { createActorLayer } from "../render/actors.ts";
 import { createMarkLayer, heldMarks } from "../render/marks.ts";
 import { createInspector } from "../render/inspector.ts";
 import { createHud, createSidePanel } from "../render/hud.ts";
+import type { BuildOption } from "./build-menu.ts";
+import type { ModuleName } from "../sim/types.ts";
 
 /**
  * Cross-origin isolation is checked before anything else. Without it
@@ -43,12 +45,70 @@ const actors = createActorLayer(stage.frameLayer, stage.geometry);
 const marks = createMarkLayer(stage.frameLayer);
 const inspector = createInspector(worldEl, stage.frameLayer, grid, stage.geometry);
 const hud = createHud(stage.app.stage, { width: stage.app.screen.width, height: stage.app.screen.height });
-const sidePanel = createSidePanel(document.querySelector<HTMLElement>("#panel")!);
-stage.onResize = (g) => {
-  tiles.resize(g, snap);
-  actors.resize(g);
-  hud.resize(g, { width: worldEl.clientWidth, height: worldEl.clientHeight });
+const sidePanel = createSidePanel(document.querySelector<HTMLElement>("#panel")!, pick);
+
+/**
+ * Picking a build option arms the canvas; it does not place anything.
+ *
+ * The design calls this a hands phase, and a hands phase means choosing
+ * *where*. A menu that dropped a mill the instant you clicked its name would
+ * be a coordinate form with nicer buttons.
+ *
+ * Every placement carries its own `reason` and `apply`, both of which call
+ * straight into the sim. The ghost's colour and the click's outcome are
+ * therefore the same predicate asked twice, not two rules that must agree.
+ */
+function pick(option: BuildOption): void {
+  const world = session.world;
+
+  if (option.kind === "module") {
+    // A module goes on a bot, not on a tile, so there is nothing to aim at.
+    fitModule(option.module);
+    return;
+  }
+
+  inspector.placing =
+    option.kind === "machine"
+      ? {
+          label: `Place ${option.label}`,
+          reason: (tile) => world.canPlace(option.machine, tile),
+          apply: (tile) => void world.placeMachine(option.machine, tile),
+        }
+      : {
+          label: "Deploy bot",
+          reason: (tile) => world.canDeploy(tile),
+          // Selecting the new bot is the point: milestone 5 gives it its own
+          // script, and the player almost certainly wants to write that next.
+          apply: (tile) => {
+            selectedBotId = world.deployBot(tile).id;
+          },
+        };
+  sidePanel.setActive(option.label);
+}
+
+inspector.onPlace = (tile) => {
+  const placing = inspector.placing;
+  // Clicking an illegal tile does nothing at all. It does not cancel, because
+  // misclicking the edge of a crate should not cost the player their placement.
+  if (!placing || placing.reason(tile) !== null) return;
+  placing.apply(tile);
+  // Stays armed, so a player can lay down three crates without re-picking. The
+  // option running out is self-limiting: `reason` starts refusing every tile
+  // and the ghost goes red everywhere.
 };
+
+function fitModule(module: ModuleName): void {
+  if (selectedBotId === null) {
+    statusEl.textContent = "select a bot first, then fit the module";
+    return;
+  }
+  try {
+    session.world.installModule(selectedBotId, module);
+    statusEl.textContent = `fitted ${module} to bot ${selectedBotId}`;
+  } catch (e) {
+    statusEl.textContent = e instanceof Error ? e.message : String(e);
+  }
+}
 
 const panel = createConsolePanel(document.querySelector("#log")!, statusEl);
 const pauseButton = document.querySelector<HTMLButtonElement>("#pause")!;
@@ -180,6 +240,7 @@ function draw(): void {
       : undefined,
   });
   sidePanel.update(snap, selectedBotId);
+  sidePanel.setActive(inspector.placing?.label.replace(/^Place /, "") ?? null);
 }
 
 function loop(): void {

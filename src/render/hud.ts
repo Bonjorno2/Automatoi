@@ -2,6 +2,7 @@ import { Container, Graphics, Text } from "pixi.js";
 import { BOT_CAPACITY, RESEARCH_COST } from "../sim/config.ts";
 import { total } from "../sim/inventory.ts";
 import type { BotSnapshot, WorldSnapshot } from "../sim/types.ts";
+import { buildOptions, type BuildOption } from "../editor/build-menu.ts";
 import type { Geometry, Size } from "./geometry.ts";
 
 /**
@@ -122,12 +123,15 @@ function fillList(root: HTMLElement, lines: string[], empty: string | null): voi
   }
 }
 
-/** The DOM half: the side panel's cargo bar, research queue and stock. */
+/** The DOM half: the side panel's cargo bar, research queue and build menu. */
 export interface SidePanel {
   update(snapshot: WorldSnapshot, selectedBotId: number | null): void;
+  /** Highlight the option currently being placed, or none. */
+  setActive(label: string | null): void;
 }
 
-export function createSidePanel(root: HTMLElement): SidePanel {
+export function createSidePanel(root: HTMLElement, onPick: (option: BuildOption) => void): SidePanel {
+  let activeLabel: string | null = null;
   root.innerHTML = `
     <div class="cargo">
       <span class="cargo-label">cargo</span>
@@ -135,13 +139,13 @@ export function createSidePanel(root: HTMLElement): SidePanel {
       <span class="cargo-count"></span>
     </div>
     <ul class="research"></ul>
-    <ul class="stock"></ul>`;
+    <ul class="build"></ul>`;
 
   const fill = root.querySelector<HTMLElement>(".bar i")!;
   const count = root.querySelector<HTMLElement>(".cargo-count")!;
   const label = root.querySelector<HTMLElement>(".cargo-label")!;
   const research = root.querySelector<HTMLElement>(".research")!;
-  const stock = root.querySelector<HTMLElement>(".stock")!;
+  const build = root.querySelector<HTMLElement>(".build")!;
 
   return {
     update(snapshot, selectedBotId) {
@@ -153,9 +157,43 @@ export function createSidePanel(root: HTMLElement): SidePanel {
       count.textContent = `${carried}/${BOT_CAPACITY}`;
 
       fillList(research, researchLines(snapshot), "nothing researching");
-      // No placeholder: an empty stock list is the normal state and a line
-      // saying so would compete with the one thing here worth noticing.
-      fillList(stock, stockLines(snapshot), null);
+      renderBuild(build, snapshot, onPick, activeLabel);
+    },
+    setActive(label) {
+      activeLabel = label;
     },
   };
+}
+
+/**
+ * The build menu: stock that can be clicked rather than stock that can only be
+ * read. This is the line milestone 3's finding 1 has been waiting three
+ * milestones for.
+ *
+ * Rebuilt only when its contents change. A player is aiming at these buttons
+ * while a ghost follows their cursor, and replacing the DOM under a pointer
+ * every frame would cancel their own click.
+ */
+function renderBuild(
+  root: HTMLElement,
+  snapshot: WorldSnapshot,
+  onPick: (option: BuildOption) => void,
+  activeLabel: string | null,
+): void {
+  const options = buildOptions(snapshot);
+  const key = `${options.map((o) => o.label).join("|")}::${activeLabel ?? ""}`;
+  if (root.dataset.key === key) return;
+  root.dataset.key = key;
+
+  root.textContent = "";
+  for (const option of options) {
+    const li = document.createElement("li");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = option.label;
+    button.className = option.label === activeLabel ? "build-active" : "";
+    button.addEventListener("click", () => onPick(option));
+    li.append(button);
+    root.append(li);
+  }
 }

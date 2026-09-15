@@ -76,16 +76,24 @@
       .bar i.full { background: #d8703c; }
       .research { margin: 0; padding: 0; list-style: none; font-size: 11px; color: #9be06a; }
       .research .muted { color: #666; }
-      /* Stock is a thing you own and have not used, so it reads as an offer
-         rather than as status. In Task 7 these lines become clickable. */
-      .stock { margin: 0; padding: 0; list-style: none; font-size: 11px; }
-      .stock li {
+      /* The build menu: things you own and have not placed. Styled as offers
+         rather than as status, because clicking one is the whole point. */
+      .build { margin: 0; padding: 0; list-style: none; }
+      .build li { margin-top: 0.2rem; }
+      .build button {
+        display: block;
+        width: 100%;
+        text-align: left;
+        font-size: 11px;
         color: #f0d878;
-        padding: 0.15rem 0.35rem;
-        margin-top: 0.15rem;
         background: #2a2618;
         border: 1px solid #4a4326;
-        border-radius: 3px;
+      }
+      .build button:hover { background: #3a3420; }
+      .build button.build-active {
+        background: #4a4326;
+        border-color: #f0d878;
+        color: #fff;
       }
       #log {
         margin: 0;

@@ -81,13 +81,32 @@ function describeBotActivity(bot: WorldSnapshot["bots"][number]): string {
   return `${bot.action.kind}${dir} — ${bot.action.remaining} of ${bot.action.total} ticks left`;
 }
 
+/**
+ * What the player is currently holding over the map.
+ *
+ * `reason` is the sim's own refusal string for a tile, or null if the placement
+ * would succeed — so the ghost's colour and the sim's answer are the same rule,
+ * asked once. A renderer that worked out for itself where a mill fits would
+ * drift from `canPlace` the first time a rule changed.
+ */
+export interface Placement {
+  label: string;
+  reason(tile: Vec): string | null;
+  /** Called only for a tile whose `reason` is null. */
+  apply(tile: Vec): void;
+}
+
 export interface Inspector {
   /** The tile under the cursor, or null. */
   readonly hovered: Vec | null;
-  /** Redraw the hover outline and tooltip against the current snapshot. */
+  /** Non-null while the player is placing something. */
+  placing: Placement | null;
+  /** Redraw the hover outline, ghost and tooltip against the current snapshot. */
   update(snapshot: WorldSnapshot, geometry: Geometry): void;
   /** Called with the bot id clicked, or null when empty space was clicked. */
   onSelect: (botId: number | null) => void;
+  /** Called with the tile clicked while placing. Placement stays active. */
+  onPlace: (tile: Vec) => void;
 }
 
 export function createInspector(
@@ -113,6 +132,7 @@ export function createInspector(
     get hovered() {
       return hovered;
     },
+    placing: null,
     update(snapshot, geometry) {
       geo = geometry;
       latest = snapshot;
@@ -123,12 +143,27 @@ export function createInspector(
       }
 
       const p = toPixel(geo, hovered);
-      // An outline rather than a fill: a fill hides the crop being asked about.
-      outline
-        .rect(p.x + 0.5, p.y + 0.5, geo.size - 1, geo.size - 1)
-        .stroke({ width: 1, color: COLOR.selection, alpha: 0.7 });
+      const placing = inspector.placing;
+      const reason = placing ? placing.reason(hovered) : null;
 
-      const lines = describeTile(snapshot, hovered);
+      if (placing) {
+        // A filled ghost, because the question is "what goes here", not "what
+        // is here". Green means the click will work; red carries the reason.
+        const colour = reason === null ? 0x6fbf5a : 0xe0584a;
+        outline
+          .rect(p.x + 1, p.y + 1, geo.size - 2, geo.size - 2)
+          .fill({ color: colour, alpha: 0.35 })
+          .stroke({ width: 2, color: colour });
+      } else {
+        // An outline rather than a fill: a fill hides the crop being asked about.
+        outline
+          .rect(p.x + 0.5, p.y + 0.5, geo.size - 1, geo.size - 1)
+          .stroke({ width: 1, color: COLOR.selection, alpha: 0.7 });
+      }
+
+      const lines = placing
+        ? [placing.label, `  ${reason ?? "click to place"}`]
+        : describeTile(snapshot, hovered);
       tooltip.hidden = lines.length === 0;
       tooltip.textContent = lines.join("\n");
       // Offset from the tile, clamped inside the pane so an edge tile's
@@ -139,6 +174,7 @@ export function createInspector(
       tooltip.style.top = `${Math.max(4, top)}px`;
     },
     onSelect: () => {},
+    onPlace: () => {},
   };
 
   const tileFromEvent = (e: PointerEvent): Vec | null => {
@@ -154,6 +190,17 @@ export function createInspector(
   });
   host.addEventListener("pointerdown", (e) => {
     const tile = tileFromEvent(e);
+
+    if (inspector.placing) {
+      // Right-click cancels, which is the convention every game in this genre
+      // shares. Left-click on an illegal tile does nothing rather than
+      // cancelling: misclicking the edge of a crate should not cost the player
+      // their whole placement.
+      if (e.button === 2) inspector.placing = null;
+      else if (tile) inspector.onPlace(tile);
+      return;
+    }
+
     const bot =
       tile && latest
         ? latest.bots.find((b) => b.pos.x === tile.x && b.pos.y === tile.y)
@@ -161,6 +208,15 @@ export function createInspector(
     // Clicking empty space clears the selection, which is why this is not
     // guarded on having found a bot.
     inspector.onSelect(bot?.id ?? null);
+  });
+
+  // Without this a right-click to cancel also opens the browser's menu.
+  host.addEventListener("contextmenu", (e) => {
+    if (inspector.placing) e.preventDefault();
+  });
+
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && inspector.placing) inspector.placing = null;
   });
 
   return inspector;

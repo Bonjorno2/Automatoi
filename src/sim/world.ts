@@ -501,25 +501,45 @@ export class World {
 
   // ---- player (UI) actions, gated by research stock ----
 
+  /**
+   * Why a machine cannot go here, or null if it can.
+   *
+   * Exists so that the UI showing a red ghost and the sim refusing the click
+   * are the *same* rule rather than two copies of it. A build menu that decided
+   * for itself where a mill fits would drift from this the first time a rule
+   * changed, and the player would find out by clicking.
+   */
+  canPlace(kind: MachineKind, pos: Vec): string | null {
+    if (kind === "console") return "cannot place a second console";
+    if (!this.research.unlocked.has(kind)) return `${kind} not researched`;
+    return this.tileBlocked(pos);
+  }
+
+  /** The same question for a spare chassis. */
+  canDeploy(pos: Vec): string | null {
+    if (this.research.spareChassis < 1) return "no spare chassis";
+    return this.tileBlocked(pos);
+  }
+
   /** Place a new bot using a spare chassis from research. */
   deployBot(pos: Vec): Bot {
-    if (this.research.spareChassis < 1) throw new Error("no spare chassis");
-    this.assertFree(pos);
+    const why = this.canDeploy(pos);
+    if (why) throw new Error(why);
     this.research.spareChassis--;
     return this.addBot(pos, ["harvester"]);
   }
 
   /** Place a machine the player has researched. */
   placeMachine(kind: MachineKind, pos: Vec): Machine {
-    if (kind === "console") throw new Error("cannot place a second console");
-    if (!this.research.unlocked.has(kind)) throw new Error(`${kind} not researched`);
-    this.assertFree(pos);
+    const why = this.canPlace(kind, pos);
+    if (why) throw new Error(why);
     return this.addMachine(kind, pos);
   }
 
-  private assertFree(pos: Vec): void {
-    if (!this.inBounds(pos)) throw new Error("out of bounds");
-    if (this.botAt(pos) || this.machineAt(pos)) throw new Error("tile occupied");
+  private tileBlocked(pos: Vec): string | null {
+    if (!this.inBounds(pos)) return "out of bounds";
+    if (this.botAt(pos) || this.machineAt(pos)) return "tile occupied";
+    return null;
   }
 
   // ---- research ----
