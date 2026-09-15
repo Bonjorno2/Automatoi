@@ -1,8 +1,9 @@
+import { mountEditor } from "./editor.ts";
+
 /**
- * Milestone 3, Task 1: prove the page is cross-origin isolated before any
- * bridge code is loaded into it. Without isolation `SharedArrayBuffer` is not
- * constructible, and the failure surfaces as a confusing error deep inside
- * worker startup rather than here, where it is legible.
+ * Cross-origin isolation is checked before anything else. Without it
+ * `SharedArrayBuffer` is not constructible and the bridge fails deep inside
+ * worker startup, where the error says nothing useful.
  */
 const isolated = crossOriginIsolated && typeof SharedArrayBuffer === "function";
 
@@ -13,3 +14,6 @@ if (statusEl) {
     ? "cross-origin isolated"
     : "NOT ISOLATED — SharedArrayBuffer unavailable";
 }
+
+const container = document.querySelector<HTMLElement>("#editor");
+if (container) mountEditor(container);
