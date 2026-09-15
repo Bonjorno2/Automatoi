@@ -486,6 +486,104 @@ git commit -m "docs: milestone 3 playtest findings"
 
 ---
 
+## Findings from Task 11
+
+Recorded, not fixed. Played on 2026-09-15 against seed 1.
+
+**A caveat on who played it.** These are mechanical findings from driving the
+real page and the real bridge. The two numbers the design's testing strategy
+actually scores a build on — a beginner's time to first loop unaided, and a
+veteran's boredom threshold — need human playtesters and are not measured here.
+
+### 1. The research reward cannot be collected — the biggest gap
+
+`placeMachine`, `installModule` and the spare chassis all exist on `World` and
+are reachable from **neither a script nor the UI**. Research therefore
+completes into a void: the planter is unlocked, a spare module is stocked, and
+nothing can fit it to a bot.
+
+Three things follow. The research loop cannot be closed. Four of the ten
+snippet chips — planter, scanner, radio, crate — can never run. And the second
+bot, which is the thing the veteran playtest is supposed to measure the time
+to, is unreachable.
+
+The design is clear that installing is a hands phase, so this is UI work, not
+API work. It fell between milestones: milestone 1 built the capability,
+milestone 2 the script bridge, milestone 3 the editor, and no milestone owns
+the hands phase. **Milestone 4 should own it, and it is arguably more urgent
+than the renderer.**
+
+### 2. Walking into a wall is silent
+
+The naive loop the design predicts — `while (true) { harvest(); move("east") }`
+— does not fail. Over 600 ticks the bot harvested 4 wheat, reached the east
+wall at x=31, and then spun there forever: no error, no log, no completion, and
+`status: running` throughout. The only signal is `move()`'s return value, which
+a beginner has no reason to read yet.
+
+The design's "Failure is content" table has no row for this. It covers two bots
+wanting one tile, jammed conveyors and blocked `receive()`, but not a bot
+walking into terrain. A renderer would show a bot standing still, which is weak
+— standing still is also what a working bot does between commands.
+
+### 3. The Research Console blocks the path home
+
+The console is a machine at the centre of the field, and machines block
+movement. The obvious way home — `while (bot.pos().x < 17) bot.move("east")`
+along y=16 — drives straight into it and spins forever. This cost real time
+while writing the reference script, and a beginner would hit it the first time
+they tried to deliver wheat.
+
+It makes world calls the whole time, so the watchdog correctly never fires.
+Combined with finding 2, there are now two distinct silent-spin failures.
+
+### 4. A script cannot observe research
+
+`colony.research.queue(name)` is write-only. There is no way to ask whether a
+research has finished, how far along it is, or what is unlocked, so the
+reference script has to `bot.wait(15)` on a guess. Since the console consumes
+one wheat per tick, the number is derivable on paper — but a player should not
+have to.
+
+### 5. Balance: first research is ~9 seconds of simulated time
+
+A competent beginner reaches the planter at **tick 172** on seed 1 — 157 to
+sweep, fill and deliver ten wheat, 15 waiting for the console. At 20 Hz that is
+about nine seconds. Pinned at under 400 ticks in
+`tests/bridge/first-research.test.ts`.
+
+The farming is not the bottleneck; the player's thinking time is. That is
+probably right for a *first* research, but it means the hauling pain the design
+wants cycle 2 to be born from lasts only a few seconds.
+
+Wild wheat is also finite: harvesting clears the tile and nothing regrows
+without a planter. One east-west pass yields 4 wheat, and the whole 13x13 soil
+field holds roughly 118. The planter is not a convenience, it is what makes the
+farm renewable at all.
+
+### 6. Background tabs stop the world
+
+`requestAnimationFrame` delivers **zero** frames while the pane is hidden, so
+`GameSession`'s loop suspends entirely. While a script runs the world still
+advances, because `drive()` is on a timer instead — but Chrome throttles that
+to roughly 1 Hz, and each pass is capped at `maxCatchUp`, so background pace
+collapses to about 8 ticks per second rather than 20.
+
+That is defensible for a game nobody is watching. It is worth deciding
+deliberately rather than inheriting: the catch-up cap currently doubles as the
+background speed limit.
+
+### 7. The `?` on module namespaces is unenforced in the editor
+
+Monaco runs with `strictNullChecks` off, so `bot.scanner.scan(2)` is accepted
+where the generated `.d.ts` says it may be undefined. Turning strict on would
+squiggle the design's own two-line opening script, which is a worse first
+impression than an unenforced `?`. So the optional marker documents the gating
+rather than enforcing it, and the runtime error remains the real teacher —
+which is the tie-break Task 3 already chose, now visible in practice.
+
+---
+
 ## Done criteria for milestone 3
 
 - `npm test` passes, with milestone 1 and 2's 117 tests **unedited**.
