@@ -1,4 +1,5 @@
 import { clearRuntimeErrors, markRuntimeError, mountEditor } from "./editor.ts";
+import { ScriptStore } from "./script-store.ts";
 import { createConsolePanel } from "./console-panel.ts";
 import { createSnippetBook } from "./snippet-book.ts";
 import { GameSession } from "./session.ts";
@@ -114,24 +115,36 @@ const panel = createConsolePanel(document.querySelector("#log")!, statusEl);
 const pauseButton = document.querySelector<HTMLButtonElement>("#pause")!;
 
 /**
- * Which run the panel belongs to. Restarting settles the outgoing script as
- * "stopped", and that callback lands *after* the new one has started — without
- * this the player would press Ctrl+S and watch their fresh run be labelled
- * stopped by its predecessor.
+ * Which run each bot's panel belongs to. Restarting settles the outgoing script
+ * as "stopped", and that callback lands *after* the new one has started —
+ * without this the player would press Ctrl+S and watch their fresh run be
+ * labelled stopped by its predecessor.
+ *
+ * Per bot since milestone 5. A single counter meant starting bot 2's script
+ * silently discarded every log bot 1 produced afterwards, because bot 1's
+ * callbacks no longer matched the current generation.
  */
-let generation = 0;
+const generations = new Map<number, number>();
 
 async function run(): Promise<void> {
-  const mine = ++generation;
-  panel.start();
+  const botId = selectedBotId;
+  if (botId === null) {
+    statusEl.textContent = "select a bot to run its script";
+    return;
+  }
+  const mine = (generations.get(botId) ?? 0) + 1;
+  generations.set(botId, mine);
+  scripts.stash(editor.getValue());
+  panel.start(botId);
   clearRuntimeErrors(editor);
 
-  await session.runScript(editor.getValue(), {
-    onLog: (m) => { if (mine === generation) panel.log(m); },
+  await session.runScript(botId, editor.getValue(), {
+    onLog: (m) => { if (mine === generations.get(botId)) panel.log(botId, m); },
     onSettle: (outcome) => {
-      if (mine !== generation) return;
-      panel.settle(outcome);
-      if (outcome.status === "error") {
+      if (mine !== generations.get(botId)) return;
+      panel.settle(botId, outcome);
+      // Only mark the editor if it is still showing the bot that failed.
+      if (outcome.status === "error" && selectedBotId === botId) {
         markRuntimeError(editor, outcome.line, outcome.message ?? "error");
       }
     },
@@ -144,7 +157,9 @@ document.body.append(book.element);
 document.querySelector("#book-toggle")!.addEventListener("click", () => book.toggle());
 
 document.querySelector("#run")!.addEventListener("click", () => void run());
-document.querySelector("#stop")!.addEventListener("click", () => void session.stopScript());
+document.querySelector("#stop")!.addEventListener("click", () => {
+  if (selectedBotId !== null) void session.stopScript(selectedBotId);
+});
 document.querySelector("#step")!.addEventListener("click", () => session.clock.step());
 
 pauseButton.addEventListener("click", () => {
@@ -171,9 +186,23 @@ window.addEventListener("keydown", (e) => {
  * built now rather than in milestone 5 — where a second bot, a per-bot script
  * pane and a module-install target would all want it at once.
  */
-let selectedBotId: number | null = session.botId;
+/**
+ * Milestone 2 already gave every bot its own worker and its own channel, so
+ * running one has never disturbed another. The page was simply hardcoded to
+ * bot 1 until there was a second bot to address.
+ */
+const scripts = new ScriptStore(session.firstBotId);
+let selectedBotId: number | null = session.firstBotId;
+
 inspector.onSelect = (botId) => {
+  if (botId === selectedBotId) return;
+  const next = scripts.select(botId, editor.getValue());
   selectedBotId = botId;
+  if (next !== null) {
+    editor.setValue(next);
+    clearRuntimeErrors(editor);
+    panel.focus(botId!);
+  }
 };
 
 /**
@@ -255,9 +284,12 @@ if (import.meta.env.DEV) {
   Object.assign(globalThis, {
     session,
     stage,
+    editor,
+    scripts,
     frame,
     perf: () => ({ pass: mean(passMs), draw: mean(drawMs), frame: mean(frameMs) }),
   });
 }
 
+panel.focus(session.firstBotId);
 statusEl.textContent = "ready";
