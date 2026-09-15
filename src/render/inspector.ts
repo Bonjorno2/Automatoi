@@ -1,8 +1,19 @@
 import { Container, Graphics } from "pixi.js";
-import { WHEAT_GROWTH_TICKS } from "../sim/config.ts";
-import type { Vec, WorldSnapshot } from "../sim/types.ts";
+import { CROP_GROWTH, WHEAT_GROWTH_TICKS } from "../sim/config.ts";
+import type { MachineKind, Vec, WorldSnapshot } from "../sim/types.ts";
 import { toPixel, toTile, type Geometry, type Size } from "./geometry.ts";
 import { COLOR } from "./palette.ts";
+
+/**
+ * What a machine is called, to a player. Per Decision 7 of the milestone 4
+ * plan: the ternary this replaced silently called a mill a Storage Crate.
+ */
+const MACHINE_LABEL: Record<MachineKind, string> = {
+  console: "Research Console",
+  crate: "Storage Crate",
+  mill: "Mill",
+  oven: "Oven",
+};
 
 /**
  * What is on a tile, in display order: most specific first.
@@ -31,14 +42,23 @@ export function describeTile(snapshot: WorldSnapshot, tile: Vec): string[] {
 
   const machine = snapshot.machines.find((m) => m.pos.x === tile.x && m.pos.y === tile.y);
   if (machine) {
-    lines.push(machine.kind === "console" ? "Research Console" : "Storage Crate");
+    lines.push(MACHINE_LABEL[machine.kind]);
     lines.push(`  holding ${describeInventory(machine.inventory)}`);
-    if (machine.starved) lines.push("  starved — nothing to consume");
+    if (machine.progress > 0) lines.push(`  working — ${Math.round(machine.progress * 100)}%`);
+    // Jammed first: a machine that is both is stuck in the way feeding it will
+    // not fix, and naming the fixable one first would send the player to the
+    // wrong problem.
+    if (machine.jammed) lines.push("  jammed — no room for the output");
+    else if (machine.starved) lines.push("  starved — nothing to consume");
   }
 
   const t = snapshot.tiles[tile.y * snapshot.width + tile.x];
   if (t?.crop) {
-    const pct = Math.min(100, Math.round((t.crop.growth / WHEAT_GROWTH_TICKS) * 100));
+    // Per crop, not per wheat. The same class of mistake as the machine-label
+    // ternary above: correct today because there is one crop, and silently
+    // wrong the moment there are two.
+    const ripe = CROP_GROWTH[t.crop.item] ?? WHEAT_GROWTH_TICKS;
+    const pct = Math.min(100, Math.round((t.crop.growth / ripe) * 100));
     lines.push(pct >= 100 ? `${t.crop.item} — ready` : `${t.crop.item} — ${pct}% grown`);
   }
   if (t) lines.push(t.terrain);

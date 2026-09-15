@@ -1,6 +1,6 @@
 import { describeTile } from "../../src/render/inspector";
 import { World } from "../../src/sim/world";
-import { WHEAT_GROWTH_TICKS } from "../../src/sim/config";
+import { MACHINE_CAPACITY, WHEAT_GROWTH_TICKS } from "../../src/sim/config";
 import { ticks } from "../sim/helpers";
 
 /** A tile of plain grass, well outside the field. */
@@ -104,5 +104,38 @@ describe("describeTile", () => {
     bot.modules.add("planter");
     bot.modules.add("scanner");
     expect(describeTile(w.snapshot(), bot.pos)[0]).toBe("Bot 1 — harvester, planter, scanner");
+  });
+});
+
+describe("describeTile on the new machines", () => {
+  function milled(): World {
+    const w = new World({ seed: 1 });
+    w.research.unlocked.add("mill");
+    w.placeMachine("mill", { x: 18, y: 16 });
+    return w;
+  }
+
+  it("calls a mill a Mill", () => {
+    // The ternary this replaced called everything that was not a console a
+    // Storage Crate, which would have labelled the mill and the oven wrongly
+    // without failing anything.
+    expect(describeTile(milled().snapshot(), { x: 18, y: 16 })[0]).toBe("Mill");
+  });
+
+  it("reports how far through a conversion it is", () => {
+    const w = milled();
+    w.machineAt({ x: 18, y: 16 })!.inventory = { wheat: 3 };
+    ticks(w, 11);
+    const lines = describeTile(w.snapshot(), { x: 18, y: 16 });
+    expect(lines.some((l) => /working — \d+%/.test(l))).toBe(true);
+  });
+
+  it("says jammed rather than starved when it is both", () => {
+    const w = milled();
+    w.machineAt({ x: 18, y: 16 })!.inventory = { wheat: 3, flour: MACHINE_CAPACITY };
+    ticks(w, 3);
+    const lines = describeTile(w.snapshot(), { x: 18, y: 16 });
+    expect(lines).toContain("  jammed — no room for the output");
+    expect(lines).not.toContain("  starved — nothing to consume");
   });
 });

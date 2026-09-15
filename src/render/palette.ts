@@ -79,6 +79,8 @@ export const COLOR = {
   progress: 0x9be06a,
   /** The same arc when the machine wants input it does not have. */
   starved: 0xd8a03c,
+  /** And when it has output it cannot put down. Starved's opposite, and read as its pair. */
+  jammed: 0xe0584a,
   selection: 0xf0f0e0,
 } as const;
 
