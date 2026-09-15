@@ -129,6 +129,12 @@ interface MachineSnapshot {
     kind: MachineKind;
     pos: Vec;
     inventory: Inventory;
+    /**
+     * Wants input it has not got. A state rather than an event, so whatever is
+     * drawing the world can show it for as long as it lasts without tracking
+     * edges of its own.
+     */
+    starved: boolean;
 }
 interface ResearchSnapshot {
     unlocked: ResearchName[];

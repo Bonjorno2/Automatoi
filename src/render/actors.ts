@@ -162,8 +162,10 @@ export function createActorLayer(frameLayer: Container, geometry: Geometry): Act
       if (sprite.ring.label !== ringKey) {
         sprite.ring.clear();
         if (selected === bot.id) {
+          // Inside the tile, for the same reason the starved ring is: a ring
+          // that crosses a tile edge gets read as belonging to the neighbour.
           sprite.ring
-            .circle(0, 0, geo.size * 0.52)
+            .circle(0, 0, geo.size * 0.46)
             .stroke({ width: Math.max(1, geo.size * 0.07), color: COLOR.selection });
         }
         sprite.ring.label = ringKey;

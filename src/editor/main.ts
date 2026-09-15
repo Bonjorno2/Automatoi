@@ -5,6 +5,7 @@ import { GameSession } from "./session.ts";
 import { createStage } from "../render/stage.ts";
 import { createTileLayer } from "../render/tiles.ts";
 import { createActorLayer } from "../render/actors.ts";
+import { createMarkLayer, heldMarks } from "../render/marks.ts";
 
 /**
  * Cross-origin isolation is checked before anything else. Without it
@@ -37,6 +38,7 @@ const stage = await createStage(document.querySelector<HTMLElement>("#world")!, 
 let snap = session.world.snapshot();
 const tiles = createTileLayer(stage.staticLayer, stage.tickLayer, stage.geometry, snap);
 const actors = createActorLayer(stage.frameLayer, stage.geometry);
+const marks = createMarkLayer(stage.frameLayer);
 stage.onResize = (g) => {
   tiles.resize(g, snap);
   actors.resize(g);
@@ -112,6 +114,9 @@ function draw(): void {
   }
   // Actors every frame: the whole point of alpha is that they move between ticks.
   actors.update(snap, session.clock.alpha, selectedBotId);
+  // Drained every frame, not every tick: an undrained event is a lost signal,
+  // and marks decay against the wall clock rather than the sim's.
+  marks.update(session.world.drainEvents(), heldMarks(snap), performance.now(), stage.geometry);
 
   const v = session.view();
   readoutEl.textContent =
