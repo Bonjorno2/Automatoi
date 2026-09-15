@@ -22,11 +22,15 @@
 
 4. **Machines have capacity, and a full machine jams.** This is not decoration: it gives the design's "conveyor jammed, crate full" failure row something to be true about, it gives milestone 4's finding 5 a real number to replace its invented `CRATE_DISPLAY_FULL`, and it is the first time in this game that a player can build something that stops working for a reason that is their own layout's fault.
 
+   > **Corrected in Task 3, by a test rather than by thinking.** This decision originally said capacity was a machine's *total* item count. Under that rule a jam is **mathematically unreachable**: every recipe in this game is net-negative in item count — three wheat become one flour, two flour become one bread — so a machine finishing a conversion always holds fewer items than when it started and can never run out of room for its own output. The decision's entire justification was unjustifiable as written. Capacity is therefore **per item type**: consuming wheat does not make room for flour, so a mill nobody collects from backs up while its input keeps arriving, which is the Factorio experience this decision was reaching for in the first place.
+
 5. **No power, no fuel, no multi-input recipes.** Each is a whole system and none is needed to prove the chain. A recipe is one input stack, one output stack, a duration.
 
 6. **Tests may change, but only where a deliberate rule change makes them wrong, and every such edit is named below before it is made.** Milestone 4's blanket freeze was right for a milestone that was additive by nature. This one changes rules on purpose. The rule that replaces the freeze: an edit is legitimate when the test asserts an economic fact this milestone deliberately changed, and illegitimate when it asserts a mechanic that still holds. If a test about *mechanics* needs editing, the change is wrong.
 
    **Planned edit 1:** `tests/sim/research.test.ts`'s `fundedWorld` helper stocks the console with wheat, and two of its cases complete `chassis`, which this milestone reprices in bread. The helper will stock every item instead. That test's subject is queue order and grant behaviour, not economics, and making it indifferent to price is what keeps it about its subject.
+
+   **Edit 3, during Task 3:** `tests/render/palette.test.ts` asserts the machine table's keys are exactly `["console", "crate"]`, which this milestone makes four. Worth noting as a pattern rather than just a fix — these `Object.keys(...).sort()` assertions break every time a union grows and catch nothing the `Record` type does not already catch at compile time. They are kept only because they check the *values* are usable colours, which a type cannot.
 
    **Planned edit 2, added during Task 2 rather than foreseen:** `tests/render/palette.test.ts` asserts that *every* `Item` has a young and a ripe colour. That was true when the only item was a crop and is now false — flour has no ripeness. The palette's crop table is renamed `CROP` and made partial, and a separate `ITEM_COLOR` covers all three items. The test is edited to assert the thing that is now true: every item has a colour, and every *plantable* item has a ripeness.
 

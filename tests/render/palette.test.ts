@@ -55,7 +55,7 @@ describe("the palette covers every sim union", () => {
       expect(isColor(pair.body), name).toBe(true);
       expect(isColor(pair.trim), name).toBe(true);
     }
-    expect(Object.keys(MACHINE).sort()).toEqual(["console", "crate"]);
+    expect(Object.keys(MACHINE).sort()).toEqual(["console", "crate", "mill", "oven"]);
   });
 
   it("gives every module a pip colour, and no two the same", () => {

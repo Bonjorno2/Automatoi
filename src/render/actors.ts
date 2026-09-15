@@ -1,5 +1,5 @@
 import { Container, Graphics } from "pixi.js";
-import { RESEARCH_COST } from "../sim/config.ts";
+import { MACHINE_CAPACITY, RESEARCH_COST } from "../sim/config.ts";
 import { total } from "../sim/inventory.ts";
 import { DIR } from "../sim/world.ts";
 import type {
@@ -27,13 +27,6 @@ export interface ActorLayer {
   update(snapshot: WorldSnapshot, alpha: number, selectedBotId: number | null): void;
   resize(geometry: Geometry): void;
 }
-
-/**
- * A crate has no capacity in the sim — `deposit` never refuses one. This is a
- * display reference so a full-looking crate means something, not a rule. When
- * the sim grows a real crate capacity this should become that constant.
- */
-const CRATE_DISPLAY_FULL = 50;
 
 interface MachineStyle {
   /** The block itself. Drawn once per size. */
@@ -66,13 +59,44 @@ const MACHINE_STYLE: Record<MachineKind, MachineStyle> = {
       g.rect(-s / 2, -s * 0.1, s, s * 0.08).fill(MACHINE.crate.trim);
     },
     overlay(g, size, m) {
-      const fill = Math.min(1, total(m.inventory) / CRATE_DISPLAY_FULL);
+      const fill = Math.min(1, total(m.inventory) / MACHINE_CAPACITY);
       if (fill <= 0) return;
       const s = size * 0.78;
       g.rect(-s / 2, s / 2 - s * fill, s, s * fill).fill({ color: MACHINE.crate.trim, alpha: 0.5 });
     },
   },
+  mill: {
+    body(g, size) {
+      const s = size * 0.84;
+      g.roundRect(-s / 2, -s / 2, s, s, size * 0.1).fill(MACHINE.mill.body);
+      // Two stones, because a mill grinds.
+      g.circle(0, 0, s * 0.22).fill(MACHINE.mill.trim);
+      g.circle(0, 0, s * 0.1).fill(MACHINE.mill.body);
+    },
+    overlay: conversionArc,
+  },
+  oven: {
+    body(g, size) {
+      const s = size * 0.84;
+      g.roundRect(-s / 2, -s / 2, s, s, size * 0.1).fill(MACHINE.oven.body);
+      // A mouth, because an oven bakes.
+      g.roundRect(-s * 0.26, -s * 0.05, s * 0.52, s * 0.3, s * 0.06).fill(MACHINE.oven.trim);
+    },
+    overlay: conversionArc,
+  },
 };
+
+/**
+ * How far through its conversion a machine is.
+ *
+ * The same question the console's research arc answers, which is why milestone
+ * 4 wrote that arc as a shared helper on the explicit assumption that a mill
+ * and an oven would want it. They do, unchanged.
+ */
+function conversionArc(g: Graphics, size: number, m: MachineSnapshot): void {
+  if (m.progress <= 0) return;
+  drawArc(g, size * 0.52, m.progress, COLOR.progress, size * 0.1);
+}
 
 /** A clockwise arc from twelve o'clock, used by anything that is part-way through something. */
 function drawArc(g: Graphics, radius: number, fraction: number, color: number, width: number): void {
@@ -203,7 +227,7 @@ export function createActorLayer(frameLayer: Container, geometry: Geometry): Act
 
       // The overlay is the only part that changes, and only when the number
       // behind it does.
-      const key = `${geo.size}|${snap.research.queue[0] ?? ""}|${snap.research.progress}|${total(machine.inventory)}`;
+      const key = `${geo.size}|${snap.research.queue[0] ?? ""}|${snap.research.progress}|${total(machine.inventory)}|${machine.progress.toFixed(3)}`;
       if (key !== sprite.key) {
         sprite.overlay.clear();
         style.overlay(sprite.overlay, geo.size, machine, snap);

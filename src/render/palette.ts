@@ -59,6 +59,8 @@ export const ITEM_COLOR: Record<Item, number> = {
 export const MACHINE: Record<MachineKind, { body: number; trim: number }> = {
   console: { body: 0x3f6f8f, trim: 0x86c5e0 },
   crate: { body: 0x8a6a3a, trim: 0xc9a76a },
+  mill: { body: 0x7a6a52, trim: 0xe8e0cc },
+  oven: { body: 0x8a4a38, trim: 0xf0a860 },
 };
 
 /** One row per chassis module, for the pips along a bot's edge. */

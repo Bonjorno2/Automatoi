@@ -4,11 +4,14 @@ import {
   BOT_CAPACITY,
   CROP_GROWTH,
   FIELD_RADIUS,
+  MACHINE_CAPACITY,
+  RECIPE,
   RESEARCH_COST,
   TICK_COST,
   WHEAT_GROWTH_TICKS,
   WILD_WHEAT_CHANCE,
 } from "./config";
+import type { Recipe } from "./config";
 import type {
   Bot,
   Command,
@@ -65,6 +68,17 @@ const add = (a: Vec, b: Vec): Vec => ({ x: a.x + b.x, y: a.y + b.y });
 /** Growth at which an item is harvestable. Infinite for anything not a crop. */
 const ripeAt = (item: Item): number => CROP_GROWTH[item] ?? Infinity;
 
+/** Typed Object.entries over an item -> count map. */
+const entries = (stack: Partial<Record<Item, number>>): [Item, number][] =>
+  Object.entries(stack) as [Item, number][];
+
+/** How far through its conversion a machine is, in [0, 1). 0 when idle. */
+function machineProgress(machine: Machine): number {
+  const recipe = RECIPE[machine.kind];
+  if (!recipe || machine.progress <= 0) return 0;
+  return Math.min(1, (machine.progress - 1) / recipe.ticks);
+}
+
 export class World {
   readonly seed: number;
   readonly width: number;
@@ -93,6 +107,8 @@ export class World {
   private events: WorldEvent[] = [];
   /** Machines already reported as starved, so the event fires on the edge only. */
   private starved = new Set<number>();
+  /** The same, for machines with output they cannot put down. */
+  private jammed = new Set<number>();
 
   constructor(opts: WorldOptions) {
     this.seed = opts.seed;
@@ -225,6 +241,8 @@ export class World {
         pos: { ...m.pos },
         inventory: { ...m.inventory },
         starved: this.starved.has(m.id),
+        jammed: this.jammed.has(m.id),
+        progress: machineProgress(m),
       })),
       research: {
         unlocked: [...this.research.unlocked],
@@ -241,7 +259,71 @@ export class World {
     this.time++;
     this.growCrops();
     for (const bot of this.bots.values()) this.advance(bot);
+    this.advanceMachines();
     this.advanceResearch();
+  }
+
+  /**
+   * Run every machine that has a recipe, one tick's worth.
+   *
+   * The ordering rule that matters: **room for the output is checked before the
+   * input is consumed.** A machine that eats three wheat and then discovers it
+   * cannot store the flour has destroyed the wheat, and a player watching their
+   * harvest disappear into a full mill would be right to call that a bug.
+   */
+  private advanceMachines(): void {
+    for (const machine of this.machines.values()) {
+      const recipe = RECIPE[machine.kind];
+      if (!recipe) continue;
+
+      if (machine.progress > 0) {
+        machine.progress++;
+        if (machine.progress <= recipe.ticks) continue;
+        for (const [item, n] of entries(recipe.output)) addItem(machine.inventory, item, n);
+        machine.progress = 0;
+        continue;
+      }
+
+      if (!this.hasInputs(machine, recipe)) {
+        this.flag(this.starved, machine, "starved");
+        this.starved.add(machine.id);
+        continue;
+      }
+      this.starved.delete(machine.id);
+
+      if (!this.hasRoomFor(machine, recipe)) {
+        this.flag(this.jammed, machine, "jammed");
+        this.jammed.add(machine.id);
+        continue;
+      }
+      this.jammed.delete(machine.id);
+
+      for (const [item, n] of entries(recipe.input)) removeItem(machine.inventory, item, n);
+      machine.progress = 1;
+    }
+  }
+
+  private hasInputs(machine: Machine, recipe: Recipe): boolean {
+    return entries(recipe.input).every(([item, n]) => (machine.inventory[item] ?? 0) >= n);
+  }
+
+  /**
+   * Room for the output, counted per item.
+   *
+   * Consuming three wheat does not make room for flour, because wheat and flour
+   * have separate limits. That is what lets a mill nobody collects from back up
+   * while its input keeps arriving.
+   */
+  private hasRoomFor(machine: Machine, recipe: Recipe): boolean {
+    return entries(recipe.output).every(
+      ([item, n]) => (machine.inventory[item] ?? 0) + n <= MACHINE_CAPACITY,
+    );
+  }
+
+  /** Emit a machine-state event on the edge only, never once per tick. */
+  private flag(seen: Set<number>, machine: Machine, kind: "starved" | "jammed"): void {
+    if (seen.has(machine.id)) return;
+    this.emit({ kind, machineId: machine.id, pos: { ...machine.pos } });
   }
 
   private growCrops(): void {
@@ -369,7 +451,11 @@ export class World {
   private doDeposit(bot: Bot, dir: Direction, item: Item, count: number): Outcome {
     const machine = this.machineAt(add(bot.pos, DIR[dir]));
     if (!machine) return fail(`no machine to the ${dir}`);
-    const n = Math.min(Math.max(0, Math.floor(count)), bot.inventory[item] ?? 0);
+    // Capped by the machine's room for *this item* as well as the bot's stock.
+    // A partial transfer is the right answer: refusing the whole thing would
+    // leave a bot holding cargo it could have delivered most of.
+    const room = MACHINE_CAPACITY - (machine.inventory[item] ?? 0);
+    const n = Math.min(Math.max(0, Math.floor(count)), bot.inventory[item] ?? 0, Math.max(0, room));
     if (n > 0) {
       removeItem(bot.inventory, item, n);
       addItem(machine.inventory, item, n);
@@ -523,7 +609,7 @@ export class World {
   private addMachine(kind: MachineKind, pos: Vec): Machine {
     const tile = this.tileAt(pos);
     if (tile) tile.crop = null;
-    const machine: Machine = { id: this.nextId++, kind, pos: { ...pos }, inventory: {} };
+    const machine: Machine = { id: this.nextId++, kind, pos: { ...pos }, inventory: {}, progress: 0 };
     this.machines.set(machine.id, machine);
     return machine;
   }

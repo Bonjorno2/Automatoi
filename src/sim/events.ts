@@ -23,6 +23,8 @@ export type WorldEvent =
   | { kind: "refused"; botId: number; pos: Vec; command: Command["kind"] }
   | { kind: "full"; botId: number; pos: Vec }
   | { kind: "blocked"; botId: number; pos: Vec; on: BlockedOn }
-  // Machines
+  // Machines. Starved and jammed are opposites and should read as a pair:
+  // one wants input it has not got, the other has output it cannot put down.
   | { kind: "starved"; machineId: number; pos: Vec }
+  | { kind: "jammed"; machineId: number; pos: Vec }
   | { kind: "research"; name: ResearchName; pos: Vec };
