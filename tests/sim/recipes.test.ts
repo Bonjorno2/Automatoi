@@ -118,6 +118,22 @@ describe("jamming", () => {
     expect(m.inventory.wheat).toBe(MACHINE_CAPACITY - 3);
   });
 
+  it("stops claiming to be jammed once it is merely empty", () => {
+    // Found by playing, not by arguing. A jammed mill that is then emptied is
+    // starved; leaving the older flag set made the inspector report "holding
+    // nothing — jammed — no room for the output".
+    const { w, m } = withMachine("mill");
+    m.inventory = { wheat: 3, flour: MACHINE_CAPACITY };
+    ticks(w, 3);
+    expect(w.snapshot().machines.find((x) => x.kind === "mill")!.jammed).toBe(true);
+
+    m.inventory = {};
+    ticks(w, 2);
+    const mill = w.snapshot().machines.find((x) => x.kind === "mill")!;
+    expect(mill.jammed).toBe(false);
+    expect(mill.starved).toBe(true);
+  });
+
   it("clears once there is room again", () => {
     const { w, m } = withMachine("mill");
     m.inventory = { wheat: 3, flour: MACHINE_CAPACITY };

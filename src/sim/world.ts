@@ -286,6 +286,12 @@ export class World {
       }
 
       if (!this.hasInputs(machine, recipe)) {
+        // Clearing `jammed` here matters. A machine that jammed and was then
+        // emptied is starved, not jammed, and leaving the older flag set made
+        // the inspector say "holding nothing — jammed — no room for the
+        // output", which is three words of nonsense and sends the player to
+        // look for a problem that is no longer there.
+        this.jammed.delete(machine.id);
         this.flag(this.starved, machine, "starved");
         this.starved.add(machine.id);
         continue;

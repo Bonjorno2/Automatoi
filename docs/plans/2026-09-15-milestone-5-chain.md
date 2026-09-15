@@ -279,6 +279,94 @@ git commit -m "docs: milestone 5 playtest findings"
 
 ---
 
+## Findings from Task 10
+
+Recorded, not fixed — with one exception, noted as finding 1, which was a defect
+rather than a judgement. Driven on 2026-09-15 against seed 1. The same caveat
+milestones 3 and 4 carried carries forward: these are mechanical findings from
+driving the real page, and the two numbers the design actually scores a build on
+still need human playtesters.
+
+### 1. An empty machine claimed to be jammed (fixed)
+
+Placing a mill, jamming it, and then emptying it produced this tooltip:
+
+```
+Mill
+  holding nothing
+  jammed — no room for the output
+```
+
+Three words of nonsense that send the player looking for a problem that is no
+longer there. `advanceMachines` cleared the jam flag only on the path where a
+machine *can* start a conversion, so a machine whose input ran out kept the
+older flag forever. Fixed with a test, because a state flag that lies is a
+defect and not a design question.
+
+### 2. Placement stays armed, and hides the inspector
+
+Placing a mill and then hovering it to check on it shows the placement ghost —
+"Place Mill / tile occupied" — rather than the machine. The player has to press
+Escape first, and nothing on screen says so.
+
+Staying armed is deliberate and worth keeping: three crates should take three
+clicks. But "armed" and "inspecting" are now two modes with no visible
+difference except the tooltip's wording, and the natural thing to do after
+placing a machine is to look at it. Options: cancel automatically when the
+pointer settles on the thing just placed, show the armed state somewhere other
+than the tooltip, or make a second click on an occupied tile fall through to
+selection.
+
+### 3. The planter is not optional — the field runs out mid-chain
+
+Task 9's measurement: 119 wild wheat, consumed at roughly ten per bread, gone by
+tick 5015 after five hauling rounds. The chassis research completes at about
+2700, so the chain reaches the second bot with one round to spare and then
+**stops permanently** unless the player has fitted a planter and written
+replanting into their script.
+
+Milestone 3's finding 5 guessed at this. It is now a measured cliff, and it sits
+exactly where a new player is most likely to be congratulating themselves. It
+may be excellent design — running out is what teaches that the planter matters —
+but it is currently unsignposted: nothing warns that the field is finite, and an
+empty field looks identical to a field somebody already harvested.
+
+### 4. A machine holds 16 of an item and a bot carries 10
+
+So the console cannot hold two bot-loads of wheat, and the second deposit
+silently transfers only part of the load. `deposit` returns the number actually
+moved, which is the honest answer and is what a careful script reads — but the
+reference chain script was written by someone who knew that, and a player's
+first hauling script almost certainly will not be.
+
+Worth deciding whether 16 is the right number or whether the interesting lesson
+is the partial transfer itself.
+
+### 5. Machines are free and unlimited
+
+Research unlocks a machine kind and then any number of them can be placed for
+nothing. There is no build cost in the sim, so the unlock *is* the gate. With
+one bot hauling, more mills do not help, which is why this has not yet caused a
+problem — but it makes the "spatial puzzle" the design wants from cycle 3 a
+puzzle with no pieces to spend.
+
+### 6. Two bots, one pair of eyes
+
+The second bot deploys, takes its own script, and runs it independently — all of
+which works. What does not exist is any way to watch both at once: the console
+shows the selected bot, the cargo bar shows the selected bot, and the canvas
+draws both but distinguishes them only by a selection ring. The design's
+"Overseer" fleet view is the eventual answer; at two bots it is already missed.
+
+### 7. The chain is legible, and the hauling is genuinely dull
+
+Which is the point, and is recorded as a success rather than a complaint. Two
+and a quarter minutes of walking the same four-stop loop is long enough to want
+a function and short enough not to quit. Whether that is true for a human rather
+than for a script is exactly what this findings section cannot tell you.
+
+---
+
 ## Done criteria for milestone 5
 
 - `npm test` and `npm run typecheck` clean, with **one** named test edit and no others.
