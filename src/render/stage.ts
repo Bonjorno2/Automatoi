@@ -1,4 +1,4 @@
-import { Application, Container, Graphics } from "pixi.js";
+import { Application, Container } from "pixi.js";
 import { fit, type Geometry, type Size } from "./geometry.ts";
 
 /**
@@ -68,18 +68,4 @@ export async function createStage(host: HTMLElement, grid: Size): Promise<Stage>
   observer.observe(host);
 
   return stage;
-}
-
-/**
- * Task 1's proof that Pixi renders at all in a cross-origin isolated page.
- * Task 2 replaces this with the terrain layer.
- */
-export function drawPlaceholder(stage: Stage, grid: Size): void {
-  const g = stage.geometry;
-  stage.staticLayer.removeChildren();
-  stage.staticLayer.addChild(
-    new Graphics()
-      .rect(g.originX, g.originY, g.size * grid.width, g.size * grid.height)
-      .fill(0x4a3a2a),
-  );
 }

@@ -2,7 +2,8 @@ import { clearRuntimeErrors, markRuntimeError, mountEditor } from "./editor.ts";
 import { createConsolePanel } from "./console-panel.ts";
 import { createSnippetBook } from "./snippet-book.ts";
 import { GameSession } from "./session.ts";
-import { createStage, drawPlaceholder } from "../render/stage.ts";
+import { createStage } from "../render/stage.ts";
+import { createTileLayer } from "../render/tiles.ts";
 
 /**
  * Cross-origin isolation is checked before anything else. Without it
@@ -24,8 +25,17 @@ session.start();
 
 const grid = { width: session.world.width, height: session.world.height };
 const stage = await createStage(document.querySelector<HTMLElement>("#world")!, grid);
-drawPlaceholder(stage, grid);
-stage.onResize = () => drawPlaceholder(stage, grid);
+
+/**
+ * A fresh snapshot every frame, which Fact 2 of the milestone 4 plan measured
+ * at 0.0079 ms on a 1024-tile world — 19x under the threshold that would have
+ * forced a per-tick scheme. The renderer therefore reads a plain JSON copy and
+ * has no reference to a live entity anywhere, which is the property the design
+ * asks for and the cheapest version of it.
+ */
+let snap = session.world.snapshot();
+const tiles = createTileLayer(stage.staticLayer, stage.tickLayer, stage.geometry, snap);
+stage.onResize = (g) => tiles.resize(g, snap);
 
 const panel = createConsolePanel(document.querySelector("#log")!, statusEl);
 const readoutEl = document.querySelector("#readout")!;
@@ -82,8 +92,16 @@ window.addEventListener("keydown", (e) => {
   }
 });
 
-// The world readout stands in for the renderer milestone 4 brings.
+// The world readout dies in Task 7, once the HUD carries what it says.
+let drawnTick = -1;
 function draw(): void {
+  snap = session.world.snapshot();
+  // Crops change on a tick and never between ticks.
+  if (snap.time !== drawnTick) {
+    tiles.update(snap);
+    drawnTick = snap.time;
+  }
+
   const v = session.view();
   readoutEl.textContent =
     `tick    ${v.time}\n` +
