@@ -2,6 +2,7 @@ import * as monaco from "monaco-editor";
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
 import playerApi from "./generated/player-api.d.ts?raw";
+import { OPENING_SCRIPT } from "./opening-script.ts";
 
 /**
  * Monaco, configured for player scripts.
@@ -22,10 +23,9 @@ self.MonacoEnvironment = {
   },
 };
 
-/** What a new player sees, exactly as the design doc's "first ten minutes" promises. */
-export const OPENING_SCRIPT = `bot.harvester.harvest();
-bot.move("east");
-`;
+// Re-exported so existing importers of editor.ts keep working; the constant
+// itself lives apart from Monaco so it can be read without a bundler.
+export { OPENING_SCRIPT } from "./opening-script.ts";
 
 /** Markers we own, kept apart from the language service's own diagnostics. */
 const OWNER = "automatori";

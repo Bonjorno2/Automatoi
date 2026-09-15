@@ -1,4 +1,5 @@
 import { clearRuntimeErrors, markRuntimeError, mountEditor } from "./editor.ts";
+import { ScriptStore } from "./script-store.ts";
 import { createConsolePanel } from "./console-panel.ts";
 import { createSnippetBook } from "./snippet-book.ts";
 import { GameSession } from "./session.ts";
@@ -8,6 +9,8 @@ import { createActorLayer } from "../render/actors.ts";
 import { createMarkLayer, heldMarks } from "../render/marks.ts";
 import { createInspector } from "../render/inspector.ts";
 import { createHud, createSidePanel } from "../render/hud.ts";
+import type { BuildOption } from "./build-menu.ts";
+import type { ModuleName } from "../sim/types.ts";
 
 /**
  * Cross-origin isolation is checked before anything else. Without it
@@ -43,35 +46,105 @@ const actors = createActorLayer(stage.frameLayer, stage.geometry);
 const marks = createMarkLayer(stage.frameLayer);
 const inspector = createInspector(worldEl, stage.frameLayer, grid, stage.geometry);
 const hud = createHud(stage.app.stage, { width: stage.app.screen.width, height: stage.app.screen.height });
-const sidePanel = createSidePanel(document.querySelector<HTMLElement>("#panel")!);
-stage.onResize = (g) => {
-  tiles.resize(g, snap);
-  actors.resize(g);
-  hud.resize(g, { width: worldEl.clientWidth, height: worldEl.clientHeight });
+const sidePanel = createSidePanel(document.querySelector<HTMLElement>("#panel")!, pick);
+
+/**
+ * Picking a build option arms the canvas; it does not place anything.
+ *
+ * The design calls this a hands phase, and a hands phase means choosing
+ * *where*. A menu that dropped a mill the instant you clicked its name would
+ * be a coordinate form with nicer buttons.
+ *
+ * Every placement carries its own `reason` and `apply`, both of which call
+ * straight into the sim. The ghost's colour and the click's outcome are
+ * therefore the same predicate asked twice, not two rules that must agree.
+ */
+function pick(option: BuildOption): void {
+  const world = session.world;
+
+  if (option.kind === "module") {
+    // A module goes on a bot, not on a tile, so there is nothing to aim at.
+    fitModule(option.module);
+    return;
+  }
+
+  inspector.placing =
+    option.kind === "machine"
+      ? {
+          label: `Place ${option.label}`,
+          reason: (tile) => world.canPlace(option.machine, tile),
+          apply: (tile) => void world.placeMachine(option.machine, tile),
+        }
+      : {
+          label: "Deploy bot",
+          reason: (tile) => world.canDeploy(tile),
+          // Selecting the new bot is the point: milestone 5 gives it its own
+          // script, and the player almost certainly wants to write that next.
+          apply: (tile) => {
+            selectedBotId = world.deployBot(tile).id;
+          },
+        };
+  sidePanel.setActive(option.label);
+}
+
+inspector.onPlace = (tile) => {
+  const placing = inspector.placing;
+  // Clicking an illegal tile does nothing at all. It does not cancel, because
+  // misclicking the edge of a crate should not cost the player their placement.
+  if (!placing || placing.reason(tile) !== null) return;
+  placing.apply(tile);
+  // Stays armed, so a player can lay down three crates without re-picking. The
+  // option running out is self-limiting: `reason` starts refusing every tile
+  // and the ghost goes red everywhere.
 };
+
+function fitModule(module: ModuleName): void {
+  if (selectedBotId === null) {
+    statusEl.textContent = "select a bot first, then fit the module";
+    return;
+  }
+  try {
+    session.world.installModule(selectedBotId, module);
+    statusEl.textContent = `fitted ${module} to bot ${selectedBotId}`;
+  } catch (e) {
+    statusEl.textContent = e instanceof Error ? e.message : String(e);
+  }
+}
 
 const panel = createConsolePanel(document.querySelector("#log")!, statusEl);
 const pauseButton = document.querySelector<HTMLButtonElement>("#pause")!;
 
 /**
- * Which run the panel belongs to. Restarting settles the outgoing script as
- * "stopped", and that callback lands *after* the new one has started — without
- * this the player would press Ctrl+S and watch their fresh run be labelled
- * stopped by its predecessor.
+ * Which run each bot's panel belongs to. Restarting settles the outgoing script
+ * as "stopped", and that callback lands *after* the new one has started —
+ * without this the player would press Ctrl+S and watch their fresh run be
+ * labelled stopped by its predecessor.
+ *
+ * Per bot since milestone 5. A single counter meant starting bot 2's script
+ * silently discarded every log bot 1 produced afterwards, because bot 1's
+ * callbacks no longer matched the current generation.
  */
-let generation = 0;
+const generations = new Map<number, number>();
 
 async function run(): Promise<void> {
-  const mine = ++generation;
-  panel.start();
+  const botId = selectedBotId;
+  if (botId === null) {
+    statusEl.textContent = "select a bot to run its script";
+    return;
+  }
+  const mine = (generations.get(botId) ?? 0) + 1;
+  generations.set(botId, mine);
+  scripts.stash(editor.getValue());
+  panel.start(botId);
   clearRuntimeErrors(editor);
 
-  await session.runScript(editor.getValue(), {
-    onLog: (m) => { if (mine === generation) panel.log(m); },
+  await session.runScript(botId, editor.getValue(), {
+    onLog: (m) => { if (mine === generations.get(botId)) panel.log(botId, m); },
     onSettle: (outcome) => {
-      if (mine !== generation) return;
-      panel.settle(outcome);
-      if (outcome.status === "error") {
+      if (mine !== generations.get(botId)) return;
+      panel.settle(botId, outcome);
+      // Only mark the editor if it is still showing the bot that failed.
+      if (outcome.status === "error" && selectedBotId === botId) {
         markRuntimeError(editor, outcome.line, outcome.message ?? "error");
       }
     },
@@ -84,7 +157,9 @@ document.body.append(book.element);
 document.querySelector("#book-toggle")!.addEventListener("click", () => book.toggle());
 
 document.querySelector("#run")!.addEventListener("click", () => void run());
-document.querySelector("#stop")!.addEventListener("click", () => void session.stopScript());
+document.querySelector("#stop")!.addEventListener("click", () => {
+  if (selectedBotId !== null) void session.stopScript(selectedBotId);
+});
 document.querySelector("#step")!.addEventListener("click", () => session.clock.step());
 
 pauseButton.addEventListener("click", () => {
@@ -111,9 +186,23 @@ window.addEventListener("keydown", (e) => {
  * built now rather than in milestone 5 — where a second bot, a per-bot script
  * pane and a module-install target would all want it at once.
  */
-let selectedBotId: number | null = session.botId;
+/**
+ * Milestone 2 already gave every bot its own worker and its own channel, so
+ * running one has never disturbed another. The page was simply hardcoded to
+ * bot 1 until there was a second bot to address.
+ */
+const scripts = new ScriptStore(session.firstBotId);
+let selectedBotId: number | null = session.firstBotId;
+
 inspector.onSelect = (botId) => {
+  if (botId === selectedBotId) return;
+  const next = scripts.select(botId, editor.getValue());
   selectedBotId = botId;
+  if (next !== null) {
+    editor.setValue(next);
+    clearRuntimeErrors(editor);
+    panel.focus(botId!);
+  }
 };
 
 /**
@@ -180,6 +269,7 @@ function draw(): void {
       : undefined,
   });
   sidePanel.update(snap, selectedBotId);
+  sidePanel.setActive(inspector.placing?.label.replace(/^Place /, "") ?? null);
 }
 
 function loop(): void {
@@ -194,9 +284,12 @@ if (import.meta.env.DEV) {
   Object.assign(globalThis, {
     session,
     stage,
+    editor,
+    scripts,
     frame,
     perf: () => ({ pass: mean(passMs), draw: mean(drawMs), frame: mean(frameMs) }),
   });
 }
 
+panel.focus(session.firstBotId);
 statusEl.textContent = "ready";

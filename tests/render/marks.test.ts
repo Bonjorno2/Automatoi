@@ -1,6 +1,7 @@
 import { heldMarks, markAlpha } from "../../src/render/marks";
 import { World } from "../../src/sim/world";
 import { run, ticks } from "../sim/helpers";
+import { MACHINE_CAPACITY } from "../../src/sim/config";
 
 describe("markAlpha", () => {
   it("is fully opaque when new and gone when expired", () => {
@@ -111,6 +112,52 @@ describe("heldMarks", () => {
     const w = new World({ seed: 1 });
     w.getBot(1).pos = { x: 31, y: 16 };
     run(w, 1, { kind: "move", dir: "east" });
+    expect(heldMarks(w.snapshot())).toEqual([]);
+  });
+});
+
+describe("machine marks", () => {
+  function milled(): World {
+    const w = new World({ seed: 1 });
+    w.research.unlocked.add("mill");
+    w.placeMachine("mill", { x: 18, y: 16 });
+    return w;
+  }
+
+  it("marks a mill that is starved", () => {
+    const w = milled();
+    ticks(w, 3);
+    const marks = heldMarks(w.snapshot()).filter((m) => m.kind === "starved");
+    expect(marks).toHaveLength(1);
+    expect(marks[0]!.pos).toEqual({ x: 18, y: 16 });
+  });
+
+  it("marks a mill that is jammed", () => {
+    const w = milled();
+    w.machineAt({ x: 18, y: 16 })!.inventory = { wheat: 3, flour: MACHINE_CAPACITY };
+    ticks(w, 3);
+    expect(heldMarks(w.snapshot()).filter((m) => m.kind === "jammed")).toHaveLength(1);
+  });
+
+  it("prefers jammed over starved, because feeding it will not help", () => {
+    const w = milled();
+    const m = w.machineAt({ x: 18, y: 16 })!;
+    m.inventory = { wheat: 3, flour: MACHINE_CAPACITY };
+    ticks(w, 3);
+    // Force both flags on to prove the precedence, not the sim's own ordering.
+    const snap = w.snapshot();
+    const machine = snap.machines.find((x) => x.kind === "mill")!;
+    machine.starved = true;
+    machine.jammed = true;
+    const kinds = heldMarks(snap).map((x) => x.kind);
+    expect(kinds).toContain("jammed");
+    expect(kinds).not.toContain("starved");
+  });
+
+  it("marks nothing for a machine that is quietly working", () => {
+    const w = milled();
+    w.machineAt({ x: 18, y: 16 })!.inventory = { wheat: 9 };
+    ticks(w, 3);
     expect(heldMarks(w.snapshot())).toEqual([]);
   });
 });

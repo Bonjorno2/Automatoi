@@ -29,7 +29,8 @@ export class GameSession {
   readonly world: World;
   readonly colony: ScriptColony;
   readonly clock: RealtimeClock;
-  readonly botId = 1;
+  /** The bot a fresh game starts with, and the one the editor opens on. */
+  readonly firstBotId = 1;
 
   constructor(opts: SessionOptions = {}) {
     this.world = new World({ seed: opts.seed ?? 1 });
@@ -56,14 +57,18 @@ export class GameSession {
    * Hot reload is exactly this: stop then run. Milestone 2's Task 10 made that
    * safe — stopping abandons the in-flight command and leaves the channel clean
    * — so restarting mid-command is not a special case here.
+   *
+   * Per bot since milestone 5: milestone 2 gave every bot its own worker and
+   * its own channel, so restarting one has never touched another. The page was
+   * simply hardcoded to bot 1 until there was a second bot to address.
    */
-  async runScript(source: string, opts: RunOptions = {}): Promise<ScriptOutcome> {
-    await this.colony.stop(this.botId);
-    return this.colony.run(this.botId, source, opts);
+  async runScript(botId: number, source: string, opts: RunOptions = {}): Promise<ScriptOutcome> {
+    await this.colony.stop(botId);
+    return this.colony.run(botId, source, opts);
   }
 
-  stopScript(): Promise<void> {
-    return this.colony.stop(this.botId);
+  stopScript(botId: number): Promise<void> {
+    return this.colony.stop(botId);
   }
 
   /*

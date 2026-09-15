@@ -1,4 +1,4 @@
-import { WHEAT_GROWTH_TICKS } from "../sim/config.ts";
+import { CROP_GROWTH, WHEAT_GROWTH_TICKS } from "../sim/config.ts";
 import type { Item, MachineKind, ModuleName, Terrain } from "../sim/types.ts";
 
 /**
@@ -27,7 +27,11 @@ export const TERRAIN: Record<Terrain, { base: number; alt: number }> = {
 };
 
 /**
- * Growing and ready. A crop lerps from `young` to `ripe` as it grows.
+ * Growing and ready, for items that grow. A crop lerps from `young` to `ripe`.
+ *
+ * **Partial, and that is the point.** Flour has no ripeness. When `Item` grew
+ * past wheat this was a total `Record` and the compiler demanded a ripeness for
+ * bread, which is how the split below got found.
  *
  * `young` is a brighter green than a seedling deserves, for contrast rather
  * than realism: a just-planted field is a grid of three-pixel marks on brown
@@ -35,8 +39,18 @@ export const TERRAIN: Record<Terrain, { base: number; alt: number }> = {
  * the game actually renders at. A player who cannot see what they planted
  * cannot tell a planted field from a bare one.
  */
-export const ITEM: Record<Item, { young: number; ripe: number }> = {
+export const CROP: Partial<Record<Item, { young: number; ripe: number }>> = {
   wheat: { young: 0x74a047, ripe: 0xc8b84a },
+};
+
+/**
+ * One colour per item, for an item as cargo or sitting on the ground — which
+ * every item has, crop or not.
+ */
+export const ITEM_COLOR: Record<Item, number> = {
+  wheat: 0xc8b84a,
+  flour: 0xe8e0cc,
+  bread: 0xb07038,
 };
 
 /**
@@ -45,6 +59,8 @@ export const ITEM: Record<Item, { young: number; ripe: number }> = {
 export const MACHINE: Record<MachineKind, { body: number; trim: number }> = {
   console: { body: 0x3f6f8f, trim: 0x86c5e0 },
   crate: { body: 0x8a6a3a, trim: 0xc9a76a },
+  mill: { body: 0x7a6a52, trim: 0xe8e0cc },
+  oven: { body: 0x8a4a38, trim: 0xf0a860 },
 };
 
 /** One row per chassis module, for the pips along a bot's edge. */
@@ -63,6 +79,8 @@ export const COLOR = {
   progress: 0x9be06a,
   /** The same arc when the machine wants input it does not have. */
   starved: 0xd8a03c,
+  /** And when it has output it cannot put down. Starved's opposite, and read as its pair. */
+  jammed: 0xe0584a,
   selection: 0xf0f0e0,
 } as const;
 
@@ -72,14 +90,15 @@ export const CROP_HEIGHT = [0.26, 0.45, 0.63, 0.8] as const;
 const clamp01 = (n: number): number => (n < 0 ? 0 : n > 1 ? 1 : n);
 
 /** How far along a crop is, in [0, 1]. */
-const ripeness = (growth: number): number => clamp01(growth / WHEAT_GROWTH_TICKS);
+const ripeness = (item: Item, growth: number): number =>
+  clamp01(growth / (CROP_GROWTH[item] ?? WHEAT_GROWTH_TICKS));
 
 /**
  * Four buckets, because geometry has to change in steps to be noticed at all —
  * a shoot one pixel taller than last tick reads as nothing.
  */
-export function cropStage(growth: number): 0 | 1 | 2 | 3 {
-  const s = Math.min(3, Math.floor(ripeness(growth) * 4));
+export function cropStage(growth: number, item: Item = "wheat"): 0 | 1 | 2 | 3 {
+  const s = Math.min(3, Math.floor(ripeness(item, growth) * 4));
   return s as 0 | 1 | 2 | 3;
 }
 
@@ -89,8 +108,11 @@ export function cropStage(growth: number): 0 | 1 | 2 | 3 {
  * jumps, which is the thing that makes the planter feel like an investment.
  */
 export function cropColor(item: Item, growth: number): number {
-  const { young, ripe } = ITEM[item];
-  return lerpColor(young, ripe, ripeness(growth));
+  const crop = CROP[item];
+  // An item that does not grow has one colour, which is the honest answer for
+  // anything that somehow ends up drawn on a tile without being a crop.
+  if (!crop) return ITEM_COLOR[item];
+  return lerpColor(crop.young, crop.ripe, ripeness(item, growth));
 }
 
 /** Component-wise lerp between two 0xRRGGBB values. */

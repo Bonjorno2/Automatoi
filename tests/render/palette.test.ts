@@ -1,13 +1,15 @@
 import {
+  CROP,
   CROP_HEIGHT,
-  ITEM,
+  ITEM_COLOR,
   MACHINE,
   MODULE,
   TERRAIN,
   cropColor,
   cropStage,
 } from "../../src/render/palette";
-import { WHEAT_GROWTH_TICKS } from "../../src/sim/config";
+import { CROP_GROWTH, WHEAT_GROWTH_TICKS } from "../../src/sim/config";
+import type { Item } from "../../src/sim/types";
 
 const isColor = (n: number): boolean => Number.isInteger(n) && n >= 0 && n <= 0xffffff;
 
@@ -24,12 +26,28 @@ describe("the palette covers every sim union", () => {
     expect(Object.keys(TERRAIN).sort()).toEqual(["grass", "soil"]);
   });
 
-  it("gives every item a young and a ripe colour", () => {
-    for (const [name, pair] of Object.entries(ITEM)) {
-      expect(isColor(pair.young), name).toBe(true);
-      expect(isColor(pair.ripe), name).toBe(true);
+  it("gives every item a colour", () => {
+    // Was "every item has a young and a ripe colour", which was true when the
+    // only item was a crop. Flour has no ripeness, so the claim splits in two.
+    for (const [name, c] of Object.entries(ITEM_COLOR)) {
+      expect(isColor(c), name).toBe(true);
     }
-    expect(Object.keys(ITEM)).toContain("wheat");
+    expect(Object.keys(ITEM_COLOR).sort()).toEqual(["bread", "flour", "wheat"]);
+  });
+
+  it("gives every plantable item a young and a ripe colour", () => {
+    for (const item of Object.keys(CROP_GROWTH) as Item[]) {
+      const pair = CROP[item];
+      expect(pair, item).toBeDefined();
+      expect(isColor(pair!.young), item).toBe(true);
+      expect(isColor(pair!.ripe), item).toBe(true);
+    }
+    expect(Object.keys(CROP)).toEqual(["wheat"]);
+  });
+
+  it("gives a non-crop item a flat colour rather than a ripeness", () => {
+    expect(cropColor("flour", 0)).toBe(ITEM_COLOR.flour);
+    expect(cropColor("flour", 999)).toBe(ITEM_COLOR.flour);
   });
 
   it("gives every machine kind a body and a trim", () => {
@@ -37,7 +55,7 @@ describe("the palette covers every sim union", () => {
       expect(isColor(pair.body), name).toBe(true);
       expect(isColor(pair.trim), name).toBe(true);
     }
-    expect(Object.keys(MACHINE).sort()).toEqual(["console", "crate"]);
+    expect(Object.keys(MACHINE).sort()).toEqual(["console", "crate", "mill", "oven"]);
   });
 
   it("gives every module a pip colour, and no two the same", () => {
@@ -80,21 +98,21 @@ describe("cropStage", () => {
 
 describe("cropColor", () => {
   it("is the young colour when planted and the ripe colour when mature", () => {
-    expect(cropColor("wheat", 0)).toBe(ITEM.wheat.young);
-    expect(cropColor("wheat", WHEAT_GROWTH_TICKS)).toBe(ITEM.wheat.ripe);
+    expect(cropColor("wheat", 0)).toBe(CROP.wheat!.young);
+    expect(cropColor("wheat", WHEAT_GROWTH_TICKS)).toBe(CROP.wheat!.ripe);
   });
 
   it("lerps continuously in between, so a field ripens as a wave", () => {
     const mid = cropColor("wheat", WHEAT_GROWTH_TICKS / 2);
-    expect(mid).not.toBe(ITEM.wheat.young);
-    expect(mid).not.toBe(ITEM.wheat.ripe);
+    expect(mid).not.toBe(CROP.wheat!.young);
+    expect(mid).not.toBe(CROP.wheat!.ripe);
     expect(isColor(mid)).toBe(true);
   });
 
   it("stays a valid colour outside the growth range", () => {
     expect(isColor(cropColor("wheat", -10))).toBe(true);
     expect(isColor(cropColor("wheat", WHEAT_GROWTH_TICKS * 10))).toBe(true);
-    expect(cropColor("wheat", WHEAT_GROWTH_TICKS * 10)).toBe(ITEM.wheat.ripe);
+    expect(cropColor("wheat", WHEAT_GROWTH_TICKS * 10)).toBe(CROP.wheat!.ripe);
   });
 });
 

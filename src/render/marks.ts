@@ -30,7 +30,7 @@ export interface MarkLayer {
 export interface HeldMark {
   key: string;
   pos: Vec;
-  kind: "blockedBot" | "blockedRadio" | "starved";
+  kind: "blockedBot" | "blockedRadio" | "starved" | "jammed";
 }
 
 /**
@@ -50,7 +50,11 @@ export function heldMarks(snapshot: WorldSnapshot): HeldMark[] {
     }
   }
   for (const machine of snapshot.machines) {
-    if (machine.starved) {
+    // Jammed wins when both are somehow true: a machine that cannot put its
+    // output down is stuck in a way that feeding it will not fix.
+    if (machine.jammed) {
+      out.push({ key: `machine:${machine.id}:jammed`, pos: machine.pos, kind: "jammed" });
+    } else if (machine.starved) {
       out.push({ key: `machine:${machine.id}:starved`, pos: machine.pos, kind: "starved" });
     }
   }
@@ -173,6 +177,19 @@ export function createMarkLayer(parent: Container): MarkLayer {
         for (const r of [size * 0.16, size * 0.28]) {
           g.arc(0, 0, r, -2.4, -0.75).stroke({ width: Math.max(1, size * 0.07), color: 0xc07fd0 });
         }
+        break;
+      }
+      case "jammed": {
+        // A filled wedge rather than a ring: starved and jammed are opposites,
+        // and the pair reads fastest when one is hollow and one is solid. Same
+        // radius, so they occupy the same visual slot on the machine.
+        // Bolder than starved on purpose. Sampling the rendered pixels showed
+        // the first version shifting the machine's colour by a few points and
+        // no more, which is not what "this has stopped and will not restart on
+        // its own" should look like beside a machine that is merely hungry.
+        const r = size * 0.42;
+        g.circle(0, 0, r).stroke({ width: Math.max(2, size * 0.16), color: COLOR.jammed });
+        g.circle(0, 0, r * 0.55).fill(COLOR.jammed);
         break;
       }
       case "starved": {

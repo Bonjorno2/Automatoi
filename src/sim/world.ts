@@ -2,12 +2,17 @@ import { createRng } from "./rng";
 import { addItem, removeItem, total } from "./inventory";
 import {
   BOT_CAPACITY,
+  CROP_GROWTH,
   FIELD_RADIUS,
+  MACHINE_CAPACITY,
+  RECIPE,
   RESEARCH_COST,
+  RESEARCH_ITEM,
   TICK_COST,
   WHEAT_GROWTH_TICKS,
   WILD_WHEAT_CHANCE,
 } from "./config";
+import type { Recipe } from "./config";
 import type {
   Bot,
   Command,
@@ -61,6 +66,20 @@ export const DIR: Record<Direction, Vec> = {
 
 const add = (a: Vec, b: Vec): Vec => ({ x: a.x + b.x, y: a.y + b.y });
 
+/** Growth at which an item is harvestable. Infinite for anything not a crop. */
+const ripeAt = (item: Item): number => CROP_GROWTH[item] ?? Infinity;
+
+/** Typed Object.entries over an item -> count map. */
+const entries = (stack: Partial<Record<Item, number>>): [Item, number][] =>
+  Object.entries(stack) as [Item, number][];
+
+/** How far through its conversion a machine is, in [0, 1). 0 when idle. */
+function machineProgress(machine: Machine): number {
+  const recipe = RECIPE[machine.kind];
+  if (!recipe || machine.progress <= 0) return 0;
+  return Math.min(1, (machine.progress - 1) / recipe.ticks);
+}
+
 export class World {
   readonly seed: number;
   readonly width: number;
@@ -89,6 +108,8 @@ export class World {
   private events: WorldEvent[] = [];
   /** Machines already reported as starved, so the event fires on the edge only. */
   private starved = new Set<number>();
+  /** The same, for machines with output they cannot put down. */
+  private jammed = new Set<number>();
 
   constructor(opts: WorldOptions) {
     this.seed = opts.seed;
@@ -221,6 +242,8 @@ export class World {
         pos: { ...m.pos },
         inventory: { ...m.inventory },
         starved: this.starved.has(m.id),
+        jammed: this.jammed.has(m.id),
+        progress: machineProgress(m),
       })),
       research: {
         unlocked: [...this.research.unlocked],
@@ -237,12 +260,83 @@ export class World {
     this.time++;
     this.growCrops();
     for (const bot of this.bots.values()) this.advance(bot);
+    this.advanceMachines();
     this.advanceResearch();
+  }
+
+  /**
+   * Run every machine that has a recipe, one tick's worth.
+   *
+   * The ordering rule that matters: **room for the output is checked before the
+   * input is consumed.** A machine that eats three wheat and then discovers it
+   * cannot store the flour has destroyed the wheat, and a player watching their
+   * harvest disappear into a full mill would be right to call that a bug.
+   */
+  private advanceMachines(): void {
+    for (const machine of this.machines.values()) {
+      const recipe = RECIPE[machine.kind];
+      if (!recipe) continue;
+
+      if (machine.progress > 0) {
+        machine.progress++;
+        if (machine.progress <= recipe.ticks) continue;
+        for (const [item, n] of entries(recipe.output)) addItem(machine.inventory, item, n);
+        machine.progress = 0;
+        continue;
+      }
+
+      if (!this.hasInputs(machine, recipe)) {
+        // Clearing `jammed` here matters. A machine that jammed and was then
+        // emptied is starved, not jammed, and leaving the older flag set made
+        // the inspector say "holding nothing — jammed — no room for the
+        // output", which is three words of nonsense and sends the player to
+        // look for a problem that is no longer there.
+        this.jammed.delete(machine.id);
+        this.flag(this.starved, machine, "starved");
+        this.starved.add(machine.id);
+        continue;
+      }
+      this.starved.delete(machine.id);
+
+      if (!this.hasRoomFor(machine, recipe)) {
+        this.flag(this.jammed, machine, "jammed");
+        this.jammed.add(machine.id);
+        continue;
+      }
+      this.jammed.delete(machine.id);
+
+      for (const [item, n] of entries(recipe.input)) removeItem(machine.inventory, item, n);
+      machine.progress = 1;
+    }
+  }
+
+  private hasInputs(machine: Machine, recipe: Recipe): boolean {
+    return entries(recipe.input).every(([item, n]) => (machine.inventory[item] ?? 0) >= n);
+  }
+
+  /**
+   * Room for the output, counted per item.
+   *
+   * Consuming three wheat does not make room for flour, because wheat and flour
+   * have separate limits. That is what lets a mill nobody collects from back up
+   * while its input keeps arriving.
+   */
+  private hasRoomFor(machine: Machine, recipe: Recipe): boolean {
+    return entries(recipe.output).every(
+      ([item, n]) => (machine.inventory[item] ?? 0) + n <= MACHINE_CAPACITY,
+    );
+  }
+
+  /** Emit a machine-state event on the edge only, never once per tick. */
+  private flag(seen: Set<number>, machine: Machine, kind: "starved" | "jammed"): void {
+    if (seen.has(machine.id)) return;
+    this.emit({ kind, machineId: machine.id, pos: { ...machine.pos } });
   }
 
   private growCrops(): void {
     for (const tile of this.tiles) {
-      if (tile.crop && tile.crop.growth < WHEAT_GROWTH_TICKS) tile.crop.growth++;
+      if (!tile.crop) continue;
+      if (tile.crop.growth < ripeAt(tile.crop.item)) tile.crop.growth++;
     }
   }
 
@@ -311,7 +405,7 @@ export class World {
 
   private doHarvest(bot: Bot): Outcome {
     const tile = this.tileAt(bot.pos);
-    if (!tile?.crop || tile.crop.growth < WHEAT_GROWTH_TICKS) {
+    if (!tile?.crop || tile.crop.growth < ripeAt(tile.crop.item)) {
       this.emit({ kind: "refused", botId: bot.id, pos: { ...bot.pos }, command: "harvest" });
       return ok(false);
     }
@@ -330,6 +424,9 @@ export class World {
       this.emit({ kind: "refused", botId: bot.id, pos: { ...bot.pos }, command: "plant" });
       return ok(false);
     };
+    // Flour is not a seed. An item with no entry in CROP_GROWTH cannot be
+    // planted, and refusing here is what keeps that rule in one place.
+    if (CROP_GROWTH[item] === undefined) return refuse();
     if (!tile || tile.terrain !== "soil" || tile.crop) return refuse();
     if ((bot.inventory[item] ?? 0) < 1) return refuse();
     removeItem(bot.inventory, item, 1);
@@ -361,7 +458,11 @@ export class World {
   private doDeposit(bot: Bot, dir: Direction, item: Item, count: number): Outcome {
     const machine = this.machineAt(add(bot.pos, DIR[dir]));
     if (!machine) return fail(`no machine to the ${dir}`);
-    const n = Math.min(Math.max(0, Math.floor(count)), bot.inventory[item] ?? 0);
+    // Capped by the machine's room for *this item* as well as the bot's stock.
+    // A partial transfer is the right answer: refusing the whole thing would
+    // leave a bot holding cargo it could have delivered most of.
+    const room = MACHINE_CAPACITY - (machine.inventory[item] ?? 0);
+    const n = Math.min(Math.max(0, Math.floor(count)), bot.inventory[item] ?? 0, Math.max(0, room));
     if (n > 0) {
       removeItem(bot.inventory, item, n);
       addItem(machine.inventory, item, n);
@@ -406,25 +507,45 @@ export class World {
 
   // ---- player (UI) actions, gated by research stock ----
 
+  /**
+   * Why a machine cannot go here, or null if it can.
+   *
+   * Exists so that the UI showing a red ghost and the sim refusing the click
+   * are the *same* rule rather than two copies of it. A build menu that decided
+   * for itself where a mill fits would drift from this the first time a rule
+   * changed, and the player would find out by clicking.
+   */
+  canPlace(kind: MachineKind, pos: Vec): string | null {
+    if (kind === "console") return "cannot place a second console";
+    if (!this.research.unlocked.has(kind)) return `${kind} not researched`;
+    return this.tileBlocked(pos);
+  }
+
+  /** The same question for a spare chassis. */
+  canDeploy(pos: Vec): string | null {
+    if (this.research.spareChassis < 1) return "no spare chassis";
+    return this.tileBlocked(pos);
+  }
+
   /** Place a new bot using a spare chassis from research. */
   deployBot(pos: Vec): Bot {
-    if (this.research.spareChassis < 1) throw new Error("no spare chassis");
-    this.assertFree(pos);
+    const why = this.canDeploy(pos);
+    if (why) throw new Error(why);
     this.research.spareChassis--;
     return this.addBot(pos, ["harvester"]);
   }
 
   /** Place a machine the player has researched. */
   placeMachine(kind: MachineKind, pos: Vec): Machine {
-    if (kind === "console") throw new Error("cannot place a second console");
-    if (!this.research.unlocked.has(kind)) throw new Error(`${kind} not researched`);
-    this.assertFree(pos);
+    const why = this.canPlace(kind, pos);
+    if (why) throw new Error(why);
     return this.addMachine(kind, pos);
   }
 
-  private assertFree(pos: Vec): void {
-    if (!this.inBounds(pos)) throw new Error("out of bounds");
-    if (this.botAt(pos) || this.machineAt(pos)) throw new Error("tile occupied");
+  private tileBlocked(pos: Vec): string | null {
+    if (!this.inBounds(pos)) return "out of bounds";
+    if (this.botAt(pos) || this.machineAt(pos)) return "tile occupied";
+    return null;
   }
 
   // ---- research ----
@@ -458,7 +579,8 @@ export class World {
       this.starved.delete(console.id);
       return;
     }
-    if ((console.inventory.wheat ?? 0) < 1) {
+    const fuel = RESEARCH_ITEM[current] ?? "wheat";
+    if ((console.inventory[fuel] ?? 0) < 1) {
       // A research queued with nothing to eat is a machine starved for input.
       // Before this event there was no signal at all: the player queued the
       // planter, forgot to deliver, and watched a progress bar that never
@@ -470,7 +592,7 @@ export class World {
       return;
     }
     this.starved.delete(console.id);
-    removeItem(console.inventory, "wheat", 1);
+    removeItem(console.inventory, fuel, 1);
     r.progress++;
     if (r.progress < RESEARCH_COST[current]) return;
     r.queue.shift();
@@ -515,7 +637,7 @@ export class World {
   private addMachine(kind: MachineKind, pos: Vec): Machine {
     const tile = this.tileAt(pos);
     if (tile) tile.crop = null;
-    const machine: Machine = { id: this.nextId++, kind, pos: { ...pos }, inventory: {} };
+    const machine: Machine = { id: this.nextId++, kind, pos: { ...pos }, inventory: {}, progress: 0 };
     this.machines.set(machine.id, machine);
     return machine;
   }

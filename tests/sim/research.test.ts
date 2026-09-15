@@ -1,10 +1,19 @@
 import { World } from "../../src/sim/world";
 import { RESEARCH_COST } from "../../src/sim/config";
+import type { Item } from "../../src/sim/types";
 import { ticks } from "./helpers";
 
-function fundedWorld(wheat: number): World {
+/**
+ * A console stocked with one item.
+ *
+ * This took an item parameter in milestone 5, when the chassis was repriced in
+ * bread and the case below stopped completing. Naming the payment at the call
+ * site rather than stocking everything keeps the suite's other assertions — one
+ * of which checks the wheat count exactly — about what they were about.
+ */
+function fundedWorld(amount: number, item: Item = "wheat"): World {
   const w = new World({ seed: 1 });
-  w.machineAt({ x: 16, y: 16 })!.inventory = { wheat };
+  w.machineAt({ x: 16, y: 16 })!.inventory = { [item]: amount };
   return w;
 }
 
@@ -52,7 +61,9 @@ describe("research", () => {
   });
 
   it("grants a spare chassis for chassis research", () => {
-    const w = fundedWorld(1000);
+    // Bread, not wheat: milestone 5 prices the second bot in what the chain
+    // makes, so that reaching it requires having built the chain.
+    const w = fundedWorld(1000, "bread");
     w.queueResearch("chassis");
     ticks(w, RESEARCH_COST.chassis);
     expect(w.research.spareChassis).toBe(1);

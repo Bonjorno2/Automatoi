@@ -2,6 +2,7 @@ import { Container, Graphics, Text } from "pixi.js";
 import { BOT_CAPACITY, RESEARCH_COST } from "../sim/config.ts";
 import { total } from "../sim/inventory.ts";
 import type { BotSnapshot, WorldSnapshot } from "../sim/types.ts";
+import { buildOptions, type BuildOption } from "../editor/build-menu.ts";
 import type { Geometry, Size } from "./geometry.ts";
 
 /**
@@ -22,6 +23,24 @@ export function researchLines(snapshot: WorldSnapshot): string[] {
     const progress = i === 0 ? snapshot.research.progress : 0;
     return `${name} ${progress}/${cost}`;
   });
+}
+
+/**
+ * What research has produced and nobody has installed.
+ *
+ * Milestone 4's finding 1: progress was visible and completion was not, so a
+ * spare planter module could exist that no part of the screen ever mentioned.
+ * A player who looked away for two seconds had no way to discover they owned
+ * it. In Task 7 these lines become the thing you click to install.
+ */
+export function stockLines(snapshot: WorldSnapshot): string[] {
+  const lines: string[] = [];
+  for (const [module, n] of Object.entries(snapshot.research.spareModules)) {
+    if ((n ?? 0) > 0) lines.push(n === 1 ? `${module} module` : `${module} module x${n}`);
+  }
+  const chassis = snapshot.research.spareChassis;
+  if (chassis > 0) lines.push(chassis === 1 ? "spare chassis" : `spare chassis x${chassis}`);
+  return lines;
 }
 
 /**
@@ -87,24 +106,46 @@ export function createHud(parent: Container, pane: Size): Hud {
   };
 }
 
-/** The DOM half: the side panel's cargo bar and research queue. */
-export interface SidePanel {
-  update(snapshot: WorldSnapshot, selectedBotId: number | null): void;
+function fillList(root: HTMLElement, lines: string[], empty: string | null): void {
+  root.textContent = "";
+  if (lines.length === 0) {
+    if (empty === null) return;
+    const li = document.createElement("li");
+    li.className = "muted";
+    li.textContent = empty;
+    root.append(li);
+    return;
+  }
+  for (const line of lines) {
+    const li = document.createElement("li");
+    li.textContent = line;
+    root.append(li);
+  }
 }
 
-export function createSidePanel(root: HTMLElement): SidePanel {
+/** The DOM half: the side panel's cargo bar, research queue and build menu. */
+export interface SidePanel {
+  update(snapshot: WorldSnapshot, selectedBotId: number | null): void;
+  /** Highlight the option currently being placed, or none. */
+  setActive(label: string | null): void;
+}
+
+export function createSidePanel(root: HTMLElement, onPick: (option: BuildOption) => void): SidePanel {
+  let activeLabel: string | null = null;
   root.innerHTML = `
     <div class="cargo">
       <span class="cargo-label">cargo</span>
       <span class="bar"><i></i></span>
       <span class="cargo-count"></span>
     </div>
-    <ul class="research"></ul>`;
+    <ul class="research"></ul>
+    <ul class="build"></ul>`;
 
   const fill = root.querySelector<HTMLElement>(".bar i")!;
   const count = root.querySelector<HTMLElement>(".cargo-count")!;
   const label = root.querySelector<HTMLElement>(".cargo-label")!;
   const research = root.querySelector<HTMLElement>(".research")!;
+  const build = root.querySelector<HTMLElement>(".build")!;
 
   return {
     update(snapshot, selectedBotId) {
@@ -115,20 +156,44 @@ export function createSidePanel(root: HTMLElement): SidePanel {
       fill.classList.toggle("full", carried >= BOT_CAPACITY);
       count.textContent = `${carried}/${BOT_CAPACITY}`;
 
-      const lines = researchLines(snapshot);
-      research.textContent = "";
-      if (lines.length === 0) {
-        const li = document.createElement("li");
-        li.className = "muted";
-        li.textContent = "nothing researching";
-        research.append(li);
-        return;
-      }
-      for (const line of lines) {
-        const li = document.createElement("li");
-        li.textContent = line;
-        research.append(li);
-      }
+      fillList(research, researchLines(snapshot), "nothing researching");
+      renderBuild(build, snapshot, onPick, activeLabel);
+    },
+    setActive(label) {
+      activeLabel = label;
     },
   };
+}
+
+/**
+ * The build menu: stock that can be clicked rather than stock that can only be
+ * read. This is the line milestone 3's finding 1 has been waiting three
+ * milestones for.
+ *
+ * Rebuilt only when its contents change. A player is aiming at these buttons
+ * while a ghost follows their cursor, and replacing the DOM under a pointer
+ * every frame would cancel their own click.
+ */
+function renderBuild(
+  root: HTMLElement,
+  snapshot: WorldSnapshot,
+  onPick: (option: BuildOption) => void,
+  activeLabel: string | null,
+): void {
+  const options = buildOptions(snapshot);
+  const key = `${options.map((o) => o.label).join("|")}::${activeLabel ?? ""}`;
+  if (root.dataset.key === key) return;
+  root.dataset.key = key;
+
+  root.textContent = "";
+  for (const option of options) {
+    const li = document.createElement("li");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = option.label;
+    button.className = option.label === activeLabel ? "build-active" : "";
+    button.addEventListener("click", () => onPick(option));
+    li.append(button);
+    root.append(li);
+  }
 }

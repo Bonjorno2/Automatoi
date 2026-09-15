@@ -4,10 +4,17 @@
 // --- sim vocabulary ---------------------------------------------------
 type Direction = "north" | "south" | "east" | "west";
 type Terrain = "grass" | "soil";
-type Item = "wheat";
+/**
+ * Everything that can sit in an inventory.
+ *
+ * Only some items are plantable and only some are produced by a recipe; both
+ * facts live in `config.ts` as tables keyed by this union, so adding a member
+ * makes the compiler ask the questions rather than leaving them to be noticed.
+ */
+type Item = "wheat" | "flour" | "bread";
 type ModuleName = "harvester" | "planter" | "scanner" | "radio";
-type MachineKind = "console" | "crate";
-type ResearchName = "planter" | "scanner" | "crate" | "chassis" | "radio";
+type MachineKind = "console" | "crate" | "mill" | "oven";
+type ResearchName = "planter" | "scanner" | "crate" | "mill" | "oven" | "chassis" | "radio";
 interface Vec {
     x: number;
     y: number;
@@ -91,6 +98,13 @@ interface Machine {
     kind: MachineKind;
     pos: Vec;
     inventory: Inventory;
+    /**
+     * Ticks into the current conversion, 0 when not converting.
+     *
+     * Inputs are consumed when this leaves 0 and outputs appear when it reaches
+     * the recipe's duration, so a machine is never holding both at once.
+     */
+    progress: number;
 }
 interface ScanTile {
     x: number;
@@ -135,6 +149,10 @@ interface MachineSnapshot {
      * edges of its own.
      */
     starved: boolean;
+    /** Has finished, or cannot start, because there is no room for the output. */
+    jammed: boolean;
+    /** Fraction of the current conversion done, in [0, 1). 0 when idle. */
+    progress: number;
 }
 interface ResearchSnapshot {
     unlocked: ResearchName[];
