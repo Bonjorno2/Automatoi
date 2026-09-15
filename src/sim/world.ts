@@ -7,6 +7,7 @@ import {
   MACHINE_CAPACITY,
   RECIPE,
   RESEARCH_COST,
+  RESEARCH_ITEM,
   TICK_COST,
   WHEAT_GROWTH_TICKS,
   WILD_WHEAT_CHANCE,
@@ -552,7 +553,8 @@ export class World {
       this.starved.delete(console.id);
       return;
     }
-    if ((console.inventory.wheat ?? 0) < 1) {
+    const fuel = RESEARCH_ITEM[current] ?? "wheat";
+    if ((console.inventory[fuel] ?? 0) < 1) {
       // A research queued with nothing to eat is a machine starved for input.
       // Before this event there was no signal at all: the player queued the
       // planter, forgot to deliver, and watched a progress bar that never
@@ -564,7 +566,7 @@ export class World {
       return;
     }
     this.starved.delete(console.id);
-    removeItem(console.inventory, "wheat", 1);
+    removeItem(console.inventory, fuel, 1);
     r.progress++;
     if (r.progress < RESEARCH_COST[current]) return;
     r.queue.shift();

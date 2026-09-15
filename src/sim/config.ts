@@ -76,8 +76,28 @@ export const RESEARCH_COST: Record<ResearchName, number> = {
   crate: 15,
   mill: 20,
   oven: 25,
-  chassis: 25,
-  radio: 20,
+  chassis: 6,
+  radio: 4,
+};
+
+/**
+ * What the console eats for each research. Absent means wheat.
+ *
+ * This is the decision that makes the chain load-bearing rather than
+ * decorative. The second bot — the thing the design's veteran playtest is meant
+ * to time — costs bread, so reaching it *requires* building a mill, building an
+ * oven, and hauling between them. A chain that fed an optional score would be a
+ * side quest.
+ *
+ * The first three researches stay priced in raw wheat so that the opening ten
+ * minutes, which milestone 3 measured and pinned, are untouched.
+ *
+ * Six bread is thirty-six wheat and four hundred and twenty ticks of machine
+ * time. That is a guess; Task 9 measures it.
+ */
+export const RESEARCH_ITEM: Partial<Record<ResearchName, Item>> = {
+  chassis: "bread",
+  radio: "bread",
 };
 
 /** Chebyshev radius of the soil field around the console. */
