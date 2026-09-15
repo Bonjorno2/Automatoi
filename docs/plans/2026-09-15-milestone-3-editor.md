@@ -416,7 +416,56 @@ git commit -m "feat(editor): per-bot console panel with errors mapped to source 
 
 ---
 
-### Task 10: The first ten minutes, played
+### Task 10: The snippet book
+
+Added mid-milestone, on 2026-09-15. Not new scope: the design doc already
+promises it in "The abstraction rhythm" — *"A snippet library exists for
+beginners to copy from; veterans ignore it."* This gives that line a shape.
+
+It is built **before** the playtest rather than after, so Task 11 can test
+whether the book actually helps rather than guessing at its contents once the
+only playtest is spent.
+
+Keep it distinct from the *other* don't-repeat-yourself mechanism. `import`
+between scripts arrives with the Shared Library colony upgrade, is deliberately
+late, and is out of first-playable scope. The book copies **text**; it does not
+share a **module**. If it starts grow­ing toward a module system, stop.
+
+**Files:**
+- Add: `src/editor/snippets.ts`, `src/editor/snippet-book.ts`
+- Modify: `index.html`, `src/editor/main.ts`
+- Test: `tests/editor/snippets.test.ts`
+
+**Step 1: Seed it from the design's own progression**
+
+Chips come from the patterns the design doc already names as cycle 1 and cycle
+2: the harvest loop, the bounds check that teaches `if` and `bot.pos()`,
+serpentine traversal, harvest-and-replant, hauling to a crate. Do not invent a
+curriculum — these are the ones the design says a player reaches for.
+
+**Step 2: Every chip must be code that actually runs**
+
+A snippet library that ships broken examples is worse than none. The test
+compiles every chip against the generated `.d.ts` from Task 4, and runs the
+ungated ones against a real world through the bridge. A chip that needs a
+module the starting chassis lacks is labelled with what it needs, which doubles
+as a preview of the research tree.
+
+**Step 3: Clicking inserts at the cursor**
+
+Not a clipboard write: insertion needs no permission prompt, works the same in
+every browser, and puts the code where the player is already looking.
+
+**Step 4: Commit**
+
+```bash
+git add src/editor/ index.html tests/editor/snippets.test.ts
+git commit -m "feat(editor): snippet book of copy-paste code chips"
+```
+
+---
+
+### Task 11: The first ten minutes, played
 
 Not a coding task. The milestone's actual claim is that the blocking-script loop feels good, and only playing it tests that.
 

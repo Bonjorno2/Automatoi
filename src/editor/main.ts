@@ -1,5 +1,6 @@
 import { clearRuntimeErrors, markRuntimeError, mountEditor } from "./editor.ts";
 import { createConsolePanel } from "./console-panel.ts";
+import { createSnippetBook } from "./snippet-book.ts";
 import { GameSession } from "./session.ts";
 
 /**
@@ -49,6 +50,10 @@ async function run(): Promise<void> {
   });
   // A script that never ends never gets here; that is the normal case.
 }
+
+const book = createSnippetBook(editor);
+document.body.append(book.element);
+document.querySelector("#book-toggle")!.addEventListener("click", () => book.toggle());
 
 document.querySelector("#run")!.addEventListener("click", () => void run());
 document.querySelector("#stop")!.addEventListener("click", () => void session.stopScript());
