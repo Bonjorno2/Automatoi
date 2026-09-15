@@ -508,6 +508,37 @@ The invariant it introduces must be written down where it can be found: **a crop
 
 If the numbers say it is free, **do not do it**, and record the measurement that says so. An optimisation with no number behind it is a guess with extra steps.
 
+### Results
+
+Measured 2026-09-15 on the dev page, 32x32 world, seed 1. Rolling means over 120 frames.
+
+| State | `pass` | scene update | GPU render | total |
+|---|---|---|---|---|
+| 1. Idle, no script, 1x | 0.001 ms | 0.040 ms | — | 0.04 ms |
+| 2. Harvest loop, 1x | 0.061 ms | 0.483 ms | — | 0.54 ms |
+| 3. Harvest loop, 4x | 0.111 ms | 0.458 ms | — | 0.57 ms |
+| 4. Harvest loop, 4x, 169 crops | 0.170 ms | 0.652 ms | 0.89 ms mean / 0.41 ms median | **1.71 ms** |
+
+**The sim stays on the main thread.** Worst case is 1.71 ms against an 8 ms
+threshold and a 16.6 ms budget — a factor of nine of headroom. The design
+document's open question "whether the sim runs on the main thread or its own
+worker" is now **answered**, not deferred again.
+
+**Crop growth is not optimised, and that is the finding.** `pass` at 4x with
+every soil tile carrying an immature crop is 0.17 ms: `growCrops` walking all
+1024 tiles is roughly 20,000 trivial operations a second and is nowhere near a
+hot path. This concern was recorded during milestone 1, repeated in milestone
+3's handoff, and has now been retired by a measurement rather than by code. It
+should stay retired unless the world grows by an order of magnitude.
+
+**One caveat on how these were taken.** The preview pane delivers no
+`requestAnimationFrame` callbacks, which suspends Pixi's own ticker as well as
+the game loop. `pass` and scene update are therefore measured by driving frames
+deliberately, and the GPU render is measured by calling `renderer.render`
+directly rather than by observing it happen. The frame *interval* column the
+plan originally asked for is not measurable in this environment at all and is
+omitted rather than faked.
+
 **Step 4: Commit**
 
 ```bash

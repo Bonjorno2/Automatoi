@@ -25,7 +25,6 @@ if (!isolated) {
 
 const editor = mountEditor(document.querySelector<HTMLElement>("#editor")!);
 const session = new GameSession();
-session.start();
 
 const grid = { width: session.world.width, height: session.world.height };
 const worldEl = document.querySelector<HTMLElement>("#world")!;
@@ -117,7 +116,49 @@ inspector.onSelect = (botId) => {
   selectedBotId = botId;
 };
 
+/**
+ * Rolling means over two seconds of frames, shown only with `?perf`.
+ *
+ * Kept behind a flag rather than removed after Task 8: the numbers that answer
+ * "where does the sim run" go stale the moment the sim grows, and milestone 5
+ * grows it by a whole production chain.
+ */
+const SHOW_PERF = new URLSearchParams(location.search).has("perf");
+const PERF_WINDOW = 120;
+const passMs: number[] = [];
+const drawMs: number[] = [];
+const frameMs: number[] = [];
+let lastFrameAt = 0;
+
+const mean = (xs: number[]): number => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
+function record(into: number[], value: number): void {
+  into.push(value);
+  if (into.length > PERF_WINDOW) into.shift();
+}
+
 let drawnTick = -1;
+
+/**
+ * One frame: advance the world, then draw it.
+ *
+ * Exported onto `globalThis` in dev because the preview pane this is developed
+ * against delivers no `requestAnimationFrame` callbacks, so the only way to
+ * measure a frame is to run one on purpose.
+ */
+function frame(): void {
+  const t0 = performance.now();
+  if (lastFrameAt) record(frameMs, t0 - lastFrameAt);
+  lastFrameAt = t0;
+
+  session.pass();
+  const t1 = performance.now();
+  draw();
+  const t2 = performance.now();
+
+  record(passMs, t1 - t0);
+  record(drawMs, t2 - t1);
+}
+
 function draw(): void {
   snap = session.world.snapshot();
   // Crops change on a tick and never between ticks.
@@ -131,15 +172,31 @@ function draw(): void {
   // and marks decay against the wall clock rather than the sim's.
   marks.update(session.world.drainEvents(), heldMarks(snap), performance.now(), stage.geometry);
   inspector.update(snap, stage.geometry);
-  hud.update(snap, { paused: session.clock.paused, speed: session.clock.speed });
+  hud.update(snap, {
+    paused: session.clock.paused,
+    speed: session.clock.speed,
+    perf: SHOW_PERF
+      ? `pass ${mean(passMs).toFixed(2)}ms  draw ${mean(drawMs).toFixed(2)}ms  frame ${mean(frameMs).toFixed(1)}ms`
+      : undefined,
+  });
   sidePanel.update(snap, selectedBotId);
-
-  requestAnimationFrame(draw);
 }
-requestAnimationFrame(draw);
+
+function loop(): void {
+  frame();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
 
 // Every manual check in the milestone 4 plan is performed from the page's own
 // console, and several of them measure things no UI exposes.
-if (import.meta.env.DEV) Object.assign(globalThis, { session, stage });
+if (import.meta.env.DEV) {
+  Object.assign(globalThis, {
+    session,
+    stage,
+    frame,
+    perf: () => ({ pass: mean(passMs), draw: mean(drawMs), frame: mean(frameMs) }),
+  });
+}
 
 statusEl.textContent = "ready";

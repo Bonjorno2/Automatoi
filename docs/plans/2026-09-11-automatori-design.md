@@ -227,5 +227,8 @@ localStorage, art beyond coloured squares.
 - Exact tick costs per action (tune in playtests)
 - Whether `colony.bots()` read access includes another bot's inventory or only
   position (leaning: both)
-- Whether the sim runs on the main thread or its own worker (decide when
-  measuring frame budget)
+- ~~Whether the sim runs on the main thread or its own worker (decide when
+  measuring frame budget)~~ **Answered 2026-09-15, milestone 4 Task 8: the main
+  thread.** Worst measured frame — harvest loop at 4x with every soil tile
+  planted — is 1.71 ms of a 16.6 ms budget, split 0.17 ms sim, 0.65 ms scene
+  update, 0.89 ms render. Revisit if the world grows by an order of magnitude.

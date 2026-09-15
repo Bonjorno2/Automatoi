@@ -11,20 +11,25 @@ export interface SessionOptions {
 }
 
 /**
- * Owns the world, the colony and the loop that drives them.
+ * Owns the world, the colony and the clock. It does **not** own a loop.
  *
- * The loop runs on `requestAnimationFrame`, which the browser stops delivering
- * while the tab is hidden. That is the behaviour we want — a game should not
- * run on unwatched — and the clock's catch-up cap is what absorbs the jump
- * when the tab comes back.
+ * It used to: `start()` ran its own `requestAnimationFrame` loop calling
+ * `colony.pass()`, while the page ran a second one to draw. Two loops on the
+ * same clock source have no defined order between them, so whether a frame drew
+ * the world before or after that frame's ticks was down to registration order —
+ * and the interpolation alpha was read at an unspecified point relative to the
+ * ticks it interpolates between. One loop, `pass()` then draw, fixes the order
+ * and makes each half separately measurable, which Task 8 needs.
+ *
+ * The loop still lives on `requestAnimationFrame`, which the browser stops
+ * delivering to a hidden tab. That is the behaviour we want — a game should not
+ * run unwatched — and the clock's catch-up cap absorbs the jump on return.
  */
 export class GameSession {
   readonly world: World;
   readonly colony: ScriptColony;
   readonly clock: RealtimeClock;
   readonly botId = 1;
-
-  private frame: number | null = null;
 
   constructor(opts: SessionOptions = {}) {
     this.world = new World({ seed: opts.seed ?? 1 });
@@ -36,18 +41,13 @@ export class GameSession {
     });
   }
 
-  start(): void {
-    if (this.frame !== null) return;
-    const loop = (): void => {
-      this.colony.pass();
-      this.frame = requestAnimationFrame(loop);
-    };
-    this.frame = requestAnimationFrame(loop);
-  }
-
-  stop(): void {
-    if (this.frame !== null) cancelAnimationFrame(this.frame);
-    this.frame = null;
+  /**
+   * Advance the world and service every bot's channel once.
+   *
+   * Called by the page's single frame loop, before drawing.
+   */
+  pass(): void {
+    this.colony.pass();
   }
 
   /**
