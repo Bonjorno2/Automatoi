@@ -6,6 +6,8 @@ import {
 } from "./protocol.ts";
 import type { HostRequest, MirrorState } from "./protocol.ts";
 import { publishMirror } from "./mirror.ts";
+import { DemandClock } from "./clock.ts";
+import type { Clock } from "./clock.ts";
 import type { SpawnWorker, WorkerHandle } from "./spawn.ts";
 
 export interface ColonyOptions {
@@ -190,6 +192,12 @@ export interface ScriptColonyOptions extends ColonyOptions {
    * and the browser passes `spawnWeb`.
    */
   spawnWorker: SpawnWorker;
+  /**
+   * What advances simulated time. Defaults to `DemandClock`, which ticks only
+   * while a command is counting down — the behaviour every headless test
+   * depends on. The page passes a `RealtimeClock`.
+   */
+  clock?: Clock;
 }
 
 /**
@@ -218,12 +226,14 @@ export class ScriptColony extends Colony {
   private readonly workers = new Map<number, WorkerHandle>();
   private readonly settlers = new Map<number, (o: Settled) => void>();
   private readonly spawnWorker: SpawnWorker;
+  readonly clock: Clock;
   private pendingRuns = 0;
   private looping = false;
 
   constructor(opts: ScriptColonyOptions) {
     super(opts);
     this.spawnWorker = opts.spawnWorker;
+    this.clock = opts.clock ?? new DemandClock();
   }
 
   /**
@@ -277,18 +287,34 @@ export class ScriptColony extends Colony {
     this.looping = true;
     try {
       while (this.pendingRuns > 0) {
-        this.serve();
-        if (this.anyInFlight()) {
-          this.world.tick();
-          this.publishAll();
-          this.deliver();
-        }
-        this.checkHung();
+        this.pass();
         await yieldToEventLoop();
       }
     } finally {
       this.looping = false;
     }
+  }
+
+  /**
+   * One pass of the loop: serve what the workers posted, advance time by
+   * whatever the clock says is due, hand back results, check for hangs.
+   *
+   * Public because the headless `drive()` loop is not the only caller. A page
+   * paced by `requestAnimationFrame` drives this directly, which is also the
+   * only way the world can age while no script is running at all — `drive()`
+   * exits as soon as the last script settles, and a game's world should not.
+   */
+  pass(): void {
+    this.serve();
+    // Under DemandClock this is 1 exactly when something is counting down,
+    // which is what the loop did before the clock was pluggable.
+    const due = this.clock.ticksDue(this.anyInFlight());
+    for (let i = 0; i < due; i++) {
+      this.world.tick();
+      this.publishAll();
+      this.deliver();
+    }
+    this.checkHung();
   }
 
   /**
