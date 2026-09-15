@@ -25,11 +25,53 @@
         gap: 0.75rem;
       }
       #status { margin: 0; color: #888; font-size: 11px; }
+      #controls { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+      button, select {
+        font: inherit;
+        background: #333;
+        color: #d4d4d4;
+        border: 1px solid #555;
+        border-radius: 3px;
+        padding: 0.25rem 0.6rem;
+        cursor: pointer;
+      }
+      button:hover, select:hover { background: #3f3f3f; }
+      button:disabled { opacity: 0.45; cursor: default; }
+      #readout { margin: 0; color: #9cdcfe; white-space: pre; font-size: 12px; }
+      #log {
+        margin: 0;
+        padding: 0.5rem;
+        list-style: none;
+        background: #181818;
+        border: 1px solid #333;
+        border-radius: 3px;
+        flex: 1;
+        min-height: 8rem;
+        overflow-y: auto;
+        font-size: 12px;
+      }
+      #log li { padding: 0.1rem 0; border-bottom: 1px solid #222; }
+      .hint { color: #666; font-size: 11px; margin: 0; }
     </style>
   </head>
   <body>
     <div id="editor"></div>
     <aside id="side">
+      <div id="controls">
+        <button id="run" type="button">Run</button>
+        <button id="stop" type="button">Stop</button>
+        <button id="pause" type="button">Pause</button>
+        <button id="step" type="button">Step</button>
+        <select id="speed" aria-label="Speed">
+          <option value="0.5">0.5x</option>
+          <option value="1" selected>1x</option>
+          <option value="2">2x</option>
+          <option value="4">4x</option>
+        </select>
+      </div>
+      <p class="hint">Ctrl+S restarts this bot's script.</p>
+      <p id="readout"></p>
+      <ul id="log"></ul>
       <p id="status">starting…</p>
     </aside>
     <script type="module" src="/src/editor/main.ts"></script>

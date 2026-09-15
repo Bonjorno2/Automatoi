@@ -254,6 +254,14 @@ export class ScriptColony extends Colony {
     };
     this.settlers.set(botId, settle);
 
+    // The watchdog measures idleness from `lastActive`, which is otherwise only
+    // touched by attach, serve and stop. A channel that sat idle between runs —
+    // the normal case for a player staring at the editor — would arrive here
+    // already past `hungMs`, and the first pass would kill the new script
+    // before it made a single call. Start its clock now.
+    const channel = this.channels.get(botId);
+    if (channel) channel.lastActive = Date.now();
+
     const worker = this.spawnWorker({ sab, botId, source });
     this.workers.set(botId, worker);
 
@@ -276,8 +284,13 @@ export class ScriptColony extends Colony {
       return { botId, logs, ...settled };
     } finally {
       this.pendingRuns--;
-      this.settlers.delete(botId);
-      await this.stop(botId);
+      // Only tear down what this run owns. A hot reload stops and restarts the
+      // same bot immediately, so by the time this cleanup runs the channel may
+      // already belong to a successor — and stopping it here would kill the
+      // script the player just launched, leaving them with a dead bot and a
+      // "stopped" they did not ask for.
+      if (this.settlers.get(botId) === settle) this.settlers.delete(botId);
+      if (this.workers.get(botId) === worker) await this.stop(botId);
     }
   }
 
