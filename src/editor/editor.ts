@@ -27,6 +27,39 @@ export const OPENING_SCRIPT = `bot.harvester.harvest();
 bot.move("east");
 `;
 
+/** Markers we own, kept apart from the language service's own diagnostics. */
+const OWNER = "automatori";
+
+/**
+ * Put a marker on the line a running script threw from, or clear ours when
+ * `line` is undefined. Never touches the TypeScript worker's markers.
+ */
+export function markRuntimeError(
+  editor: monaco.editor.IStandaloneCodeEditor,
+  line: number | undefined,
+  message: string,
+): void {
+  const model = editor.getModel();
+  if (!model) return;
+  if (line === undefined || line < 1 || line > model.getLineCount()) {
+    monaco.editor.setModelMarkers(model, OWNER, []);
+    return;
+  }
+  monaco.editor.setModelMarkers(model, OWNER, [{
+    severity: monaco.MarkerSeverity.Error,
+    message,
+    startLineNumber: line,
+    endLineNumber: line,
+    startColumn: 1,
+    endColumn: model.getLineMaxColumn(line),
+  }]);
+}
+
+export function clearRuntimeErrors(editor: monaco.editor.IStandaloneCodeEditor): void {
+  const model = editor.getModel();
+  if (model) monaco.editor.setModelMarkers(model, OWNER, []);
+}
+
 export function mountEditor(container: HTMLElement, initial = OPENING_SCRIPT): monaco.editor.IStandaloneCodeEditor {
   const js = monaco.languages.typescript.javascriptDefaults;
 

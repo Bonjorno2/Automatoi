@@ -1,4 +1,5 @@
 import { makeApi } from "./api.ts";
+import { playerLine } from "./line-offset.ts";
 import type { WorkerInit } from "./spawn.ts";
 
 /**
@@ -15,6 +16,10 @@ export function runScript(init: WorkerInit, post: (message: unknown) => void): v
     fn(bot, colony);
     post({ kind: "done" });
   } catch (err) {
-    post({ kind: "error", message: err instanceof Error ? err.message : String(err) });
+    post({
+      kind: "error",
+      message: err instanceof Error ? err.message : String(err),
+      line: playerLine(err),
+    });
   }
 }

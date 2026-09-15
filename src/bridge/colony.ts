@@ -167,6 +167,8 @@ export interface ScriptOutcome {
   botId: number;
   status: ScriptStatus;
   message?: string;
+  /** 1-based line of the player's source that threw, when the error carried one. */
+  line?: number;
   logs: string[];
 }
 
@@ -207,7 +209,7 @@ export interface ScriptColonyOptions extends ColonyOptions {
  * world only ticks while a command is counting down, and control is yielded to
  * the event loop in between so the worker can actually make progress.
  */
-type Settled = { status: ScriptStatus; message?: string };
+type Settled = { status: ScriptStatus; message?: string; line?: number };
 
 /**
  * Yield to the event loop so a blocked worker can make progress.
@@ -266,14 +268,14 @@ export class ScriptColony extends Colony {
     this.workers.set(botId, worker);
 
     worker.onMessage((raw) => {
-      const m = raw as { kind: string; message?: string };
+      const m = raw as { kind: string; message?: string; line?: number };
       if (m.kind === "log") {
         const message = String(m.message);
         logs.push(message);
         opts.onLog?.(message);
       }
       else if (m.kind === "done") settle({ status: "done" });
-      else if (m.kind === "error") settle({ status: "error", message: m.message });
+      else if (m.kind === "error") settle({ status: "error", message: m.message, line: m.line });
     });
     worker.onError((message) => settle({ status: "error", message }));
 

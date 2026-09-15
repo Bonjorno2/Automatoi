@@ -1,4 +1,5 @@
-import { mountEditor } from "./editor.ts";
+import { clearRuntimeErrors, markRuntimeError, mountEditor } from "./editor.ts";
+import { createConsolePanel } from "./console-panel.ts";
 import { GameSession } from "./session.ts";
 
 /**
@@ -9,7 +10,7 @@ import { GameSession } from "./session.ts";
 const isolated = crossOriginIsolated && typeof SharedArrayBuffer === "function";
 
 // Not `status`: that name is already taken by the DOM's global `window.status`.
-const statusEl = document.querySelector("#status")!;
+const statusEl = document.querySelector<HTMLElement>("#status")!;
 if (!isolated) {
   statusEl.textContent = "NOT ISOLATED — SharedArrayBuffer unavailable";
   throw new Error("cross-origin isolation required");
@@ -19,17 +20,9 @@ const editor = mountEditor(document.querySelector<HTMLElement>("#editor")!);
 const session = new GameSession();
 session.start();
 
-const logEl = document.querySelector("#log")!;
+const panel = createConsolePanel(document.querySelector("#log")!, statusEl);
 const readoutEl = document.querySelector("#readout")!;
 const pauseButton = document.querySelector<HTMLButtonElement>("#pause")!;
-
-function append(text: string, colour?: string): void {
-  const li = document.createElement("li");
-  li.textContent = text;
-  if (colour) li.style.color = colour;
-  logEl.append(li);
-  logEl.scrollTop = logEl.scrollHeight;
-}
 
 /**
  * Which run the panel belongs to. Restarting settles the outgoing script as
@@ -41,14 +34,17 @@ let generation = 0;
 
 async function run(): Promise<void> {
   const mine = ++generation;
-  logEl.replaceChildren();
-  statusEl.textContent = "running";
+  panel.start();
+  clearRuntimeErrors(editor);
+
   await session.runScript(editor.getValue(), {
-    onLog: (m) => { if (mine === generation) append(m); },
-    onSettle: (o) => {
+    onLog: (m) => { if (mine === generation) panel.log(m); },
+    onSettle: (outcome) => {
       if (mine !== generation) return;
-      statusEl.textContent = o.message ? `${o.status}: ${o.message}` : o.status;
-      if (o.status === "error" || o.status === "hung") append(o.message ?? o.status, "#f48771");
+      panel.settle(outcome);
+      if (outcome.status === "error") {
+        markRuntimeError(editor, outcome.line, outcome.message ?? "error");
+      }
     },
   });
   // A script that never ends never gets here; that is the normal case.
@@ -78,11 +74,10 @@ window.addEventListener("keydown", (e) => {
 // The world readout stands in for the renderer milestone 4 brings.
 function draw(): void {
   const v = session.view();
-  const wheat = v.inventory.wheat ?? 0;
   readoutEl.textContent =
     `tick    ${v.time}\n` +
     `pos     ${v.pos.x}, ${v.pos.y}\n` +
-    `wheat   ${wheat}\n` +
+    `wheat   ${v.inventory.wheat ?? 0}\n` +
     `state   ${v.paused ? "paused" : v.busy ? "busy" : "idle"}  ${v.speed}x`;
   requestAnimationFrame(draw);
 }
