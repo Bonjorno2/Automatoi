@@ -577,6 +577,96 @@ git commit -m "docs: milestone 4 playtest findings"
 
 ---
 
+## Findings from Task 9
+
+Recorded, not fixed. Driven on 2026-09-15 against seed 1.
+
+**The same caveat milestone 3 carried, and one more.** These are mechanical
+findings from driving the real page and the real bridge. The two numbers the
+design's testing strategy actually scores a build on — a beginner's time to
+first loop unaided, and a veteran's boredom threshold — need human playtesters
+and are still not measured. The additional caveat is finding 2: the environment
+this was driven in never composites a frame, so nothing here is a judgement
+about how the game *feels* in motion. Smoothness, pacing and readability at
+speed remain unverified by anything but arithmetic.
+
+### 1. Research completes into silence — the sharpest thing this milestone found
+
+Milestone 3's finding 1 said research pays into a void. Decision 2 of this plan
+accepted that for one more milestone but took on an obligation: make the payout
+*visible* before it is collectable. Half of that shipped. Progress is legible —
+an arc on the console, a line in the panel — but **completion leaves no trace.**
+
+Ten wheat in the console, planter queued: the arc fills, a ring flashes for 950
+ms, the panel returns to "nothing researching", and a spare planter module now
+exists in `research.spareModules` that **nothing on screen mentions, ever
+again.** A player who looks away for two seconds cannot discover that the
+planter is ready, or that it was ever researched.
+
+The fix is small and belongs on the panel, beside the queue: a stock line for
+`spareModules` and `spareChassis`. It is the first thing milestone 5 should do,
+before any placement UI, because placement UI without it is a menu of things the
+player does not know they own.
+
+### 2. The world only runs when someone is looking, and that is now total
+
+Milestone 3's finding 6 measured background pace at roughly 8 ticks per second.
+This milestone makes the mechanism sharper and worse. Merging the two frame
+loops means `world.tick()` now reaches the world through exactly one path when
+no script is running: the page's `requestAnimationFrame` loop. In an
+environment that does not composite — a hidden pane, a background tab — that
+loop delivers **zero** callbacks while `document.visibilityState` still reports
+`"visible"`, so the world does not advance at all.
+
+While a script *is* running the world still advances, because `ScriptColony`'s
+`drive()` is on a timer rather than a frame callback, throttled to about 1 Hz
+with the catch-up cap giving roughly 8 ticks a second. So the game has two
+different background behaviours depending on whether a script is running, which
+nobody chose.
+
+Milestone 3 flagged this as worth deciding deliberately. It still is, and it is
+now the single biggest obstacle to verifying anything about this game by eye.
+
+### 3. The world pane is the smallest thing on screen
+
+At the shipped three-column split on a 1264px window, the world pane is 484px
+and tiles come out 15px. Squeezing the column — which is an ordinary thing to
+do while writing code — takes tiles to 8px, at which point a bot, a crop and a
+module pip are all a handful of pixels and the marks that Task 5 exists for are
+unreadable.
+
+The grid always fits, which was Decision 3's promise and it holds. But "fits"
+and "legible" are different claims, and only the first was designed for. Worth
+deciding whether the world deserves the larger half of the window, a draggable
+split, or a zoom that trades the no-camera decision away.
+
+### 4. A stuck bot accumulates marks rather than pulsing
+
+A bot spinning against a wall refuses a move roughly every two ticks, and each
+refusal emits a `bump` with a 420 ms life. At 20 Hz that is four or five
+overlapping arcs at all times; driving it through a non-compositing frame gave
+**ten at once** stacked on the same edge.
+
+The result reads as emphatically stuck, which is the right message by accident
+rather than by design. It should be a decision: either cap concurrent marks per
+tile, or make repetition the deliberate signal and say so.
+
+### 5. The crate's fill level is invented
+
+`CRATE_DISPLAY_FULL = 50` in `actors.ts` is a render-only constant. The sim has
+no crate capacity at all — `deposit` never refuses one — so a crate that looks
+full is making a claim the rules do not support. Milestone 5 places crates for
+the first time and should either give the sim a real capacity or drop the fill.
+
+### 6. Nothing yet distinguishes two bots
+
+The bot sprite encodes modules and facing and activity, but not identity. With
+one bot that is invisible; the chassis research that milestone 5 exposes makes
+it immediate. The selection ring is currently the only way to tell which bot is
+which, and it can only mark one.
+
+---
+
 ## Done criteria for milestone 4
 
 - `npm test` passes, with milestones 1–3's **164 tests unedited**.
