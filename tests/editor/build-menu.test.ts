@@ -174,6 +174,18 @@ describe("the sim decides where things go, not the menu", () => {
     }
   });
 
+  it("clears the crop it is built on, which is what the ghost now warns about", () => {
+    // The consequence half of milestone 6's finding 2, pinned beside the
+    // warning in inspector.test.ts rather than only in the renderer. A warning
+    // and a behaviour that were tested separately could part company.
+    const w = new World({ seed: 1 });
+    w.research.unlocked.add("crate");
+    const at = { x: 18, y: 18 };
+    expect(w.tileAt(at)!.crop).not.toBeNull();
+    w.placeMachine("crate", at);
+    expect(w.tileAt(at)!.crop).toBeNull();
+  });
+
   it("accepts grass as readily as soil", () => {
     // Machines are not crops. Refusing grass would quietly force every factory
     // into the 13x13 field, which is a layout rule nobody decided on.

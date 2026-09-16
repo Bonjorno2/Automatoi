@@ -164,14 +164,50 @@ export function describePlacement(
   ];
   // The price of the click, directly under the verb and above everything else,
   // because it is the only line here the player cannot afford to skim.
-  if (placing.mode === "remove" && placing.reason === null) {
-    const cost = removalCost(snapshot, tile);
+  //
+  // Only for a click that will happen: a refusal leads, and a cost under it
+  // would be describing something that is not going to occur.
+  if (placing.reason === null) {
+    const cost =
+      placing.mode === "remove" ? removalCost(snapshot, tile) : placementCost(snapshot, tile);
     if (cost) head.push(`  ${cost}`);
   }
   const occupied =
     snapshot.machines.some((m) => m.pos.x === tile.x && m.pos.y === tile.y) ||
     snapshot.bots.some((b) => b.pos.x === tile.x && b.pos.y === tile.y);
   return occupied ? [...head, ...describeTile(snapshot, tile)] : head;
+}
+
+/**
+ * What building on this tile would destroy, or null if nothing.
+ *
+ * Milestone 6's finding 2: ten belts laid across the field ate seven mature
+ * wheat, and the only trace was the panel's field counter falling from 119 to
+ * 112. A player watching their cursor rather than the panel saw nothing at all.
+ *
+ * **The placement stays legal.** Refusing it would make the field a no-build
+ * zone, which is a layout rule nobody decided on and which `canPlace` rejects on
+ * purpose — "accepts grass as readily as soil" is a test that exists for the
+ * opposite reason. This is a silence bug, not a permission bug.
+ *
+ * Bare ground still says nothing extra, which was milestone 6's own decision and
+ * is still right: a crop report nobody asked for, while they are aiming at
+ * something, is noise. What was wrong was treating a ripe crop as bare ground.
+ *
+ * Ripeness comes from the same `CROP_GROWTH` lookup `describeTile` uses. A
+ * second comparison against `WHEAT_GROWTH_TICKS` would be correct today and
+ * silently wrong for the second crop.
+ */
+export function placementCost(snapshot: WorldSnapshot, tile: Vec): string | null {
+  const t = snapshot.tiles[tile.y * snapshot.width + tile.x];
+  const crop = t?.crop;
+  if (!crop) return null;
+  const ripe = CROP_GROWTH[crop.item] ?? WHEAT_GROWTH_TICKS;
+  // A growing crop is named as growing: the cost is different and the player may
+  // well not care about a shoot.
+  return crop.growth >= ripe
+    ? `destroys ripe ${crop.item}`
+    : `destroys growing ${crop.item}`;
 }
 
 /**

@@ -258,6 +258,50 @@ describe("describePlacement", () => {
     expect(lines.some((l) => l.startsWith("Bot 1"))).toBe(true);
   });
 
+  it("names the ripe crop it is about to delete", () => {
+    // Milestone 6's finding 2. Ten belts across the field ate seven mature
+    // wheat and the only trace was the panel's counter falling from 119 to 112.
+    // (18, 18) is ripe wheat on seed 1; (20, 20) is bare soil, which is why the
+    // empty-ground tests above still hold.
+    const w = new World({ seed: 1 });
+    const lines = describePlacement(
+      w.snapshot(),
+      { x: 18, y: 18 },
+      armed("Place Conveyor", "north", null),
+    );
+    expect(lines).toEqual([
+      "Place Conveyor (facing north)",
+      "  click to place",
+      "  destroys ripe wheat",
+    ]);
+  });
+
+  it("says growing rather than ripe for a crop that is not ready", () => {
+    // A different cost, and one the player may well not care about.
+    const w = new World({ seed: 1 });
+    w.tileAt({ x: 18, y: 18 })!.crop = { item: "wheat", growth: 1 };
+    const lines = describePlacement(
+      w.snapshot(),
+      { x: 18, y: 18 },
+      armed("Place Crate", null, null),
+    );
+    expect(lines).toContain("  destroys growing wheat");
+  });
+
+  it("leads with the refusal rather than the cost, because the click will not happen", () => {
+    const w = new World({ seed: 1 });
+    w.research.unlocked.add("crate");
+    w.placeMachine("crate", { x: 17, y: 17 });
+    w.tileAt({ x: 17, y: 17 })!.crop = { item: "wheat", growth: WHEAT_GROWTH_TICKS };
+    const lines = describePlacement(
+      w.snapshot(),
+      { x: 17, y: 17 },
+      armed("Place Crate", null, "tile occupied"),
+    );
+    expect(lines[1]).toBe("  tile occupied");
+    expect(lines.some((l) => l.includes("destroys"))).toBe(false);
+  });
+
   it("says nothing extra about ground the player could simply build on", () => {
     // Empty ground is unchanged: two lines, not a crop report the player did
     // not ask for while they are aiming at something.
