@@ -563,13 +563,34 @@ export class World {
 
   private doHarvest(bot: Bot): Outcome {
     const tile = this.tileAt(bot.pos);
+    // **Capacity is asked first, and the order is the whole signal.**
+    //
+    // A full harvest was an error until milestone 10's playtest — the one place
+    // in this command where the two halves disagreed, since "nothing to take"
+    // refused and "nowhere to put it" threw, so a full bot stopped dead mid-loop
+    // with its script killed. Nothing else in the API behaves that way: a `move`
+    // into a wall answers false, a `deposit` with no room answers 0. The design's
+    // own "Failure is content" table already puts the matching case — "crate
+    // full" — in the world and explicitly not in the editor.
+    //
+    // Making it a refusal removes a signal unless something replaces it, and
+    // driving the page proved the obvious candidates do not. `stalled` resets on
+    // every successful `move`, so the canonical `harvest(); move();` loop never
+    // accumulates one. And while this check sat *below* the crop check, a full
+    // bot walking over ground it had already cleared reported "refused" — 36 of
+    // them and not a single `full` — because the tile was empty and the sim
+    // answered about the tile rather than about the bot.
+    //
+    // Asked first, "I am full" is the answer whatever the bot is standing on, so
+    // the marker follows it for as long as the condition lasts. That is what the
+    // design means by a world-side signal.
+    if (total(bot.inventory) >= BOT_CAPACITY) {
+      this.emit({ kind: "full", botId: bot.id, pos: { ...bot.pos } });
+      return ok(false);
+    }
     if (!tile?.crop || tile.crop.growth < ripeAt(tile.crop.item)) {
       this.emit({ kind: "refused", botId: bot.id, pos: { ...bot.pos }, command: "harvest" });
       return ok(false);
-    }
-    if (total(bot.inventory) >= BOT_CAPACITY) {
-      this.emit({ kind: "full", botId: bot.id, pos: { ...bot.pos } });
-      return fail("inventory full");
     }
     addItem(bot.inventory, tile.crop.item, 1);
     // Emitted before the crop is cleared, so the event carries what was taken.

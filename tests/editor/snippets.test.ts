@@ -71,11 +71,15 @@ describe("the snippet book", () => {
         // Most chips are deliberate infinite loops; give them room to misbehave.
         await new Promise((r) => setTimeout(r, 700));
 
-        // A chip may legitimately end in one of the sim's own refusals. The
-        // canonical two-line harvest loop fills the bot's ten slots and
-        // harvest() then throws "inventory full" — precisely the cycle-1 pain
-        // the design wants a player to feel on their way to crates. What must
-        // never happen is a mistake in the chip itself.
+        // A chip may legitimately end in one of the sim's own errors, and what
+        // must never happen is a mistake in the chip itself.
+        //
+        // **Milestone 10 emptied this branch rather than changing it.** The
+        // canonical two-line harvest loop used to fill the bot's ten slots and
+        // die on "inventory full"; a full harvest is now a refusal, so that chip
+        // runs on and reports "running" instead. The `if` is kept because it is
+        // the guard that matters — a chip that errors for any *other* reason
+        // still fails here, and the message it would have to carry is named.
         const status = settled?.status ?? "running";
         expect(status).not.toBe("hung");
         if (status === "error") {
