@@ -14,6 +14,7 @@ import { CLOCKWISE } from "../sim/world.ts";
 import { FACES } from "../sim/config.ts";
 import { createHud, createSidePanel } from "../render/hud.ts";
 import { fitView, panBy, viewGeometry, zoomAbout, type View } from "../render/camera.ts";
+import { keyTarget } from "../render/keys.ts";
 import type { Size } from "../render/geometry.ts";
 import type { BuildOption } from "./build-menu.ts";
 import type { ModuleName } from "../sim/types.ts";
@@ -146,19 +147,56 @@ connectResize(stage, {
   worldEl.addEventListener("pointercancel", endDrag);
 
   window.addEventListener("keydown", (e) => {
+    const where = keyTarget(e.target);
     // Not while typing: Monaco is a different element, and a player writing a
     // script should not send the camera home with the Home key.
-    if (e.target !== document.body) return;
-    if (e.key === "Home") setView(fitView(grid, paneSize()));
-    else if (e.code === "Space") {
-      spaceHeld = true;
-      e.preventDefault();
+    if (where === "typing") return;
+
+    if (e.key === "Home") {
+      setView(fitView(grid, paneSize()));
+      return;
     }
+    if (e.code !== "Space") return;
+
+    // Space is the one key the page and the camera both have a claim on: it is
+    // how a browser activates a focused button. The platform wins there, which
+    // is what keeps the page usable from the keyboard alone — and is why a
+    // pointer click on a control hands focus back, below, so that a player who
+    // clicked Run can still hold space and drag.
+    if (where !== "world") return;
+    spaceHeld = true;
+    e.preventDefault();
   });
   window.addEventListener("keyup", (e) => {
     if (e.code === "Space") spaceHeld = false;
   });
+  // A held Space is a modifier, and a modifier that survives losing focus is a
+  // cursor stuck in pan mode with no way to notice.
+  window.addEventListener("blur", () => {
+    spaceHeld = false;
+    dragging = null;
+  });
 }
+
+/**
+ * A control clicked with the pointer hands focus back to the page.
+ *
+ * Milestone 7's finding 2, the half that a guard alone does not fix: after
+ * clicking Run, `Space` belongs to the Run button, so holding it to pan presses
+ * Run again instead. Blurring makes the camera's keys work the moment the
+ * player's hand leaves the button, which is what they expect.
+ *
+ * Only for a pointer-driven click. `detail` is 0 when a click was synthesised
+ * by Enter or Space on a focused control, so a player navigating by keyboard
+ * keeps the focus they were relying on.
+ */
+document.querySelector<HTMLElement>("#side")!.addEventListener("click", (e) => {
+  if (e.detail === 0) return;
+  const el = e.target as HTMLElement | null;
+  // `keyTarget` classifies a `select` as typing, which is what keeps this from
+  // closing the speed dropdown the instant it opens.
+  if (el && keyTarget(el) === "control") el.blur();
+});
 
 /**
  * Picking a build option arms the canvas; it does not place anything.

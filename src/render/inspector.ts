@@ -4,6 +4,7 @@ import type { Direction, MachineKind, Vec, WorldSnapshot } from "../sim/types.ts
 import { toPixel, toTile, type Geometry, type Size } from "./geometry.ts";
 import { COLOR } from "./palette.ts";
 import { drawArrow } from "./actors.ts";
+import { keyTarget } from "./keys.ts";
 
 /**
  * What a machine is called, to a player. Per Decision 7 of the milestone 4
@@ -323,10 +324,18 @@ export function createInspector(
 
   window.addEventListener("keydown", (e) => {
     if (!inspector.placing) return;
+    // Escape is deliberately unguarded. It is the universal cancel, and a
+    // player who armed a belt and then clicked into the editor should still be
+    // able to put it down without hunting for the canvas.
     if (e.key === "Escape") inspector.placing = null;
-    // Not while typing in the editor: Monaco is a different element, and a
-    // player writing `bot.harvester` should not turn a belt they forgot about.
-    else if (e.key.toLowerCase() === "r" && e.target === document.body) {
+    // Not while typing: Monaco is a different element, and a player writing
+    // `bot.harvester` should not turn a belt they forgot about.
+    //
+    // This used to ask `e.target === document.body`, which means *nothing has
+    // focus* — so picking "Conveyor" from the build menu left that button
+    // focused and `R` did nothing until the player clicked elsewhere. Rotating
+    // a belt right after choosing it is the single most likely next action.
+    else if (e.key.toLowerCase() === "r" && keyTarget(e.target) !== "typing") {
       inspector.placing.rotate();
     }
   });

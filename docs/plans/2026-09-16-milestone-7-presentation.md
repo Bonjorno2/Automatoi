@@ -275,7 +275,14 @@ git commit -m "docs: milestone 7 playtest findings"
 
 ## Findings from Task 9
 
-Recorded, not fixed. Driven on 2026-09-16 against seed 1. The same caveat every
+Recorded, and one of them fixed. Driven on 2026-09-16 against seed 1.
+
+Finding 2 is the exception milestone 5's playtest established and milestone 6
+carried forward: a defect rather than a judgement gets fixed with a test and
+gets said out loud. It is a feature that does not work, not a call that could
+have gone the other way. Everything else here is recorded and left alone.
+
+The same caveat every
 milestone since 3 has carried carries forward, and it bites harder here than
 anywhere: these are mechanical findings from driving the real page, and this is
 the milestone whose entire subject is how something *looks*. Two of the plan's
@@ -304,6 +311,10 @@ that the first thirty seconds of a small window still show an illegible field.
 
 ### 2. The camera's keys stop working the moment a control has focus
 
+**Fixed — see below.** A defect rather than a judgement, which is the exception
+milestone 5 established and milestone 6 carried: a defect gets fixed with a test
+and the fix is said out loud.
+
 Measured: zoom to 20-pixel tiles, click `Run`, press `Home` — nothing happens.
 Click the canvas or the page background first and the same key fits the grid.
 The guard is `e.target === document.body`, which `inspector.ts` already used for
@@ -313,6 +324,43 @@ It is worse for `Space` than for `Home`, because `Space` is how a browser
 activates a focused button. A player who clicks `Run` and then holds space to
 pan is not failing to pan; they are pressing `Run` again. Nothing on screen
 explains why, and "click the canvas first" is not a thing anyone will guess.
+
+#### What it turned out to be, and what fixed it
+
+The guard asked *"does nothing have focus?"* when the question it meant was
+*"is the player typing?"*. `src/render/keys.ts` now answers the real one, in one
+place for all three bindings:
+
+- **typing** — a text field, a select, or anything inside `#editor`. No binding
+  fires. A `select` counts as typing because `Space` is how it is opened.
+- **control** — a button or a link. It keeps its own activation keys and
+  everything else applies.
+- **world** — the body, the canvas, a plain container. Everything applies.
+
+That alone fixes `Home` and `R`. It does **not** fix `Space`, because on a
+focused button `Space` genuinely belongs to the button — stealing it would break
+the page for anyone navigating by keyboard. So the second half is that a control
+clicked *with the pointer* hands focus back to the page, and a control activated
+from the keyboard does not: `click.detail` is 0 for a click synthesised by Enter
+or Space, and nonzero for a real pointer.
+
+Verified on the page, all four:
+
+| | |
+|---|---|
+| Mouse-click `Run`, then `Home` | 61px tiles → 10px, the fit. Focus returns to `BODY`. |
+| Keyboard-activate `Run` | Focus stays on `run`. |
+| Tab to `Run`, press `Home` | 61px → 10px. The key works with a control focused. |
+| `Space` | `defaultPrevented` false on a button, true on the body. |
+
+It also closed a bug nobody had reported. Picking "Conveyor" from the build menu
+left that button focused, so `R` did nothing — and rotating a belt immediately
+after choosing it is the single most likely next action. `R` with a live build
+button focused now turns the ghost from east to south.
+
+`Escape` is deliberately left unguarded, as it already was. It is the universal
+cancel, and a player who armed a belt and then clicked into the editor should
+still be able to put it down.
 
 ### 3. The belt tread is far slower than the belt, at every speed
 
@@ -413,8 +461,9 @@ vignette together are the other 1.2 ms, and only at 65 belts.
   > position, because zooming out about a corner leaves the grid in that corner.
   > That is why `Home` exists rather than being a synonym for zooming out, and
   > it is a test. The inspector was checked on the page at the fit, zoomed in,
-  > after panning, and zoomed back out. Finding 2 is a real defect against this
-  > criterion's spirit: the key works and cannot always be pressed.
+  > after panning, and zoomed back out. Finding 2 was a real defect against this
+  > criterion's spirit — the key worked and could not always be pressed — and it
+  > is fixed rather than recorded, per the defect exception.
 - Nothing in `src/sim/` changed except Task 0's `canRemove` and, possibly, one new event kind for Task 6.
   > **Met, exactly.** `canRemove`/`removeMachine`/`takeMachine` in Task 0, and
   > one `harvest` event in Task 6. Task 6 wanted three effects and only that one
@@ -429,15 +478,9 @@ vignette together are the other 1.2 ms, and only at 65 belts.
 
 ## What milestone 8 inherits
 
-Three small things and one real one, in the order they cost a player something.
-
-**Finding 2 is a defect, not a judgement**, and it is the only thing in this
-list that stops a feature working. The camera's keys die whenever a control has
-focus, and `Space` does something actively wrong there — it presses the button
-again. It was left unfixed only because Task 9's rule is to record rather than
-repair, and because the guard it inherits is shared with `R` and `Escape` in
-`inspector.ts`, so the fix belongs to all three at once rather than to the
-newest caller.
+Three small things, in the order they cost a player something. Finding 2 was the
+fourth and is fixed in this milestone rather than handed on — it was a defect
+rather than a judgement, which is the one exception Task 9's rule allows.
 
 **Finding 4 is one sentence of tooltip.** A cage of loaded belts is escapable and
 the refusal says "conveyor is not empty", which names the obstacle and not the
