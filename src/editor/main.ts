@@ -6,6 +6,7 @@ import { GameSession } from "./session.ts";
 import { connectResize, createOverlay, createStage } from "../render/stage.ts";
 import { createTileLayer } from "../render/tiles.ts";
 import { createActorLayer } from "../render/actors.ts";
+import { createAnimatedLayer } from "../render/animated.ts";
 import { createMarkLayer, heldMarks } from "../render/marks.ts";
 import { armedMessage, createInspector, type Placement } from "../render/inspector.ts";
 import { CLOCKWISE } from "../sim/world.ts";
@@ -49,6 +50,7 @@ const stage = await createStage(worldEl, grid);
 let snap = session.world.snapshot();
 const tiles = createTileLayer(stage.staticLayer, stage.tickLayer, stage.geometry, snap);
 const actors = createActorLayer(stage.frameLayer, stage.geometry);
+const animated = createAnimatedLayer(actors.overlayContainer, stage.geometry);
 const marks = createMarkLayer(stage.frameLayer);
 const inspector = createInspector(worldEl, stage.frameLayer, grid, stage.geometry);
 const overlay = createOverlay(stage.overlayLayer, {
@@ -62,7 +64,14 @@ const sidePanel = createSidePanel(document.querySelector<HTMLElement>("#panel")!
 // terrain redraws at a new tile size and the bots stay at the old one.
 connectResize(stage, {
   tiles,
-  actors,
+  // Both caches of the fit behind one call, because they are one layer's worth
+  // of sprites split across two modules and must never disagree about a tile.
+  actors: {
+    resize: (g) => {
+      actors.resize(g);
+      animated.resize(g);
+    },
+  },
   hud,
   overlay,
   snapshot: () => snap,
@@ -326,6 +335,8 @@ function draw(): void {
   tiles.animate(now);
   // Actors every frame: the whole point of alpha is that they move between ticks.
   actors.update(snap, session.clock.alpha, selectedBotId);
+  // The belt tread, which is the one thing in the renderer that truly redraws.
+  animated.update(snap, now);
   // Drained every frame, not every tick: an undrained event is a lost signal,
   // and marks decay against the wall clock rather than the sim's.
   marks.update(session.world.drainEvents(), heldMarks(snap), now, stage.geometry);

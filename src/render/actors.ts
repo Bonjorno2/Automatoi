@@ -27,6 +27,15 @@ import { actorPos } from "./actor-pos.ts";
 export interface ActorLayer {
   update(snapshot: WorldSnapshot, alpha: number, selectedBotId: number | null): void;
   resize(geometry: Geometry): void;
+  /**
+   * Where the per-frame layer goes: above the machine bodies, below the bots.
+   *
+   * Exposed rather than letting `main.ts` add a container to `frameLayer` and
+   * hope it lands in the right place. The ordering inside this layer is this
+   * module's fact, and a belt tread drawn over a bot standing on it is the bug
+   * that would follow from anyone else owning it.
+   */
+  readonly overlayContainer: Container;
 }
 
 interface MachineStyle {
@@ -231,8 +240,9 @@ export function createActorLayer(frameLayer: Container, geometry: Geometry): Act
   // is standing beside, because bots are the higher container.
   const shadowContainer = new Container();
   const machineContainer = new Container();
+  const overlayContainer = new Container();
   const botContainer = new Container();
-  frameLayer.addChild(shadowContainer, machineContainer, botContainer);
+  frameLayer.addChild(shadowContainer, machineContainer, overlayContainer, botContainer);
 
   function drawBot(sprite: BotSprite, bot: BotSnapshot, active: boolean, index: number): void {
     const size = geo.size;
@@ -378,6 +388,7 @@ export function createActorLayer(frameLayer: Container, geometry: Geometry): Act
   }
 
   return {
+    overlayContainer,
     update(snapshot, alpha, selectedBotId) {
       syncMachines(snapshot);
       syncBots(snapshot, alpha, selectedBotId);
