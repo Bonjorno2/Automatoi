@@ -138,4 +138,27 @@ describe("describeTile on the new machines", () => {
     expect(lines).toContain("  jammed — no room for the output");
     expect(lines).not.toContain("  starved — nothing to consume");
   });
+
+  it("names which way a belt faces", () => {
+    // The only thing a player can get wrong about a belt, and the arrow on a
+    // twenty-pixel tile is small. A belt pointed into a mill instead of away
+    // from it looks identical to one that works.
+    const w = new World({ seed: 1 });
+    w.research.unlocked.add("conveyor");
+    const belt = w.placeMachine("conveyor", { x: 18, y: 18 }, "south");
+    belt.inventory = { wheat: 2 };
+    expect(describeTile(w.snapshot(), { x: 18, y: 18 })).toEqual([
+      "Conveyor",
+      "  facing south",
+      "  holding 2 wheat",
+      "soil",
+    ]);
+  });
+
+  it("says nothing about facing for a machine that has no front", () => {
+    const w = new World({ seed: 1 });
+    expect(describeTile(w.snapshot(), { x: 16, y: 16 }).some((l) => l.includes("facing"))).toBe(
+      false,
+    );
+  });
 });

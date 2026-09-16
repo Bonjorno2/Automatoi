@@ -7,6 +7,7 @@ import {
   MODULE,
   TERRAIN,
   botColor,
+  cargoPips,
   cropColor,
   cropStage,
 } from "../../src/render/palette";
@@ -76,6 +77,37 @@ describe("the palette covers every sim union", () => {
     // Pips are read by colour alone; two modules sharing one is unreadable.
     expect(new Set(values).size).toBe(values.length);
     expect(Object.keys(MODULE).sort()).toEqual(["harvester", "planter", "radio", "scanner"]);
+  });
+});
+
+describe("cargoPips", () => {
+  it("gives nothing for an empty machine", () => {
+    expect(cargoPips({}, 4)).toEqual([]);
+    expect(cargoPips({ wheat: 0 }, 4)).toEqual([]);
+  });
+
+  it("gives one pip per item held", () => {
+    expect(cargoPips({ wheat: 3 }, 4)).toEqual([
+      ITEM_COLOR.wheat,
+      ITEM_COLOR.wheat,
+      ITEM_COLOR.wheat,
+    ]);
+  });
+
+  it("orders mixed cargo the way the sim hands it on", () => {
+    // Same order the belt step itself chooses from, so what the player sees
+    // leaving a belt is what the sim moves next.
+    expect(cargoPips({ bread: 1, wheat: 2 }, 4)).toEqual([
+      ITEM_COLOR.wheat,
+      ITEM_COLOR.wheat,
+      ITEM_COLOR.bread,
+    ]);
+  });
+
+  it("stops at the cap rather than drawing a pile", () => {
+    // A belt can hold four of each of three items. Twelve pips on a twenty
+    // pixel tile is a smudge; the cap is what keeps it readable.
+    expect(cargoPips({ wheat: 4, flour: 4, bread: 4 }, 4)).toHaveLength(4);
   });
 });
 

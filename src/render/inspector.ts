@@ -44,6 +44,11 @@ export function describeTile(snapshot: WorldSnapshot, tile: Vec): string[] {
   const machine = snapshot.machines.find((m) => m.pos.x === tile.x && m.pos.y === tile.y);
   if (machine) {
     lines.push(MACHINE_LABEL[machine.kind]);
+    // Before the contents, because for a belt it is the more important fact.
+    // The facing is the only thing a player can get wrong about one, the arrow
+    // is small at the sizes this renders at, and a belt pointed into a mill
+    // instead of away from it looks exactly like one that works.
+    if (machine.dir) lines.push(`  facing ${machine.dir}`);
     lines.push(`  holding ${describeInventory(machine.inventory)}`);
     if (machine.progress > 0) lines.push(`  working — ${Math.round(machine.progress * 100)}%`);
     // Jammed first: a machine that is both is stuck in the way feeding it will

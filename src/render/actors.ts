@@ -10,7 +10,7 @@ import type {
   WorldSnapshot,
 } from "../sim/types.ts";
 import { toCentre, type Geometry } from "./geometry.ts";
-import { COLOR, MACHINE, MIN_ID_SIZE, MODULE, botColor } from "./palette.ts";
+import { COLOR, MACHINE, MIN_ID_SIZE, MODULE, botColor, cargoPips } from "./palette.ts";
 import { actorPos } from "./actor-pos.ts";
 
 /**
@@ -29,8 +29,15 @@ export interface ActorLayer {
 }
 
 interface MachineStyle {
-  /** The block itself. Drawn once per size. */
-  body(g: Graphics, size: number): void;
+  /**
+   * The block itself. Drawn **once**, when the sprite is created.
+   *
+   * It may therefore read anything about the machine that cannot change — a
+   * conveyor's facing is fixed at placement, which is what makes the arrow
+   * belong here rather than in the overlay. Anything that does change belongs
+   * below, or it will be drawn once and then be wrong.
+   */
+  body(g: Graphics, size: number, m: MachineSnapshot): void;
   /**
    * What the machine is doing, redrawn when it changes. Return value says
    * whether anything was drawn, so an idle machine costs nothing.
@@ -85,17 +92,52 @@ const MACHINE_STYLE: Record<MachineKind, MachineStyle> = {
     overlay: conversionArc,
   },
   conveyor: {
-    // A plate filling its tile, because a belt is floor rather than furniture.
-    // Task 5 gives it the arrow and draws what it is carrying; this is only
-    // enough for the compiler's demanded row and for a belt to be visible at
-    // all while Task 4 makes it move.
-    body(g, size) {
+    // A plate filling its tile, because a belt is floor rather than furniture:
+    // a line of them should read as one continuous run, not as a row of boxes.
+    body(g, size, m) {
       g.rect(-size / 2, -size / 2, size, size).fill(MACHINE.conveyor.body);
-      g.rect(-size / 2, -size * 0.06, size, size * 0.12).fill(MACHINE.conveyor.trim);
+      drawArrow(g, size, m.dir ?? "north");
     },
-    overlay() {},
+    // What it is carrying. The overlay's key already includes the machine's item
+    // total, so this is redrawn exactly when the cargo changes.
+    overlay(g, size, m) {
+      const pips = cargoPips(m.inventory, PIPS_PER_BELT);
+      if (pips.length === 0) return;
+      const r = size * 0.11;
+      const gap = r * 2.4;
+      const start = -((pips.length - 1) * gap) / 2;
+      pips.forEach((colour, i) => {
+        g.circle(start + i * gap, 0, r).fill(colour);
+      });
+    },
   },
 };
+
+/** How many items a belt draws before it stops counting. */
+const PIPS_PER_BELT = 4;
+
+/**
+ * Which way a belt hands things on.
+ *
+ * Built from the sim's own direction vector rather than from four hand-drawn
+ * triangles, so there is one place that knows what "east" means on screen and it
+ * is the same place the sim gets it from.
+ */
+function drawArrow(g: Graphics, size: number, dir: Direction): void {
+  const v = DIR[dir];
+  const across = { x: -v.y, y: v.x };
+  const tip = size * 0.3;
+  const back = size * 0.12;
+  const half = size * 0.2;
+  g.poly([
+    v.x * tip,
+    v.y * tip,
+    -v.x * back + across.x * half,
+    -v.y * back + across.y * half,
+    -v.x * back - across.x * half,
+    -v.y * back - across.y * half,
+  ]).fill({ color: MACHINE.conveyor.trim, alpha: 0.85 });
+}
 
 /**
  * How far through its conversion a machine is.
@@ -247,7 +289,7 @@ export function createActorLayer(frameLayer: Container, geometry: Geometry): Act
         machineContainer.addChild(root);
         sprite = { root, body, overlay, key: "" };
         machines.set(machine.id, sprite);
-        style.body(body, geo.size);
+        style.body(body, geo.size, machine);
       }
 
       const p = toCentre(geo, machine.pos);

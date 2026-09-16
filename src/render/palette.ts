@@ -1,5 +1,5 @@
-import { CROP_GROWTH, WHEAT_GROWTH_TICKS } from "../sim/config.ts";
-import type { Item, MachineKind, ModuleName, Terrain } from "../sim/types.ts";
+import { CROP_GROWTH, ITEMS, WHEAT_GROWTH_TICKS } from "../sim/config.ts";
+import type { Inventory, Item, MachineKind, ModuleName, Terrain } from "../sim/types.ts";
 
 /**
  * Every colour in the game, and the arithmetic that picks between them.
@@ -52,6 +52,27 @@ export const ITEM_COLOR: Record<Item, number> = {
   flour: 0xe8e0cc,
   bread: 0xb07038,
 };
+
+/**
+ * One colour per item a machine is carrying, in the order the sim hands them on.
+ *
+ * Belts hold a count per item rather than items at positions (Decision 5 of the
+ * milestone 6 plan), so what is drawn is a pip per item and not a sliding crate.
+ * The order matters: it is the same order `ITEMS` gives the belt step, so the
+ * leftmost pip is the one that leaves next.
+ *
+ * Capped, because a belt can hold four of each of three items and twelve pips on
+ * a twenty-pixel tile is a smudge rather than information.
+ */
+export function cargoPips(inventory: Inventory, max: number): number[] {
+  const pips: number[] = [];
+  for (const item of ITEMS) {
+    for (let i = 0; i < (inventory[item] ?? 0) && pips.length < max; i++) {
+      pips.push(ITEM_COLOR[item]);
+    }
+  }
+  return pips;
+}
 
 /**
  * One row per machine kind. Milestone 5's mill and oven are two more rows.
