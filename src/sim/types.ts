@@ -9,7 +9,14 @@ export type Terrain = "grass" | "soil";
  */
 export type Item = "wheat" | "flour" | "bread";
 export type ModuleName = "harvester" | "planter" | "scanner" | "radio" | "builder";
-export type MachineKind = "console" | "crate" | "mill" | "oven" | "conveyor";
+export type MachineKind =
+  | "console"
+  | "crate"
+  | "mill"
+  | "oven"
+  | "conveyor"
+  /** Turns a script into a bot. See `World.canSpawn`. */
+  | "fabricator";
 export type ResearchName =
   | "planter"
   | "scanner"

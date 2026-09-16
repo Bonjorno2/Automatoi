@@ -58,17 +58,18 @@ describe("the palette covers every sim union", () => {
       expect(isColor(pair.body), name).toBe(true);
       expect(isColor(pair.trim), name).toBe(true);
     }
-    // Planned edit 1 of the milestone 6 plan, and the second milestone running
-    // in which this line is the only thing a growing union breaks. It is kept
-    // for the loop above it — that the values are usable colours is not
-    // something the `Record` type can check — and not for this assertion.
-    expect(Object.keys(MACHINE).sort()).toEqual([
-      "console",
-      "conveyor",
-      "crate",
-      "mill",
-      "oven",
-    ]);
+    // The `Object.keys` assertion that used to sit here is gone, on its third
+    // consecutive break. Milestone 5 recorded that it breaks every time the
+    // union grows and catches nothing the `Record` type does not catch at
+    // compile time; milestone 6 edited it and said the same; milestone 9's plan
+    // predicted it would not break and was wrong. It had no defenders in any of
+    // those three write-ups, and an assertion nobody is prepared to argue for is
+    // upkeep rather than a test.
+    //
+    // What it was protecting is the loop above, which is the part a type cannot
+    // do: that every value is a usable colour. That stays, and it covers a new
+    // kind automatically instead of demanding a line.
+    expect(Object.keys(MACHINE).length).toBeGreaterThan(0);
   });
 
   it("gives every module a pip colour, and no two the same", () => {

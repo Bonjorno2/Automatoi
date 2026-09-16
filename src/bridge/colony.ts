@@ -116,11 +116,33 @@ export class Colony {
           return { ok: true, value: null };
         case "research-status":
           return { ok: true, value: this.researchStatus() };
+        case "spawn":
+          return this.doSpawn(request.source);
       }
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
   }
+
+  /**
+   * Build a bot and, if this colony runs workers, start its script.
+   *
+   * The sim half and the worker half are split because a plain `Colony` has no
+   * workers at all — it is the headless half the sim tests use — and it can
+   * still legitimately answer "a bot was built". `ScriptColony` overrides the
+   * hook to actually run the thing.
+   */
+  protected doSpawn(source: string): CommandResult {
+    const why = this.world.canSpawn();
+    if (why) return { ok: false, error: why };
+    const bot = this.world.spawnBot();
+    this.startSpawned(bot.id, source);
+    // The id, so the spawning script can radio it or read it out of colony.bots().
+    return { ok: true, value: bot.id };
+  }
+
+  /** What to do with a freshly built bot. Nothing, without workers. */
+  protected startSpawned(_botId: number, _source: string): void {}
 
   /** Hand back results the sim has finished with. */
   protected deliver(): void {
@@ -391,6 +413,17 @@ export class ScriptColony extends Colony {
     this.settlers.get(botId)?.({ status: "stopped" });
     await worker.terminate();
     this.resetChannel(botId);
+  }
+
+  /**
+   * A bot built by another bot's script, running from the moment it exists.
+   *
+   * Not awaited: `run` resolves when the script *settles*, which for the
+   * `while (true)` loop a spawned bot usually gets is never. Awaiting here would
+   * hang the spawning script on the lifetime of its child.
+   */
+  protected override startSpawned(botId: number, source: string): void {
+    void this.run(botId, source);
   }
 
   async stopAll(): Promise<void> {

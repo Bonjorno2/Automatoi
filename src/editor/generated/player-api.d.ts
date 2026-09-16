@@ -13,7 +13,9 @@ type Terrain = "grass" | "soil";
  */
 type Item = "wheat" | "flour" | "bread";
 type ModuleName = "harvester" | "planter" | "scanner" | "radio" | "builder";
-type MachineKind = "console" | "crate" | "mill" | "oven" | "conveyor";
+type MachineKind = "console" | "crate" | "mill" | "oven" | "conveyor"
+/** Turns a script into a bot. See `World.canSpawn`. */
+ | "fabricator";
 type ResearchName = "planter" | "scanner" | "crate" | "mill" | "oven" | "conveyor" | "chassis" | "radio" | "builder" | "library" | "fabricator";
 interface Vec {
     x: number;
@@ -325,6 +327,32 @@ interface ColonyApi {
          * ```
          */
         status(): ResearchStatus;
+    };
+    /**
+     * The Fabricator, if one has been researched. Builds a bot and starts it.
+     *
+     * ```js
+     * const id = colony.fabricator.spawn(() => {
+     *   while (true) { bot.harvester.harvest(); bot.move("east"); }
+     * });
+     * ```
+     *
+     * **The function is source, not a closure.** What crosses to the new bot is
+     * `script.toString()`, because a function cannot travel between workers. A
+     * variable from the script that called `spawn` is therefore *not* in scope
+     * inside it, and referring to one is a reference error in the new bot rather
+     * than in this one. What *is* in scope is `bot`, `colony`, and everything in
+     * the shared library — which is where code meant for more than one bot goes.
+     *
+     * Returns the new bot's id, so the caller can radio it or find it in
+     * `colony.bots()`. Refuses with the sim's own reason when there is no
+     * fabricator, no spare chassis, or no free tile beside the machine.
+     *
+     * Optional in the type and present at runtime, like every module namespace —
+     * `api.ts` documents that asymmetry at length above and it is settled.
+     */
+    fabricator?: {
+        spawn(script: () => void): number;
     };
 }
 

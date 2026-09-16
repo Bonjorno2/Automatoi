@@ -46,7 +46,15 @@ export type HostRequest =
    * have rippled through every bridge test for no gain. Reading research is a
    * free read like `colony.time()`: it answers at once and costs no ticks.
    */
-  | { kind: "research-status" };
+  | { kind: "research-status" }
+  /**
+   * Start another bot at a fabricator.
+   *
+   * The source travels as text because a function cannot cross a worker
+   * boundary — see `ColonyApi.fabricator.spawn`, where the consequence for the
+   * player is spelled out.
+   */
+  | { kind: "spawn"; source: string };
 
 /** What `colony.research.status()` answers with. */
 export interface ResearchStatus {

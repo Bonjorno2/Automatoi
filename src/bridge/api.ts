@@ -91,6 +91,32 @@ export interface ColonyApi {
      */
     status(): ResearchStatus;
   };
+  /**
+   * The Fabricator, if one has been researched. Builds a bot and starts it.
+   *
+   * ```js
+   * const id = colony.fabricator.spawn(() => {
+   *   while (true) { bot.harvester.harvest(); bot.move("east"); }
+   * });
+   * ```
+   *
+   * **The function is source, not a closure.** What crosses to the new bot is
+   * `script.toString()`, because a function cannot travel between workers. A
+   * variable from the script that called `spawn` is therefore *not* in scope
+   * inside it, and referring to one is a reference error in the new bot rather
+   * than in this one. What *is* in scope is `bot`, `colony`, and everything in
+   * the shared library — which is where code meant for more than one bot goes.
+   *
+   * Returns the new bot's id, so the caller can radio it or find it in
+   * `colony.bots()`. Refuses with the sim's own reason when there is no
+   * fabricator, no spare chassis, or no free tile beside the machine.
+   *
+   * Optional in the type and present at runtime, like every module namespace —
+   * `api.ts` documents that asymmetry at length above and it is settled.
+   */
+  fabricator?: {
+    spawn(script: () => void): number;
+  };
 }
 
 /** Posted to the host thread out of band; logging never blocks the script. */
@@ -159,6 +185,12 @@ export function makeApi(
     research: {
       queue: (name) => void call({ kind: "research", name }),
       status: () => call({ kind: "research-status" }) as ResearchStatus,
+    },
+    fabricator: {
+      // `${script}` rather than a template of the body: a function's own text
+      // includes its parameter list and braces, so wrapping it in a call is what
+      // makes an arrow, a function expression and a named function all work.
+      spawn: (script) => call({ kind: "spawn", source: `(${script})();` }) as number,
     },
   };
 

@@ -16,6 +16,7 @@ const MACHINE_LABEL: Record<MachineKind, string> = {
   mill: "Mill",
   oven: "Oven",
   conveyor: "Conveyor",
+  fabricator: "Fabricator",
 };
 
 /**
