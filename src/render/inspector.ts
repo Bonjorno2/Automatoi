@@ -348,6 +348,16 @@ export interface Inspector {
   onSelect: (botId: number | null) => void;
   /** Called with the tile clicked while placing. Placement stays active. */
   onPlace: (tile: Vec) => void;
+  /**
+   * Alt-click: the player is asking for this tile's address, in code.
+   *
+   * A modifier rather than a mode, so it is available the whole game rather than
+   * only while the opening asks for it — by cycle five a planner is full of
+   * coordinates and typing them off a screenshot is the tedium nobody planned.
+   * Plain left-click is untouched: it already selects a bot and places a
+   * machine, and stealing it would make every misclick cost something.
+   */
+  onPick: (tile: Vec) => void;
 }
 
 export function createInspector(
@@ -434,6 +444,7 @@ export function createInspector(
     },
     onSelect: () => {},
     onPlace: () => {},
+    onPick: () => {},
   };
 
   const tileFromEvent = (e: PointerEvent): Vec | null => {
@@ -449,6 +460,15 @@ export function createInspector(
   });
   host.addEventListener("pointerdown", (e) => {
     const tile = tileFromEvent(e);
+
+    // Before everything else, including placing: asking where a tile is should
+    // work while armed, because that is exactly when a player is thinking in
+    // coordinates.
+    if (e.altKey && tile) {
+      e.preventDefault();
+      inspector.onPick(tile);
+      return;
+    }
 
     if (inspector.placing) {
       // Right-click cancels, which is the convention every game in this genre

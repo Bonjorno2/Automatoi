@@ -67,13 +67,13 @@ describe("Colony request servicing", () => {
   });
 
   it("turns a thrown host error into a failed reply", () => {
+    // An unknown name, since queueing the same research twice stopped throwing
+    // in milestone 10 — see `World.queueResearch`. What is being tested here is
+    // the bridge turning a throw into a reply, not which calls throw.
     const { c, sab } = colony();
-    postRequest(sab, { kind: "research", name: "planter" });
+    postRequest(sab, { kind: "research", name: "laser" as never });
     c.pump();
-    takeReply(sab);
-    postRequest(sab, { kind: "research", name: "planter" });
-    c.pump();
-    expect(takeReply(sab)).toEqual({ ok: false, value: "planter already queued" });
+    expect(takeReply(sab)).toEqual({ ok: false, value: "unknown research laser" });
   });
 });
 

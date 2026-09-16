@@ -26,6 +26,23 @@ export function insertAtCursor(
 }
 
 /**
+ * Put this in at the cursor with no newline — for something mid-line.
+ *
+ * A tile's address is not a statement. It lands inside whatever the player was
+ * already typing, which is the difference between picking a coordinate off the
+ * map and being handed a line you then have to unwrap.
+ */
+export function insertInline(
+  editor: monaco.editor.IStandaloneCodeEditor,
+  text: string,
+): void {
+  const selection = editor.getSelection();
+  if (!selection) return;
+  editor.executeEdits("pick", [{ range: selection, text, forceMoveMarkers: true }]);
+  editor.focus();
+}
+
+/**
  * Put this in place of the whole script.
  *
  * **What the first real playtest found, and it was severe.** A suggested chip is

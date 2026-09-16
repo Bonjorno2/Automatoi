@@ -21,19 +21,40 @@ const unlocked = (
 const fieldLoop = LADDERS.find((l) => l.id === "field-loop")!;
 
 describe("the ladders", () => {
+  it("opens with the ladder that teaches the opening", () => {
+    // Order matters here and nowhere else: this is the one the codebook shows
+    // first, and it is the one a player who has done nothing needs.
+    expect(LADDERS[0]!.id).toBe("getting-started");
+  });
+
   it("covers every chip exactly once", () => {
     const titles = LADDERS.flatMap((l) => l.rungs.map((r) => r.title));
     expect(new Set(titles).size).toBe(titles.length);
     expect(titles.length).toBe(SNIPPETS.length);
   });
 
-  it("gives every rung something it introduces", () => {
+  it("gives every rung something it introduces, unless it is practice", () => {
     // A rung that introduces nothing is a rung that unlocks with the one below
     // it, which means it is not a rung — it is a second copy of the same idea.
+    // The exception is deliberate and marked: the opening's "now do that three
+    // more times" teaches no primitive, it teaches tedium, which is the whole
+    // reason the loop afterwards feels like a relief.
     for (const ladder of LADDERS) {
       for (const rung of ladder.rungs) {
+        if (rung.practice) {
+          expect(rung.introduces, `${ladder.id} / ${rung.title}`).toEqual([]);
+          continue;
+        }
         expect(rung.introduces.length, `${ladder.id} / ${rung.title}`).toBeGreaterThan(0);
       }
+    }
+  });
+
+  it("only marks practice rungs in the opening", () => {
+    // Everywhere else a rung that adds nothing is a mistake, not a lesson.
+    for (const ladder of LADDERS) {
+      if (ladder.id === "getting-started") continue;
+      for (const rung of ladder.rungs) expect(rung.practice).toBeUndefined();
     }
   });
 
@@ -66,11 +87,18 @@ describe("the ladders", () => {
       expect(needsFor(fieldLoop, 2).sort()).toEqual(["harvest", "if", "inventory", "move", "while"]);
     });
 
-    it("locks the first rung for a player who has only run the opening script", () => {
-      // And this is the useful part: what it is missing is exactly `while`,
-      // which is the whole lesson of the design's first ten minutes.
+    it("locks the first rung for a player who has run nothing", () => {
+      // The opening buffer is a comment now, so a player who has pressed Run
+      // once and nothing else has demonstrated nothing.
       const vocabulary = primitivesIn(OPENING_SCRIPT);
+      expect([...vocabulary]).toEqual([]);
       expect(unlocked(fieldLoop, 0, vocabulary)).toBe(false);
+    });
+
+    it("names exactly `while` to somebody who has moved and harvested", () => {
+      // Which is where the opening ladder's first two steps leave them, and it
+      // is the whole lesson of the design's first ten minutes, printed for free.
+      const vocabulary = primitivesIn('bot.harvester.harvest();\nbot.move("east");');
       expect(needsFor(fieldLoop, 0).filter((p) => !vocabulary.has(p))).toEqual(["while"]);
     });
 
@@ -124,7 +152,7 @@ describe("the ladders", () => {
 
     it("leaves the ladders a starting chassis can climb ungated", () => {
       const free = LADDERS.filter((l) => !l.requires && !l.needsMachine).map((l) => l.id);
-      expect(free).toEqual(["field-loop", "knowing", "research"]);
+      expect(free).toEqual(["getting-started", "field-loop", "knowing", "research"]);
     });
   });
 });

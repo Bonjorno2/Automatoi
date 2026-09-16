@@ -37,6 +37,19 @@ export interface Rung {
   code: string;
   /** What this rung adds to the one below it. Empty for nothing new. */
   introduces: Primitive[];
+  /**
+   * A rung that teaches no new primitive, only how tiring the last one is.
+   *
+   * The opening needs these and nothing else does. The design's abstraction
+   * rhythm is that a hands phase's *pain is tedium* and the mind phase that
+   * follows automates it — so the step that says "now do that three more times"
+   * is not filler, it is the thing that makes the loop feel like a relief
+   * instead of a trick. Marked rather than inferred, so that a rung which
+   * introduces nothing by accident still fails the test.
+   */
+  practice?: true;
+  /** What the game says when it offers this rung, if it ever offers it. */
+  prompt?: string;
 }
 
 export interface Ladder {
@@ -51,6 +64,148 @@ export interface Ladder {
 }
 
 export const LADDERS: Ladder[] = [
+  /**
+   * The opening, handed over one line at a time.
+   *
+   * **Why this exists, and why the loop is last.** The first playtest found a
+   * beginner had no path from "my loop works" to "something got researched" —
+   * research needs wheat in the console, the only way in is `deposit`, and the
+   * chip teaching `deposit` was hidden behind a crate that needs research. Every
+   * signpost pointed away from the only door.
+   *
+   * The deeper problem was that the loop arrived on the *second* Run, which
+   * skipped the hands phase entirely. The design's abstraction rhythm says the
+   * mind phase automates the tedium of the hands phase — so a loop handed over
+   * before there is any tedium is a trick rather than a relief. This ladder is
+   * the hands phase: move, collect, move, collect, until the player's own
+   * fingers are bored, and *then* the loop.
+   *
+   * Two loops, in the right order. The walk home comes first because a loop that
+   * **stops** is an easier idea than one that does not, and it stops at a number
+   * the player can see and click on the map. `while (true)` is the finale.
+   *
+   * The walk home is two axes and not "west until something blocks you", which
+   * is what it was until a playtest ran it: the sweep goes west past the
+   * Console's column on the rows below it, so "until blocked" walked *away* from
+   * home to the world's edge and deposited into nothing.
+   */
+  {
+    id: "getting-started",
+    name: "Getting started",
+    rungs: [
+      {
+        title: "Move",
+        blurb: "One tile, one call. East is to the right.",
+        prompt: "Start here. Take this line and press Run.",
+        introduces: ["move"],
+        code: `bot.move("east");`,
+      },
+      {
+        title: "Collect",
+        blurb: "Takes the wheat on the tile you are standing on. Nothing else.",
+        prompt: "The bot moved. Now take what is under it.",
+        introduces: ["harvest"],
+        code: `bot.harvester.harvest();`,
+      },
+      {
+        title: "Again, and again",
+        blurb: "Collect, step, collect, step. Exactly what you just did, three times over.",
+        prompt: "Two lines is a bot that does one thing. Try a few in a row.",
+        practice: true,
+        introduces: [],
+        code: `bot.harvester.harvest();
+bot.move("east");
+bot.harvester.harvest();
+bot.move("east");
+bot.harvester.harvest();
+bot.move("east");`,
+      },
+      {
+        title: "Turn at the end of a row",
+        blurb: "Nothing new — just south, then back the other way. Getting tiring yet?",
+        prompt: "The row runs out. Go down one and come back along the next.",
+        practice: true,
+        introduces: [],
+        code: `bot.harvester.harvest();
+bot.move("east");
+bot.harvester.harvest();
+bot.move("south");
+bot.harvester.harvest();
+bot.move("west");
+bot.harvester.harvest();
+bot.move("west");
+bot.harvester.harvest();`,
+      },
+      {
+        title: "Go home and hand it over",
+        blurb:
+          "17,17 is the tile below the Console — alt-click any tile to drop its address into your code. Two walks, one per axis, and one step north to arrive beside it.",
+        prompt: "Wheat in the bot buys nothing. The Research Console is west of you.",
+        introduces: ["while", "pos", "deposit"],
+        code: `while (bot.pos().y !== 17) bot.move(bot.pos().y > 17 ? "north" : "south");
+while (bot.pos().x !== 17) bot.move(bot.pos().x > 17 ? "west" : "east");
+bot.move("north");
+bot.deposit("west", "wheat", 10);`,
+      },
+      {
+        title: "Only when you are full",
+        blurb: "A bot carries 10 in total. Check before you walk all the way home.",
+        prompt: "Walking home after every single grain is a waste. Go when you are full.",
+        introduces: ["if", "inventory"],
+        code: `bot.harvester.harvest();
+bot.move("east");
+if ((bot.inventory().wheat ?? 0) >= 10) {
+  while (bot.pos().y !== 17) bot.move(bot.pos().y > 17 ? "north" : "south");
+  while (bot.pos().x !== 17) bot.move(bot.pos().x > 17 ? "west" : "east");
+  bot.move("north");
+  bot.deposit("west", "wheat", 10);
+}`,
+      },
+      {
+        title: "Ask for something",
+        blurb: "The Console spends what you give it. Queue a planter and keep feeding it.",
+        prompt: "The Console has wheat now. Tell it what to build.",
+        introduces: ["queue"],
+        code: `colony.research.queue("planter");
+bot.harvester.harvest();
+bot.move("east");
+if ((bot.inventory().wheat ?? 0) >= 10) {
+  while (bot.pos().y !== 17) bot.move(bot.pos().y > 17 ? "north" : "south");
+  while (bot.pos().x !== 17) bot.move(bot.pos().x > 17 ? "west" : "east");
+  bot.move("north");
+  bot.deposit("west", "wheat", 10);
+}`,
+      },
+      {
+        title: "Now do all of it, forever",
+        blurb:
+          "Everything above, wrapped in a loop that never ends. This is the last time you press Run for one trip.",
+        prompt: "You have written the same four lines five times. Let the bot do that part.",
+        practice: true,
+        introduces: [],
+        // The turn has to flip the direction as well as drop a row. Without the
+        // flip this walked east into the world's edge and then straight down it
+        // forever — `stuck — 722 commands got nowhere`, research frozen at 7/10.
+        // Found by running the finale, which is the one chip a player is most
+        // likely to leave running and least likely to read.
+        code: `colony.research.queue("planter");
+let goingEast = true;
+while (true) {
+  bot.harvester.harvest();
+  if (!bot.move(goingEast ? "east" : "west")) {
+    bot.move("south");
+    goingEast = !goingEast;
+  }
+  if ((bot.inventory().wheat ?? 0) >= 10) {
+    while (bot.pos().y !== 17) bot.move(bot.pos().y > 17 ? "north" : "south");
+    while (bot.pos().x !== 17) bot.move(bot.pos().x > 17 ? "west" : "east");
+    bot.move("north");
+    bot.deposit("west", "wheat", 10);
+  }
+}`,
+      },
+    ],
+  },
   {
     id: "field-loop",
     name: "The field loop",

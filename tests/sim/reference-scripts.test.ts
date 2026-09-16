@@ -43,7 +43,7 @@ describe("reference scripts", () => {
     // the same simulated time and that claim is only checkable against a number.
     // It was 155 until milestone 10: the loop used to run one further harvest,
     // the one that threw, and that attempt cost a tick of its own.
-    expect(w.time).toBe(150);
+    expect(w.time).toBe(145);
   });
 
   it("is stable across a handful of seeds", () => {

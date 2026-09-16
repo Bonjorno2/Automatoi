@@ -70,10 +70,17 @@ function missing(ladder: Ladder, i: number, view: CodebookView): string[] {
     .map((p) => PRIMITIVE_LABEL[p]);
 }
 
+export interface CodebookActions {
+  /** The player took the suggested chip. */
+  onTake: (id: string) => void;
+  /** The player refused it. Not the same act — see `Suggester.take`. */
+  onRefuse: (id: string) => void;
+}
+
 export function createCodebook(
   root: HTMLElement,
   editor: monaco.editor.IStandaloneCodeEditor,
-  onRetire: (id: string) => void,
+  actions: CodebookActions,
 ): Codebook {
   root.innerHTML = `
     <h2 class="group-title">codebook</h2>
@@ -145,10 +152,10 @@ export function createCodebook(
     suggestedEl.append(title);
 
     const chip = codeChip(rung, true);
-    // Taken is as final as refused. A chip that comes back after the player has
-    // used it is a chip telling them they did it wrong. The rung itself stays in
-    // the ladder below, unlocked — which is the whole point of one surface.
-    chip.addEventListener("click", () => onRetire(suggestion.id));
+    // A reactive suggestion is finished once taken — a chip that comes back
+    // after you used it is a chip telling you that you did it wrong. An opening
+    // step is not: it is advanced by running it. The suggester knows which.
+    chip.addEventListener("click", () => actions.onTake(suggestion.id));
     suggestedEl.append(chip);
 
     // Dismissal is one click and it is permanent, which the IDE prior art is
@@ -158,7 +165,7 @@ export function createCodebook(
     no.type = "button";
     no.className = "suggest-dismiss";
     no.textContent = "no thanks — keep it in the book";
-    no.addEventListener("click", () => onRetire(suggestion.id));
+    no.addEventListener("click", () => actions.onRefuse(suggestion.id));
     suggestedEl.append(no);
   }
 

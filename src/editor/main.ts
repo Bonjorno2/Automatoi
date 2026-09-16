@@ -12,6 +12,7 @@ import { createConsolePanel } from "./console-panel.ts";
 import { createCodebook } from "./codebook.ts";
 import { createSuggester } from "./suggestions.ts";
 import { createKeyPanel, sayAboutKey } from "./key-panel.ts";
+import { insertInline } from "./insert.ts";
 import { decodeKey, encodeKey, factsFrom, keyCost, partition } from "./progress-key.ts";
 import type { KeyContents } from "./progress-key.ts";
 import type { ResearchName } from "../sim/types.ts";
@@ -359,6 +360,19 @@ function armFor(option: Exclude<BuildOption, { kind: "module" }>): Placement {
   };
 }
 
+/**
+ * Alt-click a tile and its address lands in the code at the cursor.
+ *
+ * Bare numbers rather than `{ x: 4, y: 7 }`, because the thing a player is
+ * usually part-way through typing is an argument list — `bot.pos().x > 16` or a
+ * comparison — and a wrapped object would have to be unwrapped again. The status
+ * line says what happened, since the canvas gives no other sign.
+ */
+inspector.onPick = (tile) => {
+  insertInline(editor, `${tile.x}, ${tile.y}`);
+  statusEl.textContent = `picked ${tile.x}, ${tile.y}`;
+};
+
 inspector.onPlace = (tile) => {
   const placing = inspector.placing;
   // Clicking an illegal tile does nothing at all. It does not cancel, because
@@ -401,7 +415,10 @@ const suggester = createSuggester();
 const codebook = createCodebook(
   document.querySelector<HTMLElement>("#codebook")!,
   editor,
-  (id) => suggester.retire(id),
+  {
+    onTake: (id) => suggester.take(id),
+    onRefuse: (id) => suggester.retire(id),
+  },
 );
 
 /**

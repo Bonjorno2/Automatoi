@@ -74,12 +74,23 @@ describe("research", () => {
     expect(() => w.deployBot({ x: 19, y: 16 })).toThrow("no spare chassis");
   });
 
-  it("rejects duplicate, already-unlocked, and unknown research", () => {
+  it("shrugs at a research already queued or already had, and only throws at a typo", () => {
+    // Asking twice stopped being an error in milestone 10, when the opening
+    // playtest found a script with `queue("planter")` at the top — which is what
+    // the opening teaches — dying on line 1 the second time Run was pressed.
+    // Pressing Run twice is the most likely single action in this game.
     const w = fundedWorld(1000);
     w.queueResearch("planter");
-    expect(() => w.queueResearch("planter")).toThrow("planter already queued");
+    expect(() => w.queueResearch("planter")).not.toThrow();
+    expect(w.research.queue).toEqual(["planter"]);
+
     ticks(w, RESEARCH_COST.planter);
-    expect(() => w.queueResearch("planter")).toThrow("planter already researched");
+    expect(w.research.unlocked.has("planter")).toBe(true);
+    expect(() => w.queueResearch("planter")).not.toThrow();
+    // And it does not sneak back into the queue once it is already had.
+    expect(w.research.queue).toEqual([]);
+
+    // A name that is not research at all really is a mistake.
     expect(() => w.queueResearch("laser" as never)).toThrow("unknown research laser");
   });
 });

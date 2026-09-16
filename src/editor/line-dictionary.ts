@@ -132,6 +132,15 @@ export const LINES: readonly string[] = [
   "//     bot.move(step.dir);",
   "//   }",
   "// }",
+  // --- the opening ladder ------------------------------------------------
+  // Appended, never inserted. Every line above keeps the number it had.
+  'while (bot.move("west")) {}',
+  'bot.deposit("west", "wheat", 10);',
+  "if ((bot.inventory().wheat ?? 0) >= 10) {",
+  'if (!bot.move("east")) {',
+  'while (bot.pos().y > 16) bot.move("north");',
+  "while (bot.pos().y !== 17) bot.move(bot.pos().y > 17 ? \"north\" : \"south\");",
+  "while (bot.pos().x !== 17) bot.move(bot.pos().x > 17 ? \"west\" : \"east\");",
 ];
 
 /** Where each line sits, for the encoder. Built once; the list never changes. */

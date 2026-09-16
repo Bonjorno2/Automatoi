@@ -9,7 +9,7 @@ import { ScriptColony } from "../../src/bridge/host.ts";
  * naive loop stopped itself and `await c.run(...)` resolved on the error. A full
  * harvest is now a refusal, so the naive loop never ends — and a test that polls
  * for the inventory instead measures how often the poller happened to look, not
- * what the sim cost. Measured: 154 ticks by polling against the sim's own 150.
+ * what the sim cost. Measured: 154 ticks by polling against the sim's own 145.
  *
  * So the loop stops on the same condition `reference-scripts.test.ts` stops on,
  * which restores the exact comparison this file exists to make. The *naive*
@@ -80,7 +80,7 @@ describe("reference script through the bridge", () => {
       // became 150 in milestone 10, when the loop stopped running one further
       // harvest to find out it was full. `reference-scripts.test.ts` pins the
       // same number against `World` with no bridge in the way.
-      expect(c.world.time).toBe(150);
+      expect(c.world.time).toBe(145);
     } finally {
       await c.stopAll();
     }

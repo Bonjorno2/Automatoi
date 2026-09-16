@@ -167,7 +167,25 @@ export class World {
       }
     }
     // Bot first so it is always id 1; the console becomes id 2.
-    this.addBot({ x: centre.x + 1, y: centre.y }, ["harvester"]);
+    const start = { x: centre.x + 1, y: centre.y };
+    /**
+     * The tile the bot starts on always has wheat on it.
+     *
+     * Milestone 10's first playtest: `WILD_WHEAT_CHANCE` is 0.7, so six seeds in
+     * twenty start the bot on bare soil — and seed 1, the one the game ships,
+     * is one of them. **Every new player's very first `harvest()` found
+     * nothing**, the fleet list read `idle · empty`, and the design's own first
+     * ten minutes says "the bot harvests and steps east".
+     *
+     * A guarantee rather than a nudge to the chance, because a 70% chance of the
+     * opening working is not an opening. Everything else about the field stays
+     * random.
+     */
+    this.tiles[start.y * this.width + start.x]!.crop = {
+      item: "wheat",
+      growth: WHEAT_GROWTH_TICKS,
+    };
+    this.addBot(start, ["harvester"]);
     this.addMachine("console", centre);
   }
 
@@ -924,10 +942,25 @@ export class World {
 
   // ---- research ----
 
+  /**
+   * Ask for a research. Asking twice is not an error.
+   *
+   * **It used to be, and milestone 10's opening playtest is why it is not.** Both
+   * "already queued" and "already researched" threw, so a script with a
+   * `colony.research.queue("planter")` at the top — which is what the opening
+   * teaches, and what any sensible farm loop looks like — **died on line 1 the
+   * second time the player pressed Run.** Pressing Run twice is the most likely
+   * single action in this game.
+   *
+   * Same shape as cycle five's finding 1: a documented call, used at a perfectly
+   * reasonable argument, killing the script. Wanting a thing you already asked
+   * for is not a mistake, it is the definition of idempotent, and an unknown name
+   * still throws because that one really is a typo.
+   */
   queueResearch(name: ResearchName): void {
     if (!(name in RESEARCH_COST)) throw new Error(`unknown research ${name}`);
-    if (this.research.unlocked.has(name)) throw new Error(`${name} already researched`);
-    if (this.research.queue.includes(name)) throw new Error(`${name} already queued`);
+    if (this.research.unlocked.has(name)) return;
+    if (this.research.queue.includes(name)) return;
     this.research.queue.push(name);
   }
 

@@ -85,6 +85,16 @@ export const FACTS = [
   "c:building/0",
   "c:building/1",
   "c:talking/0",
+  // The opening ladder, appended. An old key has zeros here, which is the truth
+  // about somebody who played before it existed.
+  "c:getting-started/0",
+  "c:getting-started/1",
+  "c:getting-started/2",
+  "c:getting-started/3",
+  "c:getting-started/4",
+  "c:getting-started/5",
+  "c:getting-started/6",
+  "c:getting-started/7",
 ] as const;
 
 export type Fact = (typeof FACTS)[number];

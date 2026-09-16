@@ -48,9 +48,11 @@ describe("mentions", () => {
 });
 
 describe("primitivesIn", () => {
-  it("reads the opening script as two verbs and no control flow", () => {
-    // What the codebook opens on, and therefore what the first rung asks for.
-    expect([...primitivesIn(OPENING_SCRIPT)].sort()).toEqual(["harvest", "move"]);
+  it("reads the opening buffer as nothing at all", () => {
+    // Since the opening ladder took over, the buffer opens empty but for a line
+    // of orientation. Shipping `harvest(); move();` meant the game had already
+    // done the only two things its first two steps were about to teach.
+    expect([...primitivesIn(OPENING_SCRIPT)]).toEqual([]);
   });
 
   it("reads the loop the game suggests", () => {

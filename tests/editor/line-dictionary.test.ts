@@ -81,6 +81,13 @@ describe("the line dictionary", () => {
       "//     bot.move(step.dir);",
       "//   }",
       "// }",
+      'while (bot.move("west")) {}',
+      'bot.deposit("west", "wheat", 10);',
+      "if ((bot.inventory().wheat ?? 0) >= 10) {",
+      'if (!bot.move("east")) {',
+      'while (bot.pos().y > 16) bot.move("north");',
+      "while (bot.pos().y !== 17) bot.move(bot.pos().y > 17 ? \"north\" : \"south\");",
+      "while (bot.pos().x !== 17) bot.move(bot.pos().x > 17 ? \"west\" : \"east\");",
     ]);
   });
 

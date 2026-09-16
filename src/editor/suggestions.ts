@@ -1,7 +1,8 @@
 import type { ScriptStatus } from "../bridge/colony.ts";
 import type { WorldEvent } from "../sim/events.ts";
 import type { ResearchName, WorldSnapshot } from "../sim/types.ts";
-import { SNIPPETS } from "./snippets.ts";
+import { LADDERS, SNIPPETS } from "./snippets.ts";
+import type { Rung } from "./snippets.ts";
 import { hasLoop, mentions, primitivesIn } from "./source.ts";
 import type { Primitive } from "./source.ts";
 
@@ -118,6 +119,16 @@ const USES: Partial<Record<ResearchName, string>> = {
   radio: "bot.radio",
   builder: "bot.builder",
 };
+
+/**
+ * The opening, in order. Handed over one rung at a time.
+ *
+ * Sequenced here rather than unlocked like every other ladder, because the point
+ * of an introduction is that it knows where you are. It advances when the player
+ * **runs** a step — not when they are shown one — so a player who ignores the
+ * chip and writes the line themselves advances just the same. See `started`.
+ */
+const INTRO: readonly Rung[] = LADDERS.find((l) => l.id === "getting-started")?.rungs ?? [];
 
 interface Rule {
   id: string;
@@ -246,7 +257,17 @@ export interface Suggester {
   world(snapshot: WorldSnapshot): void;
   /** The one thing worth saying to this bot's author right now, if anything. */
   suggest(botId: number): Suggestion | null;
-  /** Retire a suggestion for the rest of the session: taken, or refused. */
+  /**
+   * The player took this one.
+   *
+   * Not the same as refusing it, which is a distinction the opening forced.
+   * Taking a *reactive* suggestion retires it — a chip that comes back after you
+   * used it is a chip telling you that you did it wrong. But taking an opening
+   * step is how the opening is supposed to go, and retiring it ended the whole
+   * introduction at step one. Found the moment the new opening was played.
+   */
+  take(id: string): void;
+  /** Refuse a suggestion for the rest of the session. */
   retire(id: string): void;
   /**
    * Chips the game has raised at some point, whether or not they were taken.
@@ -281,6 +302,20 @@ export function createSuggester(): Suggester {
   const known = new Set<Primitive>();
   const colony: Colony = { landed: new Set(), hasCrate: false };
 
+  /**
+   * Where the player is in the opening, and whether they have been shown it.
+   *
+   * Two fields rather than one because the step advances on a **run that
+   * happened after the step was offered**. Advancing on the offer alone would
+   * blow through all eight rungs in eight frames, since `suggest` runs every
+   * frame; advancing on any run at all would skip a step for a player who
+   * pressed Run twice.
+   */
+  let introAt = 0;
+  let introShown = false;
+
+  const introDone = (): boolean => introAt >= INTRO.length;
+
   const historyFor = (botId: number): History => {
     let h = histories.get(botId);
     if (!h) {
@@ -300,7 +335,21 @@ export function createSuggester(): Suggester {
       // most that can be known about a player's vocabulary and it never settles,
       // so waiting for a verdict would mean the best scripts taught the book
       // nothing. Running it is the demonstration; finishing it is not.
-      for (const p of primitivesIn(source)) known.add(p);
+      const used = primitivesIn(source);
+      for (const p of used) known.add(p);
+
+      // The opening advances on what the script *contains*, not on the chip
+      // having been clicked, so a player who reads the step and types their own
+      // version moves on exactly the same. A practice rung introduces nothing,
+      // so running anything at all is the whole of its requirement — which is
+      // the point of it: the only thing it asks is that you feel the tedium.
+      if (introShown && !introDone()) {
+        const step = INTRO[introAt]!;
+        if (step.introduces.every((p) => used.has(p))) {
+          introAt++;
+          introShown = false;
+        }
+      }
     },
 
     ran(botId, source, status) {
@@ -323,6 +372,28 @@ export function createSuggester(): Suggester {
     },
 
     suggest(botId) {
+      // The opening owns the floor until it is finished. Every other rule is a
+      // reaction to something going wrong, and a beginner being walked through
+      // their first script does not need to be told their script ended — it is
+      // *supposed* to end. Milestone 10's first playtest had the loop arriving
+      // on the second Run, which skipped the entire hands phase.
+      if (!introDone()) {
+        const step = INTRO[introAt]!;
+        if (!retired.has(`intro:${introAt}`)) {
+          introShown = true;
+          seen.add(step.title);
+          return {
+            id: `intro:${introAt}`,
+            chip: step.title,
+            why: step.prompt ?? step.blurb,
+            code: step.code,
+          };
+        }
+        // Refusing a step refuses the rest of the opening: somebody who has
+        // said "no thanks" to being taught should not be asked eight times.
+        introAt = INTRO.length;
+      }
+
       const h = historyFor(botId);
       for (const rule of RULES) {
         if (retired.has(rule.id) || !rule.fires(h, colony)) continue;
@@ -330,6 +401,13 @@ export function createSuggester(): Suggester {
         return { id: rule.id, chip: rule.chip, why: rule.why, code: codeFor(rule.chip) };
       }
       return null;
+    },
+
+    take(id) {
+      // An opening step is advanced by running it, not by accepting it. The
+      // chip is in the buffer now and has not been run yet; retiring it here
+      // would end the introduction on step one.
+      if (!id.startsWith("intro:")) retired.add(id);
     },
 
     retire(id) {
