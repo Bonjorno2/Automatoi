@@ -208,6 +208,16 @@ interface MirrorState {
     busy: boolean;
 }
 
+// --- what colony.research.status() answers with ------------------------
+interface ResearchStatus {
+    unlocked: ResearchName[];
+    queue: ResearchName[];
+    /** Items consumed toward the head of the queue. */
+    progress: number;
+    /** What the head of the queue costs, so a fraction needs no config import. */
+    cost: number;
+}
+
 // --- the player API ---------------------------------------------------
 interface BotApi {
     move(dir: Direction): boolean;
@@ -254,6 +264,28 @@ interface BotApi {
         send(channel: string, payload: unknown): number;
         receive(channel?: string): Message;
     };
+    /**
+     * The builder arm: the first verbs that change the world's layout rather than
+     * moving through it.
+     *
+     * `facing` is which way the new machine points and defaults to `dir`, so the
+     * natural loop lays a line pointing the way the bot is walking:
+     *
+     * ```js
+     * for (let i = 0; i < 5; i++) {
+     *   bot.builder.place("conveyor", "north");
+     *   bot.move("north");
+     * }
+     * ```
+     *
+     * Both throw the sim's own reason when they refuse — "tile occupied",
+     * "conveyor not researched", "crate is not empty" — so a script that might
+     * build over something should be ready to catch one.
+     */
+    builder?: {
+        place(machine: MachineKind, dir: Direction, facing?: Direction): boolean;
+        remove(dir: Direction): boolean;
+    };
 }
 
 interface ColonyApi {
@@ -263,6 +295,20 @@ interface ColonyApi {
     time(): number;
     research: {
         queue(name: ResearchName): void;
+        /**
+         * What has finished, what is queued, and how far the head of the queue has
+         * got. Costs no ticks, like every other read.
+         *
+         * Before this, queueing was write-only: a script could ask for the planter
+         * and had no way at all to learn it had arrived, so the reference script
+         * waited on a number worked out on paper.
+         *
+         * ```js
+         * const r = colony.research.status();
+         * if (!r.unlocked.includes("conveyor")) bot.log(r.progress + "/" + r.cost);
+         * ```
+         */
+        status(): ResearchStatus;
     };
 }
 

@@ -16,7 +16,7 @@ export interface Snippet {
   blurb: string;
   code: string;
   /** A module the starting chassis does not have, if this chip needs one. */
-  requires?: "planter" | "scanner" | "radio";
+  requires?: "planter" | "scanner" | "radio" | "builder";
   /** A machine that has to be standing next to the bot, if this chip needs one. */
   needsMachine?: "crate";
 }
@@ -107,6 +107,24 @@ bot.log("carrying " + (bot.inventory().wheat ?? 0) + " wheat");`,
 if (carried > 0) {
   bot.deposit("north", "wheat", carried);
 }`,
+  },
+  {
+    title: "Lay a line of belts",
+    blurb: "Cycle three. place() faces the belt the way you are walking, so a line is a loop.",
+    requires: "builder",
+    code: `for (let i = 0; i < 5; i++) {
+  bot.builder.place("conveyor", "north");
+  bot.move("north");
+}`,
+  },
+  {
+    title: "Wait for a research",
+    blurb: "status() is how a script knows a thing arrived, instead of guessing at a wait.",
+    code: `colony.research.queue("conveyor");
+while (!colony.research.status().unlocked.includes("conveyor")) {
+  bot.wait(20);
+}
+bot.log("belts unlocked");`,
   },
   {
     title: "Take orders by radio",

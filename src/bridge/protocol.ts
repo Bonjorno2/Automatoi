@@ -40,7 +40,23 @@ export const RESULT = 2;
 export type HostRequest =
   | { kind: "command"; command: Command }
   | { kind: "colony"; call: "bots" | "time" }
-  | { kind: "research"; name: ResearchName };
+  | { kind: "research"; name: ResearchName }
+  /**
+   * Its own member rather than a shape change to `research` above, which would
+   * have rippled through every bridge test for no gain. Reading research is a
+   * free read like `colony.time()`: it answers at once and costs no ticks.
+   */
+  | { kind: "research-status" };
+
+/** What `colony.research.status()` answers with. */
+export interface ResearchStatus {
+  unlocked: ResearchName[];
+  queue: ResearchName[];
+  /** Items consumed toward the head of the queue. */
+  progress: number;
+  /** What the head of the queue costs, so a fraction needs no config import. */
+  cost: number;
+}
 
 /** What the host publishes for a bot to read without asking. */
 export interface MirrorState {
