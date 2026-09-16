@@ -389,6 +389,16 @@
       }
       .chip-suggest:hover { background: #2f2a1d; border-color: var(--accent); }
       .book-why { margin: var(--sp-1) 0 0; color: var(--accent); font-size: var(--fs-sm); }
+      /* What clicking this chip will do, said before it does it. The suggested
+         one replaces the script, which is a thing a player must be told. */
+      .chip-take {
+        display: block;
+        margin-top: var(--sp-1);
+        color: var(--text-dim);
+        font-style: normal;
+        font-size: 10px;
+      }
+      .chip-suggest .chip-take { color: #c8b84a; }
       .book-hint { margin-top: var(--sp-1); font-size: 10px; }
       /* Quieter than the offer it refuses, and always the same one click. */
       .suggest-dismiss {

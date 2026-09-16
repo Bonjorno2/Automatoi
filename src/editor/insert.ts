@@ -24,3 +24,37 @@ export function insertAtCursor(
   }]);
   editor.focus();
 }
+
+/**
+ * Put this in place of the whole script.
+ *
+ * **What the first real playtest found, and it was severe.** A suggested chip is
+ * a complete program — "Stay on the field" is not a fragment, it is what the
+ * script should now be. Inserting it at the cursor left the player with their
+ * broken loop still first, the cure sitting unreachable below it, and two dead
+ * lines under that. They took the fix, pressed Run, and went from *"stuck — 24
+ * commands got nowhere"* to *"stuck — 328"*. Taking a suggestion also retires
+ * it, so the game had nothing left to say. **Asking for help made things worse
+ * and then went quiet**, which is the worst outcome this system can produce.
+ *
+ * So a *suggestion* replaces and a chip the player went looking for in the book
+ * still inserts. The two are different sentences: one answers "your script is
+ * wrong", the other offers a pattern to put somewhere.
+ *
+ * Safe because it is one edit through `executeEdits`, so Ctrl+Z gives the
+ * player's script back. The chip says so.
+ */
+export function replaceAll(
+  editor: monaco.editor.IStandaloneCodeEditor,
+  code: string,
+): void {
+  const model = editor.getModel();
+  if (!model) return;
+  editor.executeEdits("suggestion", [{
+    range: model.getFullModelRange(),
+    text: `${code}\n`,
+    forceMoveMarkers: true,
+  }]);
+  editor.setPosition({ lineNumber: 1, column: 1 });
+  editor.focus();
+}

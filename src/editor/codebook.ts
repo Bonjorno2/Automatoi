@@ -1,5 +1,5 @@
 import type * as monaco from "monaco-editor";
-import { insertAtCursor } from "./insert.ts";
+import { insertAtCursor, replaceAll } from "./insert.ts";
 import { LADDERS, SNIPPETS, needsFor } from "./snippets.ts";
 import type { Ladder, Rung } from "./snippets.ts";
 import { PRIMITIVE_LABEL } from "./source.ts";
@@ -92,10 +92,18 @@ export function createCodebook(
   let drawn = "";
   let view: CodebookView | null = null;
 
-  function codeChip(rung: Rung, accent: boolean): HTMLButtonElement {
+  /**
+   * A chip, and what clicking it does.
+   *
+   * The two are not the same act, which the first playtest established the hard
+   * way: a **suggested** chip is a whole program answering "your script is
+   * wrong", so it replaces; a chip the player went **looking for** in the book
+   * is a pattern to put somewhere, so it inserts at the cursor. See `insert.ts`.
+   */
+  function codeChip(rung: Rung, suggested: boolean): HTMLButtonElement {
     const chip = document.createElement("button");
     chip.type = "button";
-    chip.className = accent ? "chip chip-suggest" : "chip";
+    chip.className = suggested ? "chip chip-suggest" : "chip";
 
     const blurb = document.createElement("span");
     blurb.className = "chip-blurb";
@@ -106,7 +114,16 @@ export function createCodebook(
     code.textContent = rung.code;
     chip.append(code);
 
-    chip.addEventListener("click", () => insertAtCursor(editor, rung.code));
+    const what = document.createElement("em");
+    what.className = "chip-take";
+    what.textContent = suggested
+      ? "click to make this your script — Ctrl+Z puts yours back"
+      : "click to drop it in at the cursor";
+    chip.append(what);
+
+    chip.addEventListener("click", () =>
+      suggested ? replaceAll(editor, rung.code) : insertAtCursor(editor, rung.code),
+    );
     return chip;
   }
 
