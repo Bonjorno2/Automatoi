@@ -32,11 +32,11 @@ while (delivered < 10) {
   delivered += bot.deposit("west", "wheat", 10);
   bot.log("delivered " + delivered + " at tick " + colony.time());
 }
-// The console eats one wheat per tick, and a script has no way to ask whether
-// research has finished — so the only option is to wait a guessed number of
-// ticks. Recorded as a finding rather than worked around in the sim.
-bot.wait(15);
-bot.log("waited out the research at tick " + colony.time());
+// Milestone 6's finding 7. This used to be a bare bot.wait(15) — a computed
+// guess — with a comment saying a script had no way to ask. Milestone 6 gave it
+// one, and the workaround outlived the excuse by two milestones.
+while (!colony.research.status().unlocked.includes("planter")) bot.wait(1);
+bot.log("research finished at tick " + colony.time());
 `;
 
 describe("the first ten minutes", () => {
@@ -51,9 +51,11 @@ describe("the first ten minutes", () => {
       const research = world.snapshot().research;
       expect(research.unlocked).toContain("planter");
 
-      // Measured at 172 ticks on seed 1 — roughly 9 seconds at 20Hz. Held to
-      // the same 400-tick bar the design's testing strategy uses, so the point
-      // is to notice when balance moves, not to pin it exactly.
+      // Measured at 172 ticks on seed 1 with the old hand-computed wait, and at
+      // 166 with the status loop that replaced it — the guess was six ticks
+      // long, which is what a guess is. Held to the same 400-tick bar the
+      // design's testing strategy uses, so the point is to notice when balance
+      // moves, not to pin it exactly.
       expect(world.time).toBeLessThan(400);
       expect(logs.length).toBeGreaterThan(0);
     } finally {

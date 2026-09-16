@@ -19,6 +19,22 @@ const MACHINE_LABEL: Record<MachineKind, string> = {
 };
 
 /**
+ * Why a machine is jammed, where the default would be wrong.
+ *
+ * "No room for the output" is a mill's problem. A dead-ended belt has plenty of
+ * room and nowhere to put what is in it, and telling a player to make room would
+ * send them to the wrong tile — the fix is to turn the belt, or to build the
+ * thing it is pointing at.
+ *
+ * `Partial`, like `CAPACITY` and `FACES`: only a kind that differs from the
+ * default needs a row, and the absence is the rule rather than an omission.
+ */
+const JAMMED: Partial<Record<MachineKind, string>> = {
+  conveyor: "jammed — nothing ahead to hand to",
+};
+const JAMMED_DEFAULT = "jammed — no room for the output";
+
+/**
  * What is on a tile, in display order: most specific first.
  *
  * Pure over a snapshot, which is the whole reason it is a separate function —
@@ -56,7 +72,7 @@ export function describeTile(snapshot: WorldSnapshot, tile: Vec): string[] {
     // Jammed first: a machine that is both is stuck in the way feeding it will
     // not fix, and naming the fixable one first would send the player to the
     // wrong problem.
-    if (machine.jammed) lines.push("  jammed — no room for the output");
+    if (machine.jammed) lines.push(`  ${JAMMED[machine.kind] ?? JAMMED_DEFAULT}`);
     else if (machine.starved) lines.push("  starved — nothing to consume");
   }
 
@@ -81,7 +97,17 @@ function describeInventory(inv: Record<string, number | undefined>): string {
   return parts.length ? parts.join(", ") : "nothing";
 }
 
-function describeBotActivity(bot: WorldSnapshot["bots"][number]): string {
+/**
+ * What a bot is doing, as a sentence.
+ *
+ * Exported for the fleet list, which asks the same question the tooltip does.
+ * Fact 2 of the milestone 8 plan: this is the only place in `src/` that turns a
+ * `blockedOn` into words, and a second copy would be two sentences about one bot
+ * on one screen at the same moment — the failure `MACHINE_LABEL` exists to
+ * prevent, one level up. `marks.ts` reads `blockedOn` too, but produces a mark
+ * kind rather than a sentence, so it is not a second opinion about wording.
+ */
+export function describeBotActivity(bot: WorldSnapshot["bots"][number]): string {
   if (bot.blockedOn === "bot") return "blocked by another bot";
   if (bot.blockedOn === "radio") return "waiting for a message";
   if (!bot.action) return "idle";
@@ -114,8 +140,15 @@ export interface Placement {
   reason(tile: Vec): string | null;
   /** Called only for a tile whose `reason` is null. */
   apply(tile: Vec): void;
-  /** Turn it a quarter. Does nothing for a kind with no front. */
-  rotate(): void;
+  /**
+   * Turn it a quarter, the way asked. Does nothing for a kind with no front.
+   *
+   * Takes a direction rather than offering two methods: milestone 6's finding 4
+   * is that `R` turned one way, so north to west was three presses, and a
+   * `rotateBack` would be a second place for the ghost and the placed machine to
+   * disagree about what a quarter turn is.
+   */
+  rotate(turn: "cw" | "ccw"): void;
 }
 
 /** The parts of a placement its text is made of. */
@@ -148,14 +181,50 @@ export function describePlacement(
   ];
   // The price of the click, directly under the verb and above everything else,
   // because it is the only line here the player cannot afford to skim.
-  if (placing.mode === "remove" && placing.reason === null) {
-    const cost = removalCost(snapshot, tile);
+  //
+  // Only for a click that will happen: a refusal leads, and a cost under it
+  // would be describing something that is not going to occur.
+  if (placing.reason === null) {
+    const cost =
+      placing.mode === "remove" ? removalCost(snapshot, tile) : placementCost(snapshot, tile);
     if (cost) head.push(`  ${cost}`);
   }
   const occupied =
     snapshot.machines.some((m) => m.pos.x === tile.x && m.pos.y === tile.y) ||
     snapshot.bots.some((b) => b.pos.x === tile.x && b.pos.y === tile.y);
   return occupied ? [...head, ...describeTile(snapshot, tile)] : head;
+}
+
+/**
+ * What building on this tile would destroy, or null if nothing.
+ *
+ * Milestone 6's finding 2: ten belts laid across the field ate seven mature
+ * wheat, and the only trace was the panel's field counter falling from 119 to
+ * 112. A player watching their cursor rather than the panel saw nothing at all.
+ *
+ * **The placement stays legal.** Refusing it would make the field a no-build
+ * zone, which is a layout rule nobody decided on and which `canPlace` rejects on
+ * purpose — "accepts grass as readily as soil" is a test that exists for the
+ * opposite reason. This is a silence bug, not a permission bug.
+ *
+ * Bare ground still says nothing extra, which was milestone 6's own decision and
+ * is still right: a crop report nobody asked for, while they are aiming at
+ * something, is noise. What was wrong was treating a ripe crop as bare ground.
+ *
+ * Ripeness comes from the same `CROP_GROWTH` lookup `describeTile` uses. A
+ * second comparison against `WHEAT_GROWTH_TICKS` would be correct today and
+ * silently wrong for the second crop.
+ */
+export function placementCost(snapshot: WorldSnapshot, tile: Vec): string | null {
+  const t = snapshot.tiles[tile.y * snapshot.width + tile.x];
+  const crop = t?.crop;
+  if (!crop) return null;
+  const ripe = CROP_GROWTH[crop.item] ?? WHEAT_GROWTH_TICKS;
+  // A growing crop is named as growing: the cost is different and the player may
+  // well not care about a shoot.
+  return crop.growth >= ripe
+    ? `destroys ripe ${crop.item}`
+    : `destroys growing ${crop.item}`;
 }
 
 /**
@@ -366,8 +435,11 @@ export function createInspector(
     // focus* — so picking "Conveyor" from the build menu left that button
     // focused and `R` did nothing until the player clicked elsewhere. Rotating
     // a belt right after choosing it is the single most likely next action.
+    // Shift+R turns the other way, milestone 6's finding 4. The banner still
+    // says "R to turn" and not "R/Shift+R": it is one line, and the second half
+    // is discoverable by holding a key that already does something.
     else if (e.key.toLowerCase() === "r" && keyTarget(e.target) !== "typing") {
-      inspector.placing.rotate();
+      inspector.placing.rotate(e.shiftKey ? "ccw" : "cw");
     }
   });
 

@@ -84,6 +84,19 @@ export const CLOCKWISE: Record<Direction, Direction> = {
   west: "north",
 };
 
+/**
+ * The other quarter turn, milestone 6's finding 4: north to west was three
+ * presses because clockwise was the only direction there was.
+ *
+ * **Derived rather than written out.** Four more hand-typed rows would be four
+ * more chances to get one wrong, and a table that disagreed with `CLOCKWISE`
+ * would send a belt somewhere the ghost did not promise. A test asserts the two
+ * are inverses, which is cheaper than reading them.
+ */
+export const COUNTER_CLOCKWISE: Record<Direction, Direction> = Object.fromEntries(
+  Object.entries(CLOCKWISE).map(([from, to]) => [to, from]),
+) as Record<Direction, Direction>;
+
 const add = (a: Vec, b: Vec): Vec => ({ x: a.x + b.x, y: a.y + b.y });
 const sub = (a: Vec, b: Vec): Vec => ({ x: a.x - b.x, y: a.y - b.y });
 
@@ -323,11 +336,32 @@ export class World {
     for (const belt of belts) {
       const held = before.get(belt.id)!;
       const item = ITEMS.find((i) => (held[i] ?? 0) > 0);
-      if (!item) continue;
+      if (!item) {
+        // An empty belt has nothing to be stuck with.
+        this.jammed.delete(belt.id);
+        continue;
+      }
       const target = this.machineAt(add(belt.pos, DIR[belt.dir!]));
       // Bare ground, a bot, the world's edge: the item stays where it is. A belt
       // is never a way to destroy something.
-      if (!target) continue;
+      //
+      // It is also **jammed**, which is milestone 6's finding 3: a belt holding
+      // four items it can never hand on drew exactly like a belt holding four it
+      // was about to. Every other machine in the game can say it is stuck, and
+      // `jammed` has meant "output it cannot put down" since milestone 5.
+      if (!target) {
+        this.flag(this.jammed, belt, "jammed");
+        this.jammed.add(belt.id);
+        continue;
+      }
+
+      // **A belt held up by a full neighbour is deliberately not flagged.** That
+      // belt is backed up, which is normal, temporary, and caused by something
+      // further down the line that is itself already flagged. Lighting up a
+      // whole working line every time a mill got busy would teach the player
+      // that the colour means nothing. The rule is about the layout being wrong
+      // — nothing ahead of it, ever — not about the belt being full right now.
+      this.jammed.delete(belt.id);
 
       const claimed = spokenFor.get(target.id) ?? {};
       const room =
