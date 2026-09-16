@@ -2,9 +2,11 @@ import { createRng } from "./rng";
 import { addItem, removeItem, total } from "./inventory";
 import {
   BOT_CAPACITY,
+  CONVEYOR_TICKS,
   CROP_GROWTH,
   FACES,
   FIELD_RADIUS,
+  ITEMS,
   capacityOf,
   RECIPE,
   RESEARCH_COST,
@@ -19,6 +21,7 @@ import type {
   Command,
   CommandResult,
   Direction,
+  Inventory,
   Item,
   Machine,
   MachineKind,
@@ -66,6 +69,7 @@ export const DIR: Record<Direction, Vec> = {
 };
 
 const add = (a: Vec, b: Vec): Vec => ({ x: a.x + b.x, y: a.y + b.y });
+const sub = (a: Vec, b: Vec): Vec => ({ x: a.x - b.x, y: a.y - b.y });
 
 /** Growth at which an item is harvestable. Infinite for anything not a crop. */
 const ripeAt = (item: Item): number => CROP_GROWTH[item] ?? Infinity;
@@ -263,7 +267,75 @@ export class World {
     this.growCrops();
     for (const bot of this.bots.values()) this.advance(bot);
     this.advanceMachines();
+    // After the machines, so a conversion's output waits one step before a belt
+    // takes it. Either order is deterministic; this one keeps "produced" and
+    // "collected" from being the same instant, where a player can see neither.
+    this.advanceConveyors();
     this.advanceResearch();
+  }
+
+  /**
+   * One belt step, for every belt in the world at once.
+   *
+   * Two phases, and the split is the whole algorithm:
+   *
+   * - **Give.** Every belt hands one item to the tile it faces, decided against
+   *   a copy of the world taken *before* the step. Reading the running state
+   *   instead is the classic belt bug — an item crossing five tiles in one tick
+   *   because the loop happened to visit the belts downstream-first. Deciding
+   *   against `before` makes travel time a property of the line's length rather
+   *   than of the order its belts were built in, which is Fact 2 of the plan.
+   * - **Take.** Every belt with room takes one item from the machine behind it,
+   *   and only an item that machine's recipe *makes*. This phase reads the
+   *   running state, which is safe because a belt never takes from another belt:
+   *   a crate and the console have no recipe, so nothing can be pulled out of
+   *   them, and a mill's wheat is its input rather than its output.
+   *
+   * Gives are applied in id order against a ledger of room already spoken for,
+   * so two belts feeding one target cannot both take the last slot and which of
+   * them wins is the same on every run.
+   */
+  private advanceConveyors(): void {
+    if (this.time % CONVEYOR_TICKS !== 0) return;
+    const belts = [...this.machines.values()].filter((m) => m.kind === "conveyor" && m.dir);
+    if (belts.length === 0) return;
+
+    const before = new Map<number, Inventory>();
+    for (const machine of this.machines.values()) before.set(machine.id, { ...machine.inventory });
+    const spokenFor = new Map<number, Inventory>();
+
+    for (const belt of belts) {
+      const held = before.get(belt.id)!;
+      const item = ITEMS.find((i) => (held[i] ?? 0) > 0);
+      if (!item) continue;
+      const target = this.machineAt(add(belt.pos, DIR[belt.dir!]));
+      // Bare ground, a bot, the world's edge: the item stays where it is. A belt
+      // is never a way to destroy something.
+      if (!target) continue;
+
+      const claimed = spokenFor.get(target.id) ?? {};
+      const room =
+        capacityOf(target.kind) - (before.get(target.id)![item] ?? 0) - (claimed[item] ?? 0);
+      if (room <= 0) continue;
+
+      removeItem(belt.inventory, item, 1);
+      addItem(target.inventory, item, 1);
+      claimed[item] = (claimed[item] ?? 0) + 1;
+      spokenFor.set(target.id, claimed);
+    }
+
+    for (const belt of belts) {
+      const source = this.machineAt(sub(belt.pos, DIR[belt.dir!]));
+      const recipe = source ? RECIPE[source.kind] : undefined;
+      if (!source || !recipe) continue;
+      const item = ITEMS.find(
+        (i) => (recipe.output[i] ?? 0) > 0 && (source.inventory[i] ?? 0) > 0,
+      );
+      if (!item) continue;
+      if ((belt.inventory[item] ?? 0) >= capacityOf(belt.kind)) continue;
+      removeItem(source.inventory, item, 1);
+      addItem(belt.inventory, item, 1);
+    }
   }
 
   /**

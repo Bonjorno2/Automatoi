@@ -1,10 +1,12 @@
 import { World } from "../../src/sim/world";
 import {
   CAPACITY,
+  CONVEYOR_TICKS,
   MACHINE_CAPACITY,
   capacityOf,
   RESEARCH_ITEM,
 } from "../../src/sim/config";
+import type { Direction, Item, Vec } from "../../src/sim/types";
 import { run, ticks } from "./helpers";
 
 /**
@@ -126,5 +128,250 @@ describe("a belt is a wall, because every machine is", () => {
     expect(run(w, 1, { kind: "move", dir: "east" })).toEqual({ ok: true, value: false });
     expect(bot.pos).toEqual({ x: 20, y: 20 });
     expect(w.drainEvents().filter((e) => e.kind === "bump")).toHaveLength(1);
+  });
+});
+
+/**
+ * A line of belts along a row, all facing east, ending one tile short of a sink.
+ *
+ * `order` is the only thing that differs between the two worlds Fact 2 compares:
+ * built downstream-first, the belts' ids ascend along the direction of travel,
+ * which is exactly the ordering under which a naive loop carries an item the
+ * whole length of the line in one step.
+ */
+function beltLine(
+  world: World,
+  from: Vec,
+  length: number,
+  order: "downstream" | "upstream",
+): Vec[] {
+  const tiles: Vec[] = [];
+  for (let i = 0; i < length; i++) tiles.push({ x: from.x + i, y: from.y });
+  for (const tile of order === "downstream" ? tiles : [...tiles].reverse()) {
+    world.placeMachine("conveyor", tile, "east");
+  }
+  return tiles;
+}
+
+/** Tick until the machine at `at` holds the item. Returns the tick it arrived. */
+function tickUntilHeld(world: World, at: Vec, item: Item): number {
+  for (let i = 0; i < 500; i++) {
+    world.tick();
+    if ((world.machineAt(at)?.inventory[item] ?? 0) > 0) return world.time;
+  }
+  throw new Error(`nothing arrived at ${at.x},${at.y} within 500 ticks`);
+}
+
+describe("belts carry", () => {
+  it("takes the same time whichever end the line was built from", () => {
+    // **Fact 2 of the milestone 6 plan.** The two worlds differ only in the ids
+    // their belts hold, so a difference here means the step is reading state it
+    // has already written, and an item is riding the whole line in one tick.
+    const arrival = (order: "downstream" | "upstream"): number => {
+      const w = beltWorld();
+      w.research.unlocked.add("crate");
+      const tiles = beltLine(w, { x: 10, y: 20 }, 5, order);
+      w.placeMachine("crate", { x: 15, y: 20 });
+      w.machineAt(tiles[0]!)!.inventory = { wheat: 1 };
+      return tickUntilHeld(w, { x: 15, y: 20 }, "wheat");
+    };
+
+    expect(arrival("downstream")).toBe(arrival("upstream"));
+  });
+
+  it("crosses a five-tile line in exactly five steps", () => {
+    const w = beltWorld();
+    w.research.unlocked.add("crate");
+    const tiles = beltLine(w, { x: 10, y: 20 }, 5, "downstream");
+    w.placeMachine("crate", { x: 15, y: 20 });
+    w.machineAt(tiles[0]!)!.inventory = { wheat: 1 };
+
+    // Five hand-offs: four between belts, one into the crate.
+    expect(tickUntilHeld(w, { x: 15, y: 20 }, "wheat")).toBe(5 * CONVEYOR_TICKS);
+  });
+
+  it("moves one tile per step and no further", () => {
+    const w = beltWorld();
+    const tiles = beltLine(w, { x: 10, y: 20 }, 4, "downstream");
+    w.machineAt(tiles[0]!)!.inventory = { wheat: 1 };
+
+    ticks(w, CONVEYOR_TICKS);
+    expect(w.machineAt(tiles[1]!)!.inventory).toEqual({ wheat: 1 });
+    expect(w.machineAt(tiles[0]!)!.inventory).toEqual({});
+    expect(w.machineAt(tiles[2]!)!.inventory).toEqual({});
+  });
+
+  it("advances a whole line at once when there is room", () => {
+    const w = beltWorld();
+    const tiles = beltLine(w, { x: 10, y: 20 }, 4, "downstream");
+    for (const tile of tiles) w.machineAt(tile)!.inventory = { wheat: 1 };
+
+    ticks(w, CONVEYOR_TICKS);
+    // The last belt faces bare ground and keeps what it holds; the other three
+    // each hand one tile along, so the line reads 0, 1, 1, 2.
+    expect(tiles.map((t) => w.machineAt(t)!.inventory.wheat ?? 0)).toEqual([0, 1, 1, 2]);
+  });
+
+  it("drains a saturated line from the front", () => {
+    const w = beltWorld();
+    w.research.unlocked.add("crate");
+    const tiles = beltLine(w, { x: 10, y: 20 }, 3, "downstream");
+    w.placeMachine("crate", { x: 13, y: 20 });
+    const cap = capacityOf("conveyor");
+    for (const tile of tiles) w.machineAt(tile)!.inventory = { wheat: cap };
+
+    ticks(w, CONVEYOR_TICKS);
+    // Only the belt at the front had anywhere to put anything.
+    expect(tiles.map((t) => w.machineAt(t)!.inventory.wheat ?? 0)).toEqual([cap, cap, cap - 1]);
+    ticks(w, CONVEYOR_TICKS);
+    expect(tiles.map((t) => w.machineAt(t)!.inventory.wheat ?? 0)).toEqual([cap, cap - 1, cap - 1]);
+  });
+
+  it("holds its cargo when what it faces is full", () => {
+    const w = beltWorld();
+    w.research.unlocked.add("crate");
+    const belt = w.placeMachine("conveyor", { x: 10, y: 20 }, "east");
+    const crate = w.placeMachine("crate", { x: 11, y: 20 });
+    crate.inventory = { wheat: MACHINE_CAPACITY };
+    belt.inventory = { wheat: 2 };
+
+    ticks(w, CONVEYOR_TICKS * 3);
+    expect(belt.inventory).toEqual({ wheat: 2 });
+    expect(crate.inventory).toEqual({ wheat: MACHINE_CAPACITY });
+  });
+
+  it("keeps an item it has nowhere to put, rather than destroying it", () => {
+    // The rule that matters most in the step. A belt pointed at the world's
+    // edge, or at bare ground, holds what it has for as long as it has it.
+    const w = beltWorld();
+    const edge = w.placeMachine("conveyor", { x: 31, y: 20 }, "east");
+    const nowhere = w.placeMachine("conveyor", { x: 10, y: 20 }, "east");
+    edge.inventory = { wheat: 1 };
+    nowhere.inventory = { wheat: 1 };
+
+    ticks(w, CONVEYOR_TICKS * 5);
+    expect(edge.inventory).toEqual({ wheat: 1 });
+    expect(nowhere.inventory).toEqual({ wheat: 1 });
+  });
+
+  it("never lets two belts feeding one exceed its capacity", () => {
+    const w = beltWorld();
+    const target = w.placeMachine("conveyor", { x: 10, y: 20 }, "north");
+    const west = w.placeMachine("conveyor", { x: 9, y: 20 }, "east");
+    const east = w.placeMachine("conveyor", { x: 11, y: 20 }, "west");
+    const cap = capacityOf("conveyor");
+    target.inventory = { wheat: cap - 1 };
+    west.inventory = { wheat: 2 };
+    east.inventory = { wheat: 2 };
+
+    ticks(w, CONVEYOR_TICKS);
+    // The target faces bare ground, so it keeps what it has and has room for
+    // exactly one. One feeder fills it; the other keeps what it was holding.
+    expect(target.inventory.wheat).toBe(cap);
+    expect((west.inventory.wheat ?? 0) + (east.inventory.wheat ?? 0)).toBe(3);
+  });
+
+  it("steps every belt on the same tick", () => {
+    const w = beltWorld();
+    const a = w.placeMachine("conveyor", { x: 10, y: 20 }, "east");
+    const b = w.placeMachine("conveyor", { x: 10, y: 22 }, "east");
+    w.placeMachine("conveyor", { x: 11, y: 20 }, "east");
+    w.placeMachine("conveyor", { x: 11, y: 22 }, "east");
+    a.inventory = { wheat: 1 };
+    b.inventory = { wheat: 1 };
+
+    ticks(w, CONVEYOR_TICKS - 1);
+    expect(a.inventory).toEqual({ wheat: 1 });
+    ticks(w, 1);
+    expect(a.inventory).toEqual({});
+    expect(b.inventory).toEqual({});
+  });
+});
+
+describe("what a belt may take from behind it", () => {
+  /** A mill, and a belt on `beltAt` facing away from it. */
+  function millWithBelt(dir: Direction, beltAt: Vec, millAt: Vec) {
+    const w = beltWorld();
+    w.research.unlocked.add("mill");
+    const mill = w.placeMachine("mill", millAt);
+    const belt = w.placeMachine("conveyor", beltAt, dir);
+    return { w, mill, belt };
+  }
+
+  it("takes what the machine makes", () => {
+    const { w, mill, belt } = millWithBelt("south", { x: 18, y: 18 }, { x: 18, y: 17 });
+    mill.inventory = { flour: 2 };
+    ticks(w, CONVEYOR_TICKS);
+    expect(belt.inventory).toEqual({ flour: 1 });
+    expect(mill.inventory).toEqual({ flour: 1 });
+  });
+
+  it("never takes what the machine is about to consume", () => {
+    // Decision 4 of the plan. Without it a belt behind a mill quietly drains the
+    // wheat the mill was going to grind, and the player watches a machine that
+    // is fed constantly and produces nothing.
+    const { w, mill, belt } = millWithBelt("south", { x: 18, y: 18 }, { x: 18, y: 17 });
+    mill.inventory = { wheat: 3 };
+    ticks(w, CONVEYOR_TICKS * 2);
+    expect(belt.inventory.wheat ?? 0).toBe(0);
+  });
+
+  it("takes nothing at all from a crate or a console", () => {
+    // A crate makes nothing, so a belt behind one is not a way to empty it, and
+    // a belt behind the console cannot eat the bread research is about to.
+    const w = beltWorld();
+    w.research.unlocked.add("crate");
+    const crate = w.placeMachine("crate", { x: 18, y: 17 });
+    crate.inventory = { wheat: 10 };
+    const fromCrate = w.placeMachine("conveyor", { x: 18, y: 18 }, "south");
+    const console = w.machineAt({ x: 16, y: 16 })!;
+    console.inventory = { bread: 6 };
+    const fromConsole = w.placeMachine("conveyor", { x: 16, y: 17 }, "south");
+
+    ticks(w, CONVEYOR_TICKS * 3);
+    expect(fromCrate.inventory).toEqual({});
+    expect(fromConsole.inventory).toEqual({});
+    expect(crate.inventory).toEqual({ wheat: 10 });
+    expect(console.inventory).toEqual({ bread: 6 });
+  });
+
+  it("stops taking when it is full", () => {
+    const { w, mill, belt } = millWithBelt("south", { x: 18, y: 18 }, { x: 18, y: 17 });
+    mill.inventory = { flour: 10 };
+    ticks(w, CONVEYOR_TICKS * 10);
+    expect(belt.inventory.flour).toBe(capacityOf("conveyor"));
+  });
+
+  it("takes from what is behind it and not from what it happens to touch", () => {
+    // A belt beside a mill is not a belt behind a mill. This is the thing a
+    // player will get wrong, and it has to be wrong in a way that does nothing
+    // rather than in a way that half works.
+    const w = beltWorld();
+    w.research.unlocked.add("mill");
+    const mill = w.placeMachine("mill", { x: 18, y: 17 });
+    const beside = w.placeMachine("conveyor", { x: 18, y: 18 }, "east");
+    mill.inventory = { flour: 3 };
+
+    ticks(w, CONVEYOR_TICKS * 6);
+    expect(beside.inventory).toEqual({});
+    expect(mill.inventory).toEqual({ flour: 3 });
+  });
+});
+
+describe("the step is deterministic", () => {
+  it("runs two identical worlds to the same state", () => {
+    const build = (): World => {
+      const w = beltWorld();
+      w.research.unlocked.add("crate");
+      beltLine(w, { x: 10, y: 20 }, 4, "downstream");
+      w.placeMachine("crate", { x: 14, y: 20 });
+      w.machineAt({ x: 10, y: 20 })!.inventory = { wheat: 3 };
+      return w;
+    };
+    const a = build();
+    const b = build();
+    ticks(a, 40);
+    ticks(b, 40);
+    expect(a.snapshot()).toEqual(b.snapshot());
   });
 });

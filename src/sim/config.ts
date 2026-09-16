@@ -102,6 +102,19 @@ export function capacityOf(kind: MachineKind): number {
  */
 export const CONVEYOR_TICKS = 4;
 
+/**
+ * Every item, in the order anything that has to choose one chooses.
+ *
+ * A belt holding both wheat and flour hands on exactly one item per step, and
+ * which one cannot be left to whatever order the keys happen to be in: two
+ * worlds built by the same script would diverge on a detail nobody chose.
+ *
+ * Derived from a `Record<Item, true>` rather than written as a list, so growing
+ * `Item` is a compiler error here rather than an item that silently never moves.
+ */
+const EVERY_ITEM: Record<Item, true> = { wheat: true, flour: true, bread: true };
+export const ITEMS: readonly Item[] = Object.keys(EVERY_ITEM) as Item[];
+
 /** Wheat the console must consume to complete each research. */
 export const RESEARCH_COST: Record<ResearchName, number> = {
   planter: 10,
