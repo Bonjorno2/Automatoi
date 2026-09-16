@@ -1,7 +1,8 @@
-import { cargoFraction, researchLines, stockLines } from "../../src/render/hud";
+import { cargoFraction, fieldLines, researchLines, stockLines } from "../../src/render/hud";
 import { World } from "../../src/sim/world";
-import { BOT_CAPACITY, RESEARCH_COST } from "../../src/sim/config";
-import { ticks } from "../sim/helpers";
+import { BOT_CAPACITY, RESEARCH_COST, WHEAT_GROWTH_TICKS } from "../../src/sim/config";
+import type { Vec } from "../../src/sim/types";
+import { run, ticks } from "../sim/helpers";
 
 describe("researchLines", () => {
   it("says nothing when nothing is queued", () => {
@@ -63,6 +64,77 @@ describe("cargoFraction", () => {
     const w = new World({ seed: 1 });
     w.getBot(1).inventory = { wheat: BOT_CAPACITY * 4 };
     expect(cargoFraction(w.snapshot().bots[0])).toBe(1);
+  });
+});
+
+/** The first tile holding a ripe crop, which is where a bot goes to harvest. */
+function ripeTile(world: World): Vec {
+  for (let y = 0; y < world.height; y++) {
+    for (let x = 0; x < world.width; x++) {
+      const tile = world.tileAt({ x, y });
+      if (tile?.crop && tile.crop.growth >= WHEAT_GROWTH_TICKS) return { x, y };
+    }
+  }
+  throw new Error("world has no ripe crop");
+}
+
+/** The first bare soil tile, which is where a bot goes to plant. */
+function bareSoil(world: World): Vec {
+  for (let y = 0; y < world.height; y++) {
+    for (let x = 0; x < world.width; x++) {
+      const tile = world.tileAt({ x, y });
+      if (tile?.terrain === "soil" && !tile.crop && !world.machineAt({ x, y })) return { x, y };
+    }
+  }
+  throw new Error("world has no bare soil");
+}
+
+describe("fieldLines", () => {
+  it("counts the wild wheat a fresh world starts with", () => {
+    // Pinned rather than derived. This is the number milestone 5's finding 3 is
+    // about — the field is finite, the chain eats it at roughly ten wheat per
+    // bread, and it runs out one hauling round after the chassis research
+    // completes. Every balance measurement in milestones 3-5 was driven against
+    // seed 1's field, so a change here should have to be argued for.
+    expect(fieldLines(new World({ seed: 1 }).snapshot())).toEqual(["wheat — 119 ready"]);
+  });
+
+  it("drops by one when a bot harvests", () => {
+    const w = new World({ seed: 1 });
+    w.getBot(1).pos = ripeTile(w);
+    expect(run(w, 1, { kind: "harvest" })).toEqual({ ok: true, value: true });
+    expect(fieldLines(w.snapshot())).toEqual(["wheat — 118 ready"]);
+  });
+
+  it("counts a planted tile as growing rather than as ready", () => {
+    // The distinction is the whole point of the line. A player who has just
+    // replanted has done the thing that saves them, and a read-out that showed
+    // only ripe wheat would tell them they still had nothing.
+    const w = new World({ seed: 1 });
+    w.getBot(1).pos = bareSoil(w);
+    w.getBot(1).modules.add("planter");
+    w.getBot(1).inventory = { wheat: 1 };
+    expect(run(w, 1, { kind: "plant", item: "wheat" })).toEqual({ ok: true, value: true });
+    expect(fieldLines(w.snapshot())).toEqual(["wheat — 119 ready, 1 growing"]);
+  });
+
+  it("moves a crop from growing to ready when it matures", () => {
+    const w = new World({ seed: 1 });
+    w.getBot(1).pos = bareSoil(w);
+    w.getBot(1).modules.add("planter");
+    w.getBot(1).inventory = { wheat: 1 };
+    run(w, 1, { kind: "plant", item: "wheat" });
+    ticks(w, WHEAT_GROWTH_TICKS);
+    expect(fieldLines(w.snapshot())).toEqual(["wheat — 120 ready"]);
+  });
+
+  it("says the field is empty rather than saying nothing at all", () => {
+    // An empty field looks identical to a field somebody already harvested,
+    // which is finding 3's complaint. A line that vanished when the count hit
+    // zero would be silent at exactly the moment it matters most.
+    const w = new World({ seed: 1 });
+    for (const tile of w.tiles) tile.crop = null;
+    expect(fieldLines(w.snapshot())).toEqual(["wheat — none ready"]);
   });
 });
 

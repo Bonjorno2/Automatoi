@@ -95,6 +95,25 @@ describe("blocking calls", () => {
       expect(lastRequest(c.sab)).toEqual({ kind: "command", command: { kind: "send", channel: "haul", payload: { x: 1 } } });
       const d = await mk(); d.api.colony.research.queue("planter");
       expect(lastRequest(d.sab)).toEqual({ kind: "research", name: "planter" });
+      const e = await mk(); e.api.bot.builder!.place("conveyor", "north");
+      expect(lastRequest(e.sab)).toEqual({
+        kind: "command",
+        command: { kind: "place", machine: "conveyor", dir: "north", facing: undefined },
+      });
+      const f = await mk(); f.api.bot.builder!.place("conveyor", "north", "east");
+      expect(lastRequest(f.sab)).toEqual({
+        kind: "command",
+        command: { kind: "place", machine: "conveyor", dir: "north", facing: "east" },
+      });
+      const g = await mk(); g.api.bot.builder!.remove("south");
+      expect(lastRequest(g.sab)).toEqual({
+        kind: "command",
+        command: { kind: "remove", dir: "south" },
+      });
+      // Its own request kind rather than a shape change to `research`, which
+      // would have rippled through every test in this file.
+      const h = await mk(); h.api.colony.research.status();
+      expect(lastRequest(h.sab)).toEqual({ kind: "research-status" });
     } finally {
       await Promise.all(workers.map((w) => w.terminate()));
     }
@@ -109,5 +128,22 @@ describe("module namespaces", () => {
     expect(bot.scanner).toBeDefined();
     expect(bot.planter).toBeDefined();
     expect(bot.radio).toBeDefined();
+    expect(bot.builder).toBeDefined();
   });
+
+  it("lets the sim be the one that says a module is missing", async () => {
+    // The asymmetry api.ts documents at length: optional in the type, present
+    // at runtime, because a genuinely undefined namespace would replace the
+    // design's promised message with a bare TypeError from the engine.
+    const sab = channel();
+    const { bot } = makeApi(sab, 1);
+    const worker = await answerWith(sab, false, "Bot 1 has no Builder module");
+    try {
+      expect(() => bot.builder!.place("conveyor", "north")).toThrow(
+        "Bot 1 has no Builder module",
+      );
+    } finally {
+      await worker.terminate();
+    }
+  }, 10_000);
 });

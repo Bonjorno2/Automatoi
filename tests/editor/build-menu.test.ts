@@ -62,6 +62,19 @@ describe("buildOptions", () => {
     expect(buildOptions(w.snapshot()).map((o) => o.label)[0]).toBe("Crate");
   });
 
+  it("offers the conveyor, in the order it is researched", () => {
+    // Belts are the first thing a player wants many of, so they arrive at the
+    // end of the machine list rather than in the middle of it.
+    const w = new World({ seed: 1 });
+    for (const r of ["crate", "mill", "oven", "conveyor"] as const) w.research.unlocked.add(r);
+    expect(buildOptions(w.snapshot()).map((o) => o.label)).toEqual([
+      "Crate",
+      "Mill",
+      "Oven",
+      "Conveyor",
+    ]);
+  });
+
   it("never offers the console", () => {
     const w = new World({ seed: 1 });
     for (const r of ["crate", "mill", "oven", "planter", "scanner", "chassis", "radio"] as const) {

@@ -12,9 +12,9 @@ type Terrain = "grass" | "soil";
  * makes the compiler ask the questions rather than leaving them to be noticed.
  */
 type Item = "wheat" | "flour" | "bread";
-type ModuleName = "harvester" | "planter" | "scanner" | "radio";
-type MachineKind = "console" | "crate" | "mill" | "oven";
-type ResearchName = "planter" | "scanner" | "crate" | "mill" | "oven" | "chassis" | "radio";
+type ModuleName = "harvester" | "planter" | "scanner" | "radio" | "builder";
+type MachineKind = "console" | "crate" | "mill" | "oven" | "conveyor";
+type ResearchName = "planter" | "scanner" | "crate" | "mill" | "oven" | "conveyor" | "chassis" | "radio" | "builder";
 interface Vec {
     x: number;
     y: number;
@@ -65,6 +65,20 @@ type Command = {
 } | {
     kind: "receive";
     channel?: string;
+}
+/**
+ * Build on the adjacent tile in `dir`. `facing` is which way the new machine
+ * points and defaults to `dir`, so the natural loop — place north, move
+ * north, repeat — lays a line pointing the way the bot is walking.
+ */
+ | {
+    kind: "place";
+    machine: MachineKind;
+    dir: Direction;
+    facing?: Direction;
+} | {
+    kind: "remove";
+    dir: Direction;
 };
 type CommandResult = {
     ok: true;
@@ -97,6 +111,14 @@ interface Machine {
     id: number;
     kind: MachineKind;
     pos: Vec;
+    /**
+     * Which way it hands things on, for a kind that has a front. Null for
+     * everything else, which is most of them: a crate has no direction to have.
+     *
+     * Fixed when the machine is placed. Turning one means removing it and placing
+     * it again, which is why nothing in the renderer has to watch this change.
+     */
+    dir: Direction | null;
     inventory: Inventory;
     /**
      * Ticks into the current conversion, 0 when not converting.
@@ -142,6 +164,8 @@ interface MachineSnapshot {
     id: number;
     kind: MachineKind;
     pos: Vec;
+    /** Which way it hands things on, or null for a kind with no front. */
+    dir: Direction | null;
     inventory: Inventory;
     /**
      * Wants input it has not got. A state rather than an event, so whatever is
@@ -182,6 +206,16 @@ interface MirrorState {
     inventory: Record<string, number | undefined>;
     modules: string[];
     busy: boolean;
+}
+
+// --- what colony.research.status() answers with ------------------------
+interface ResearchStatus {
+    unlocked: ResearchName[];
+    queue: ResearchName[];
+    /** Items consumed toward the head of the queue. */
+    progress: number;
+    /** What the head of the queue costs, so a fraction needs no config import. */
+    cost: number;
 }
 
 // --- the player API ---------------------------------------------------
@@ -230,6 +264,28 @@ interface BotApi {
         send(channel: string, payload: unknown): number;
         receive(channel?: string): Message;
     };
+    /**
+     * The builder arm: the first verbs that change the world's layout rather than
+     * moving through it.
+     *
+     * `facing` is which way the new machine points and defaults to `dir`, so the
+     * natural loop lays a line pointing the way the bot is walking:
+     *
+     * ```js
+     * for (let i = 0; i < 5; i++) {
+     *   bot.builder.place("conveyor", "north");
+     *   bot.move("north");
+     * }
+     * ```
+     *
+     * Both throw the sim's own reason when they refuse — "tile occupied",
+     * "conveyor not researched", "crate is not empty" — so a script that might
+     * build over something should be ready to catch one.
+     */
+    builder?: {
+        place(machine: MachineKind, dir: Direction, facing?: Direction): boolean;
+        remove(dir: Direction): boolean;
+    };
 }
 
 interface ColonyApi {
@@ -239,6 +295,20 @@ interface ColonyApi {
     time(): number;
     research: {
         queue(name: ResearchName): void;
+        /**
+         * What has finished, what is queued, and how far the head of the queue has
+         * got. Costs no ticks, like every other read.
+         *
+         * Before this, queueing was write-only: a script could ask for the planter
+         * and had no way at all to learn it had arrived, so the reference script
+         * waited on a number worked out on paper.
+         *
+         * ```js
+         * const r = colony.research.status();
+         * if (!r.unlocked.includes("conveyor")) bot.log(r.progress + "/" + r.cost);
+         * ```
+         */
+        status(): ResearchStatus;
     };
 }
 

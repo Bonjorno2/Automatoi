@@ -2,9 +2,12 @@ import { createRng } from "./rng";
 import { addItem, removeItem, total } from "./inventory";
 import {
   BOT_CAPACITY,
+  CONVEYOR_TICKS,
   CROP_GROWTH,
+  FACES,
   FIELD_RADIUS,
-  MACHINE_CAPACITY,
+  ITEMS,
+  capacityOf,
   RECIPE,
   RESEARCH_COST,
   RESEARCH_ITEM,
@@ -18,6 +21,7 @@ import type {
   Command,
   CommandResult,
   Direction,
+  Inventory,
   Item,
   Machine,
   MachineKind,
@@ -52,6 +56,8 @@ const MODULE_FOR: Partial<Record<Command["kind"], ModuleName>> = {
   scan: "scanner",
   send: "radio",
   receive: "radio",
+  place: "builder",
+  remove: "builder",
 };
 
 const capitalise = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
@@ -64,7 +70,22 @@ export const DIR: Record<Direction, Vec> = {
   west: { x: -1, y: 0 },
 };
 
+/**
+ * A quarter turn, exported for the same reason `DIR` is.
+ *
+ * Rotating a belt is a thing the build menu does, the builder arm will do, and
+ * the ghost has to draw. A second copy of what "turn right" means is a second
+ * thing to keep in step with this one.
+ */
+export const CLOCKWISE: Record<Direction, Direction> = {
+  north: "east",
+  east: "south",
+  south: "west",
+  west: "north",
+};
+
 const add = (a: Vec, b: Vec): Vec => ({ x: a.x + b.x, y: a.y + b.y });
+const sub = (a: Vec, b: Vec): Vec => ({ x: a.x - b.x, y: a.y - b.y });
 
 /** Growth at which an item is harvestable. Infinite for anything not a crop. */
 const ripeAt = (item: Item): number => CROP_GROWTH[item] ?? Infinity;
@@ -240,6 +261,7 @@ export class World {
         id: m.id,
         kind: m.kind,
         pos: { ...m.pos },
+        dir: m.dir,
         inventory: { ...m.inventory },
         starved: this.starved.has(m.id),
         jammed: this.jammed.has(m.id),
@@ -261,7 +283,75 @@ export class World {
     this.growCrops();
     for (const bot of this.bots.values()) this.advance(bot);
     this.advanceMachines();
+    // After the machines, so a conversion's output waits one step before a belt
+    // takes it. Either order is deterministic; this one keeps "produced" and
+    // "collected" from being the same instant, where a player can see neither.
+    this.advanceConveyors();
     this.advanceResearch();
+  }
+
+  /**
+   * One belt step, for every belt in the world at once.
+   *
+   * Two phases, and the split is the whole algorithm:
+   *
+   * - **Give.** Every belt hands one item to the tile it faces, decided against
+   *   a copy of the world taken *before* the step. Reading the running state
+   *   instead is the classic belt bug — an item crossing five tiles in one tick
+   *   because the loop happened to visit the belts downstream-first. Deciding
+   *   against `before` makes travel time a property of the line's length rather
+   *   than of the order its belts were built in, which is Fact 2 of the plan.
+   * - **Take.** Every belt with room takes one item from the machine behind it,
+   *   and only an item that machine's recipe *makes*. This phase reads the
+   *   running state, which is safe because a belt never takes from another belt:
+   *   a crate and the console have no recipe, so nothing can be pulled out of
+   *   them, and a mill's wheat is its input rather than its output.
+   *
+   * Gives are applied in id order against a ledger of room already spoken for,
+   * so two belts feeding one target cannot both take the last slot and which of
+   * them wins is the same on every run.
+   */
+  private advanceConveyors(): void {
+    if (this.time % CONVEYOR_TICKS !== 0) return;
+    const belts = [...this.machines.values()].filter((m) => m.kind === "conveyor" && m.dir);
+    if (belts.length === 0) return;
+
+    const before = new Map<number, Inventory>();
+    for (const machine of this.machines.values()) before.set(machine.id, { ...machine.inventory });
+    const spokenFor = new Map<number, Inventory>();
+
+    for (const belt of belts) {
+      const held = before.get(belt.id)!;
+      const item = ITEMS.find((i) => (held[i] ?? 0) > 0);
+      if (!item) continue;
+      const target = this.machineAt(add(belt.pos, DIR[belt.dir!]));
+      // Bare ground, a bot, the world's edge: the item stays where it is. A belt
+      // is never a way to destroy something.
+      if (!target) continue;
+
+      const claimed = spokenFor.get(target.id) ?? {};
+      const room =
+        capacityOf(target.kind) - (before.get(target.id)![item] ?? 0) - (claimed[item] ?? 0);
+      if (room <= 0) continue;
+
+      removeItem(belt.inventory, item, 1);
+      addItem(target.inventory, item, 1);
+      claimed[item] = (claimed[item] ?? 0) + 1;
+      spokenFor.set(target.id, claimed);
+    }
+
+    for (const belt of belts) {
+      const source = this.machineAt(sub(belt.pos, DIR[belt.dir!]));
+      const recipe = source ? RECIPE[source.kind] : undefined;
+      if (!source || !recipe) continue;
+      const item = ITEMS.find(
+        (i) => (recipe.output[i] ?? 0) > 0 && (source.inventory[i] ?? 0) > 0,
+      );
+      if (!item) continue;
+      if ((belt.inventory[item] ?? 0) >= capacityOf(belt.kind)) continue;
+      removeItem(source.inventory, item, 1);
+      addItem(belt.inventory, item, 1);
+    }
   }
 
   /**
@@ -323,7 +413,7 @@ export class World {
    */
   private hasRoomFor(machine: Machine, recipe: Recipe): boolean {
     return entries(recipe.output).every(
-      ([item, n]) => (machine.inventory[item] ?? 0) + n <= MACHINE_CAPACITY,
+      ([item, n]) => (machine.inventory[item] ?? 0) + n <= capacityOf(machine.kind),
     );
   }
 
@@ -374,6 +464,10 @@ export class World {
         return this.doSend(bot, cmd.channel, cmd.payload);
       case "receive":
         return this.doReceive(bot, cmd.channel);
+      case "place":
+        return this.doPlace(bot, cmd.machine, cmd.dir, cmd.facing ?? cmd.dir);
+      case "remove":
+        return this.doRemove(bot, cmd.dir);
       default: {
         const never: never = cmd;
         return fail(`unknown command ${String(never)}`);
@@ -461,7 +555,7 @@ export class World {
     // Capped by the machine's room for *this item* as well as the bot's stock.
     // A partial transfer is the right answer: refusing the whole thing would
     // leave a bot holding cargo it could have delivered most of.
-    const room = MACHINE_CAPACITY - (machine.inventory[item] ?? 0);
+    const room = capacityOf(machine.kind) - (machine.inventory[item] ?? 0);
     const n = Math.min(Math.max(0, Math.floor(count)), bot.inventory[item] ?? 0, Math.max(0, room));
     if (n > 0) {
       removeItem(bot.inventory, item, n);
@@ -480,6 +574,59 @@ export class World {
       addItem(bot.inventory, item, n);
     }
     return ok(n);
+  }
+
+  /**
+   * Build on the tile in `dir`, through the same predicate everything else asks.
+   *
+   * `canPlace` now has three callers — the ghost that colours itself, the build
+   * menu's click, and this — and exactly one of them decides. A builder arm that
+   * worked out for itself where a mill fits is the drift Decision 7 of the
+   * milestone 4 plan exists to prevent, one level up from a renderer.
+   */
+  private doPlace(bot: Bot, machine: MachineKind, dir: Direction, facing: Direction): Outcome {
+    const target = add(bot.pos, DIR[dir]);
+    const why = this.canPlace(machine, target);
+    if (why) {
+      // A world-side signal as well as the script's error, because somebody
+      // watching the canvas is a reader too.
+      this.emit({ kind: "refused", botId: bot.id, pos: { ...bot.pos }, command: "place" });
+      return fail(why);
+    }
+    this.addMachine(machine, target, facing);
+    return ok(true);
+  }
+
+  /**
+   * Take the machine on the tile in `dir` away.
+   *
+   * Removal exists mostly because a belt is a wall: a player who has fenced
+   * themselves out of their own field needs something that is not a new game.
+   *
+   * It refuses anything with something to lose. There is no ground for items to
+   * spill onto in this game, so removing a full crate would simply delete what
+   * was in it, and a machine part-way through a conversion has already eaten its
+   * input — an empty inventory is not the same as nothing to lose.
+   */
+  private doRemove(bot: Bot, dir: Direction): Outcome {
+    const target = add(bot.pos, DIR[dir]);
+    const machine = this.machineAt(target);
+    const refuse = (why: string): Outcome => {
+      this.emit({ kind: "refused", botId: bot.id, pos: { ...bot.pos }, command: "remove" });
+      return fail(why);
+    };
+    if (!machine) return fail(`no machine to the ${dir}`);
+    if (machine.kind === "console") return refuse("the Research Console cannot be removed");
+    if (total(machine.inventory) > 0) return refuse(`${machine.kind} is not empty`);
+    if (machine.progress > 0) return refuse(`${machine.kind} is working`);
+
+    this.machines.delete(machine.id);
+    // Ids are never reused, so a left-behind flag would never fire again — but
+    // it would sit in a set that only grows, and a leak that small is still a
+    // leak.
+    this.starved.delete(machine.id);
+    this.jammed.delete(machine.id);
+    return ok(true);
   }
 
   private doSend(bot: Bot, channel: string, payload: unknown): Outcome {
@@ -535,11 +682,16 @@ export class World {
     return this.addBot(pos, ["harvester"]);
   }
 
-  /** Place a machine the player has researched. */
-  placeMachine(kind: MachineKind, pos: Vec): Machine {
+  /**
+   * Place a machine the player has researched.
+   *
+   * `facing` is accepted for every kind and recorded only by those that have a
+   * front, so a build menu can offer one call rather than two.
+   */
+  placeMachine(kind: MachineKind, pos: Vec, facing: Direction = "north"): Machine {
     const why = this.canPlace(kind, pos);
     if (why) throw new Error(why);
-    return this.addMachine(kind, pos);
+    return this.addMachine(kind, pos, facing);
   }
 
   private tileBlocked(pos: Vec): string | null {
@@ -610,10 +762,21 @@ export class World {
       case "planter":
       case "scanner":
       case "radio":
+      case "builder":
         this.research.spareModules[name] = (this.research.spareModules[name] ?? 0) + 1;
         return;
       case "crate":
-        return; // unlocks placeMachine("crate"), nothing to stock
+      case "mill":
+      case "oven":
+      case "conveyor":
+        return; // unlocks placeMachine(kind), nothing to stock
+      default: {
+        // Exhaustive rather than a silent fallthrough: mill and oven landed in
+        // milestone 5 without a case here and granted nothing by accident
+        // rather than by decision, which happened to be right.
+        const never: never = name;
+        throw new Error(`no grant for research ${String(never)}`);
+      }
     }
   }
 
@@ -634,10 +797,17 @@ export class World {
     return bot;
   }
 
-  private addMachine(kind: MachineKind, pos: Vec): Machine {
+  private addMachine(kind: MachineKind, pos: Vec, facing: Direction = "north"): Machine {
     const tile = this.tileAt(pos);
     if (tile) tile.crop = null;
-    const machine: Machine = { id: this.nextId++, kind, pos: { ...pos }, inventory: {}, progress: 0 };
+    const machine: Machine = {
+      id: this.nextId++,
+      kind,
+      pos: { ...pos },
+      dir: FACES[kind] ? facing : null,
+      inventory: {},
+      progress: 0,
+    };
     this.machines.set(machine.id, machine);
     return machine;
   }

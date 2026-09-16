@@ -10,6 +10,16 @@ export const TICK_COST = {
   withdraw: 1,
   send: 1,
   receive: 1,
+  /**
+   * Building costs time, which is the only thing this milestone charges for it.
+   *
+   * It is deliberately *not* an answer to milestone 5's finding 5 — machines are
+   * still free and unlimited, because a build cost needs a material to be
+   * denominated in and every item in this game is food. What this does buy is
+   * that a hundred-tile belt run is a real expense in a script's own budget.
+   */
+  place: 4,
+  remove: 4,
 } as const;
 
 /**
@@ -69,6 +79,52 @@ export const RECIPE: Partial<Record<MachineKind, Recipe>> = {
  */
 export const MACHINE_CAPACITY = 16;
 
+/**
+ * Machine kinds that have a front. A kind absent here has no facing and ignores
+ * one offered to it.
+ *
+ * Partial for the same reason `CROP_GROWTH` is: only a kind that differs from
+ * the default needs a row, and the absence is the rule rather than an omission.
+ */
+export const FACES: Partial<Record<MachineKind, true>> = { conveyor: true };
+
+/**
+ * How much of each item a kind holds, where it differs from `MACHINE_CAPACITY`.
+ *
+ * A belt holding sixteen wheat would be a crate with an arrow on it. Four is
+ * enough to see a belt backing up and little enough that a line is a line rather
+ * than a warehouse — a guess, and Task 9 measures whether it is a good one.
+ */
+export const CAPACITY: Partial<Record<MachineKind, number>> = { conveyor: 4 };
+
+/** How much of each item this kind of machine can hold. */
+export function capacityOf(kind: MachineKind): number {
+  return CAPACITY[kind] ?? MACHINE_CAPACITY;
+}
+
+/**
+ * Ticks between belt steps. Every belt in the world steps at once.
+ *
+ * A guess until Task 9 measures it against milestone 5's hand-hauled baseline.
+ * The ratio that matters is not speed over a tile — a bot walks a tile in two
+ * ticks and a belt moves one in four — but throughput over a whole round, and a
+ * belt never walks back empty.
+ */
+export const CONVEYOR_TICKS = 4;
+
+/**
+ * Every item, in the order anything that has to choose one chooses.
+ *
+ * A belt holding both wheat and flour hands on exactly one item per step, and
+ * which one cannot be left to whatever order the keys happen to be in: two
+ * worlds built by the same script would diverge on a detail nobody chose.
+ *
+ * Derived from a `Record<Item, true>` rather than written as a list, so growing
+ * `Item` is a compiler error here rather than an item that silently never moves.
+ */
+const EVERY_ITEM: Record<Item, true> = { wheat: true, flour: true, bread: true };
+export const ITEMS: readonly Item[] = Object.keys(EVERY_ITEM) as Item[];
+
 /** Wheat the console must consume to complete each research. */
 export const RESEARCH_COST: Record<ResearchName, number> = {
   planter: 10,
@@ -76,8 +132,10 @@ export const RESEARCH_COST: Record<ResearchName, number> = {
   crate: 15,
   mill: 20,
   oven: 25,
+  conveyor: 5,
   chassis: 6,
   radio: 4,
+  builder: 10,
 };
 
 /**
@@ -98,6 +156,13 @@ export const RESEARCH_COST: Record<ResearchName, number> = {
 export const RESEARCH_ITEM: Partial<Record<ResearchName, Item>> = {
   chassis: "bread",
   radio: "bread",
+  // The belt is bought with what the chain makes. Priced in wheat it would be a
+  // way to automate the chain without ever having run it.
+  conveyor: "bread",
+  // And the arm that lays belts by script costs twice what laying them by hand
+  // does, because it is the second half of the same lesson rather than a
+  // replacement for the first.
+  builder: "bread",
 };
 
 /** Chebyshev radius of the soil field around the console. */

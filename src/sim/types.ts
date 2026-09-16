@@ -8,16 +8,18 @@ export type Terrain = "grass" | "soil";
  * makes the compiler ask the questions rather than leaving them to be noticed.
  */
 export type Item = "wheat" | "flour" | "bread";
-export type ModuleName = "harvester" | "planter" | "scanner" | "radio";
-export type MachineKind = "console" | "crate" | "mill" | "oven";
+export type ModuleName = "harvester" | "planter" | "scanner" | "radio" | "builder";
+export type MachineKind = "console" | "crate" | "mill" | "oven" | "conveyor";
 export type ResearchName =
   | "planter"
   | "scanner"
   | "crate"
   | "mill"
   | "oven"
+  | "conveyor"
   | "chassis"
-  | "radio";
+  | "radio"
+  | "builder";
 
 export interface Vec {
   x: number;
@@ -52,7 +54,14 @@ export type Command =
   | { kind: "deposit"; dir: Direction; item: Item; count: number }
   | { kind: "withdraw"; dir: Direction; item: Item; count: number }
   | { kind: "send"; channel: string; payload: unknown }
-  | { kind: "receive"; channel?: string };
+  | { kind: "receive"; channel?: string }
+  /**
+   * Build on the adjacent tile in `dir`. `facing` is which way the new machine
+   * points and defaults to `dir`, so the natural loop — place north, move
+   * north, repeat — lays a line pointing the way the bot is walking.
+   */
+  | { kind: "place"; machine: MachineKind; dir: Direction; facing?: Direction }
+  | { kind: "remove"; dir: Direction };
 
 export type CommandResult =
   | { ok: true; value: unknown }
@@ -85,6 +94,14 @@ export interface Machine {
   id: number;
   kind: MachineKind;
   pos: Vec;
+  /**
+   * Which way it hands things on, for a kind that has a front. Null for
+   * everything else, which is most of them: a crate has no direction to have.
+   *
+   * Fixed when the machine is placed. Turning one means removing it and placing
+   * it again, which is why nothing in the renderer has to watch this change.
+   */
+  dir: Direction | null;
   inventory: Inventory;
   /**
    * Ticks into the current conversion, 0 when not converting.
@@ -135,6 +152,8 @@ export interface MachineSnapshot {
   id: number;
   kind: MachineKind;
   pos: Vec;
+  /** Which way it hands things on, or null for a kind with no front. */
+  dir: Direction | null;
   inventory: Inventory;
   /**
    * Wants input it has not got. A state rather than an event, so whatever is

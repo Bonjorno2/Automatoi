@@ -1,5 +1,5 @@
-import { CROP_GROWTH, WHEAT_GROWTH_TICKS } from "../sim/config.ts";
-import type { Item, MachineKind, ModuleName, Terrain } from "../sim/types.ts";
+import { CROP_GROWTH, ITEMS, WHEAT_GROWTH_TICKS } from "../sim/config.ts";
+import type { Inventory, Item, MachineKind, ModuleName, Terrain } from "../sim/types.ts";
 
 /**
  * Every colour in the game, and the arithmetic that picks between them.
@@ -54,6 +54,27 @@ export const ITEM_COLOR: Record<Item, number> = {
 };
 
 /**
+ * One colour per item a machine is carrying, in the order the sim hands them on.
+ *
+ * Belts hold a count per item rather than items at positions (Decision 5 of the
+ * milestone 6 plan), so what is drawn is a pip per item and not a sliding crate.
+ * The order matters: it is the same order `ITEMS` gives the belt step, so the
+ * leftmost pip is the one that leaves next.
+ *
+ * Capped, because a belt can hold four of each of three items and twelve pips on
+ * a twenty-pixel tile is a smudge rather than information.
+ */
+export function cargoPips(inventory: Inventory, max: number): number[] {
+  const pips: number[] = [];
+  for (const item of ITEMS) {
+    for (let i = 0; i < (inventory[item] ?? 0) && pips.length < max; i++) {
+      pips.push(ITEM_COLOR[item]);
+    }
+  }
+  return pips;
+}
+
+/**
  * One row per machine kind. Milestone 5's mill and oven are two more rows.
  */
 export const MACHINE: Record<MachineKind, { body: number; trim: number }> = {
@@ -61,6 +82,9 @@ export const MACHINE: Record<MachineKind, { body: number; trim: number }> = {
   crate: { body: 0x8a6a3a, trim: 0xc9a76a },
   mill: { body: 0x7a6a52, trim: 0xe8e0cc },
   oven: { body: 0x8a4a38, trim: 0xf0a860 },
+  // Darker than anything else on the field, because a belt is floor: it has to
+  // read as something the eye passes over on the way to what it feeds.
+  conveyor: { body: 0x3e4038, trim: 0x8e9484 },
 };
 
 /** One row per chassis module, for the pips along a bot's edge. */
@@ -69,11 +93,62 @@ export const MODULE: Record<ModuleName, number> = {
   planter: 0x6fbf5a,
   scanner: 0x5aa8d8,
   radio: 0xc07fd0,
+  builder: 0x9aa4b0,
 };
 
+/**
+ * One body colour per bot, in the order they were deployed.
+ *
+ * Milestone 4's finding 6, re-recorded as milestone 5's: two bots on the canvas
+ * were distinguishable only by the selection ring, which answers "which one am
+ * I editing" and not "which one is that". This is the cheap half of the answer.
+ * The design's Overseer fleet view is the rest of it.
+ *
+ * **Indexed by position in the world's bot list, not by bot id.** Ids are shared
+ * with machines: place three crates before deploying and the second bot is id 6,
+ * which collides with bot 1 under any modulo of the id. The price is that
+ * colours would shift if a bot were ever removed, which nothing can do today.
+ *
+ * The first entry is the bot gold from milestone 4, so the bot a player has been
+ * watching for two milestones does not change colour under them.
+ */
+export const BOT_BODY: readonly number[] = [
+  0xe0c060, // gold
+  0x58c8b0, // teal
+  0xc888e0, // violet
+  0xe08a58, // amber
+  0x7fb0f0, // ice
+];
+
+/** What an idle body is mixed toward, and how far. */
+const IDLE_SHADE = 0x0a0c08;
+const IDLE_MIX = 0.42;
+
+/**
+ * A bot's body colour: which bot it is, and whether it is doing anything.
+ *
+ * Brightness carried busy-or-idle before this table existed and still does. What
+ * changed is that dimming now happens per bot rather than to one shared grey, so
+ * an idle teal bot is still visibly the teal one.
+ */
+export function botColor(index: number, active: boolean): number {
+  const n = BOT_BODY.length;
+  const base = BOT_BODY[((index % n) + n) % n]!;
+  return active ? base : lerpColor(base, IDLE_SHADE, IDLE_MIX);
+}
+
+/**
+ * Below this tile size the id is not drawn at all.
+ *
+ * Measured rather than guessed, the same way the crop `young` colour was: the
+ * pane renders at 7 pixels per tile when the browser window is narrow and 20 at
+ * a 1600x900 one. A bot body is two thirds of a tile, so at 7 a digit is a
+ * smudge that costs contrast and says nothing. Colour works at every size; the
+ * number is what larger windows buy.
+ */
+export const MIN_ID_SIZE = 14;
+
 export const COLOR = {
-  bot: 0xe0c060,
-  botIdle: 0x8d8055,
   botOutline: 0x141409,
   /** The arc a machine draws while it is working on something. */
   progress: 0x9be06a,

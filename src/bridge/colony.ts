@@ -4,7 +4,8 @@ import {
   IDLE, REQUEST, RESULT, REQ_LEN, RES_LEN, RES_OK, STATE,
   createChannel, ctrlOf, mirrorOf, readFrame, reqOf, resOf, writeFrame,
 } from "./protocol.ts";
-import type { HostRequest, MirrorState } from "./protocol.ts";
+import type { HostRequest, MirrorState, ResearchStatus } from "./protocol.ts";
+import { RESEARCH_COST } from "../sim/config.ts";
 import { publishMirror } from "./mirror.ts";
 import { DemandClock } from "./clock.ts";
 import type { Clock } from "./clock.ts";
@@ -113,6 +114,8 @@ export class Colony {
         case "research":
           this.world.queueResearch(request.name);
           return { ok: true, value: null };
+        case "research-status":
+          return { ok: true, value: this.researchStatus() };
       }
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -143,6 +146,23 @@ export class Colony {
 
   private publish(ch: Channel): void {
     publishMirror(ch.ctrl, ch.mirror, this.viewOf(ch.botId));
+  }
+
+  /**
+   * What research has done, for a script that wants to know.
+   *
+   * `cost` is included so a script can work out a fraction without importing
+   * `config.ts`, which it cannot: a worker sees the API and nothing else.
+   */
+  private researchStatus(): ResearchStatus {
+    const research = this.world.research;
+    const head = research.queue[0];
+    return {
+      unlocked: [...research.unlocked],
+      queue: [...research.queue],
+      progress: research.progress,
+      cost: head ? RESEARCH_COST[head] : 0,
+    };
   }
 
   private botViews(): BotView[] {

@@ -1,10 +1,13 @@
 import {
+  BOT_BODY,
   CROP,
   CROP_HEIGHT,
   ITEM_COLOR,
   MACHINE,
   MODULE,
   TERRAIN,
+  botColor,
+  cargoPips,
   cropColor,
   cropStage,
 } from "../../src/render/palette";
@@ -55,7 +58,17 @@ describe("the palette covers every sim union", () => {
       expect(isColor(pair.body), name).toBe(true);
       expect(isColor(pair.trim), name).toBe(true);
     }
-    expect(Object.keys(MACHINE).sort()).toEqual(["console", "crate", "mill", "oven"]);
+    // Planned edit 1 of the milestone 6 plan, and the second milestone running
+    // in which this line is the only thing a growing union breaks. It is kept
+    // for the loop above it — that the values are usable colours is not
+    // something the `Record` type can check — and not for this assertion.
+    expect(Object.keys(MACHINE).sort()).toEqual([
+      "console",
+      "conveyor",
+      "crate",
+      "mill",
+      "oven",
+    ]);
   });
 
   it("gives every module a pip colour, and no two the same", () => {
@@ -63,7 +76,84 @@ describe("the palette covers every sim union", () => {
     for (const [name, c] of Object.entries(MODULE)) expect(isColor(c), name).toBe(true);
     // Pips are read by colour alone; two modules sharing one is unreadable.
     expect(new Set(values).size).toBe(values.length);
-    expect(Object.keys(MODULE).sort()).toEqual(["harvester", "planter", "radio", "scanner"]);
+    // Planned edit 1 of the milestone 6 plan, second half: the builder arm.
+    expect(Object.keys(MODULE).sort()).toEqual([
+      "builder",
+      "harvester",
+      "planter",
+      "radio",
+      "scanner",
+    ]);
+  });
+});
+
+describe("cargoPips", () => {
+  it("gives nothing for an empty machine", () => {
+    expect(cargoPips({}, 4)).toEqual([]);
+    expect(cargoPips({ wheat: 0 }, 4)).toEqual([]);
+  });
+
+  it("gives one pip per item held", () => {
+    expect(cargoPips({ wheat: 3 }, 4)).toEqual([
+      ITEM_COLOR.wheat,
+      ITEM_COLOR.wheat,
+      ITEM_COLOR.wheat,
+    ]);
+  });
+
+  it("orders mixed cargo the way the sim hands it on", () => {
+    // Same order the belt step itself chooses from, so what the player sees
+    // leaving a belt is what the sim moves next.
+    expect(cargoPips({ bread: 1, wheat: 2 }, 4)).toEqual([
+      ITEM_COLOR.wheat,
+      ITEM_COLOR.wheat,
+      ITEM_COLOR.bread,
+    ]);
+  });
+
+  it("stops at the cap rather than drawing a pile", () => {
+    // A belt can hold four of each of three items. Twelve pips on a twenty
+    // pixel tile is a smudge; the cap is what keeps it readable.
+    expect(cargoPips({ wheat: 4, flour: 4, bread: 4 }, 4)).toHaveLength(4);
+  });
+});
+
+/** Perceived brightness, for asserting one colour is darker than another. */
+const luma = (c: number): number =>
+  0.299 * ((c >> 16) & 0xff) + 0.587 * ((c >> 8) & 0xff) + 0.114 * (c & 0xff);
+
+describe("botColor", () => {
+  it("gives every entry a usable colour, and no two the same", () => {
+    // Bots are told apart by colour alone at the tile sizes this game renders
+    // at, so two sharing one is two bots the player cannot distinguish.
+    for (const c of BOT_BODY) expect(isColor(c)).toBe(true);
+    expect(new Set(BOT_BODY).size).toBe(BOT_BODY.length);
+  });
+
+  it("gives the first bot the gold it has had since milestone 4", () => {
+    // A player who has watched one bot for two milestones should not find it
+    // recoloured by the arrival of a second.
+    expect(botColor(0, true)).toBe(0xe0c060);
+  });
+
+  it("gives two bots two colours, and a third a third", () => {
+    const colours = [botColor(0, true), botColor(1, true), botColor(2, true)];
+    expect(new Set(colours).size).toBe(3);
+  });
+
+  it("dims an idle bot without changing which bot it is", () => {
+    // Brightness carried busy-or-idle before this table existed and still does;
+    // what changed is that it now says it about a specific bot.
+    for (let i = 0; i < BOT_BODY.length; i++) {
+      expect(luma(botColor(i, false))).toBeLessThan(luma(botColor(i, true)));
+    }
+    // Two idle bots are still two bots.
+    expect(botColor(0, false)).not.toBe(botColor(1, false));
+  });
+
+  it("wraps rather than running out for a fleet larger than the table", () => {
+    expect(botColor(BOT_BODY.length, true)).toBe(botColor(0, true));
+    expect(isColor(botColor(99, true))).toBe(true);
   });
 });
 

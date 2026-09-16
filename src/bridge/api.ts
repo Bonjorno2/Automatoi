@@ -1,9 +1,16 @@
-import type { Direction, Item, Message, ResearchName, ScanTile } from "../sim/types";
+import type {
+  Direction,
+  Item,
+  MachineKind,
+  Message,
+  ResearchName,
+  ScanTile,
+} from "../sim/types";
 import {
   IDLE, REQUEST, RESULT, REQ_LEN, RES_LEN, RES_OK, STATE,
   ctrlOf, mirrorOf, readFrame, reqOf, resOf, writeFrame,
 } from "./protocol.ts";
-import type { HostRequest, MirrorState } from "./protocol.ts";
+import type { HostRequest, MirrorState, ResearchStatus } from "./protocol.ts";
 import { readMirror } from "./mirror.ts";
 
 export interface BotApi {
@@ -40,12 +47,50 @@ export interface BotApi {
   planter?: { plant(item: Item): boolean };
   scanner?: { scan(radius: number): ScanTile[] };
   radio?: { send(channel: string, payload: unknown): number; receive(channel?: string): Message };
+  /**
+   * The builder arm: the first verbs that change the world's layout rather than
+   * moving through it.
+   *
+   * `facing` is which way the new machine points and defaults to `dir`, so the
+   * natural loop lays a line pointing the way the bot is walking:
+   *
+   * ```js
+   * for (let i = 0; i < 5; i++) {
+   *   bot.builder.place("conveyor", "north");
+   *   bot.move("north");
+   * }
+   * ```
+   *
+   * Both throw the sim's own reason when they refuse — "tile occupied",
+   * "conveyor not researched", "crate is not empty" — so a script that might
+   * build over something should be ready to catch one.
+   */
+  builder?: {
+    place(machine: MachineKind, dir: Direction, facing?: Direction): boolean;
+    remove(dir: Direction): boolean;
+  };
 }
 
 export interface ColonyApi {
   bots(): Array<MirrorState & { id: number }>;
   time(): number;
-  research: { queue(name: ResearchName): void };
+  research: {
+    queue(name: ResearchName): void;
+    /**
+     * What has finished, what is queued, and how far the head of the queue has
+     * got. Costs no ticks, like every other read.
+     *
+     * Before this, queueing was write-only: a script could ask for the planter
+     * and had no way at all to learn it had arrived, so the reference script
+     * waited on a number worked out on paper.
+     *
+     * ```js
+     * const r = colony.research.status();
+     * if (!r.unlocked.includes("conveyor")) bot.log(r.progress + "/" + r.cost);
+     * ```
+     */
+    status(): ResearchStatus;
+  };
 }
 
 /** Posted to the host thread out of band; logging never blocks the script. */
@@ -101,12 +146,20 @@ export function makeApi(
       receive: (channel) =>
         call({ kind: "command", command: { kind: "receive", channel } }) as Message,
     },
+    builder: {
+      place: (machine, dir, facing) =>
+        call({ kind: "command", command: { kind: "place", machine, dir, facing } }) as boolean,
+      remove: (dir) => call({ kind: "command", command: { kind: "remove", dir } }) as boolean,
+    },
   };
 
   const colony: ColonyApi = {
     bots: () => call({ kind: "colony", call: "bots" }) as Array<MirrorState & { id: number }>,
     time: () => call({ kind: "colony", call: "time" }) as number,
-    research: { queue: (name) => void call({ kind: "research", name }) },
+    research: {
+      queue: (name) => void call({ kind: "research", name }),
+      status: () => call({ kind: "research-status" }) as ResearchStatus,
+    },
   };
 
   return { bot, colony };

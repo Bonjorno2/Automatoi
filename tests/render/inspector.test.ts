@@ -1,6 +1,7 @@
-import { describeTile } from "../../src/render/inspector";
+import { armedMessage, describePlacement, describeTile } from "../../src/render/inspector";
 import { World } from "../../src/sim/world";
 import { MACHINE_CAPACITY, WHEAT_GROWTH_TICKS } from "../../src/sim/config";
+import type { Direction } from "../../src/sim/types";
 import { ticks } from "../sim/helpers";
 
 /** A tile of plain grass, well outside the field. */
@@ -137,5 +138,133 @@ describe("describeTile on the new machines", () => {
     const lines = describeTile(w.snapshot(), { x: 18, y: 16 });
     expect(lines).toContain("  jammed — no room for the output");
     expect(lines).not.toContain("  starved — nothing to consume");
+  });
+
+  it("names which way a belt faces", () => {
+    // The only thing a player can get wrong about a belt, and the arrow on a
+    // twenty-pixel tile is small. A belt pointed into a mill instead of away
+    // from it looks identical to one that works.
+    const w = new World({ seed: 1 });
+    w.research.unlocked.add("conveyor");
+    const belt = w.placeMachine("conveyor", { x: 18, y: 18 }, "south");
+    belt.inventory = { wheat: 2 };
+    expect(describeTile(w.snapshot(), { x: 18, y: 18 })).toEqual([
+      "Conveyor",
+      "  facing south",
+      "  holding 2 wheat",
+      "soil",
+    ]);
+  });
+
+  it("says nothing about facing for a machine that has no front", () => {
+    const w = new World({ seed: 1 });
+    expect(describeTile(w.snapshot(), { x: 16, y: 16 }).some((l) => l.includes("facing"))).toBe(
+      false,
+    );
+  });
+});
+
+/**
+ * Milestone 5's finding 2: placement stays armed after a click, which is right
+ * for laying three crates in a row and wrong for the very next thing a player
+ * does, which is hover the machine they just placed and see a ghost instead of
+ * it. Staying armed is kept; what is fixed is that armed and inspecting were two
+ * modes with no visible difference except the tooltip's wording.
+ */
+describe("describePlacement", () => {
+  const armed = (label: string, facing: Direction | null, reason: string | null) => ({
+    label,
+    facing,
+    reason,
+  });
+
+  it("says what is held and that a legal tile can take it", () => {
+    const w = new World({ seed: 1 });
+    expect(describePlacement(w.snapshot(), { x: 20, y: 20 }, armed("Place Crate", null, null)))
+      .toEqual(["Place Crate", "  click to place"]);
+  });
+
+  it("carries the facing, because that is what the player is about to commit", () => {
+    const w = new World({ seed: 1 });
+    const lines = describePlacement(
+      w.snapshot(),
+      { x: 20, y: 20 },
+      armed("Place Conveyor", "east", null),
+    );
+    expect(lines[0]).toBe("Place Conveyor (facing east)");
+  });
+
+  it("gives the sim's own refusal rather than a second opinion", () => {
+    const w = new World({ seed: 1 });
+    const lines = describePlacement(
+      w.snapshot(),
+      { x: 16, y: 16 },
+      armed("Place Crate", null, "tile occupied"),
+    );
+    expect(lines[1]).toBe("  tile occupied");
+  });
+
+  it("describes the machine already there as well as the placement", () => {
+    // The finding itself: hovering the mill you just placed should tell you
+    // about the mill. Before this it told you only that the tile was occupied.
+    const w = new World({ seed: 1 });
+    w.research.unlocked.add("mill");
+    const mill = w.placeMachine("mill", { x: 18, y: 18 });
+    mill.inventory = { wheat: 2 };
+
+    const lines = describePlacement(
+      w.snapshot(),
+      { x: 18, y: 18 },
+      armed("Place Conveyor", "north", "tile occupied"),
+    );
+    // No starved line: the flag is set by a tick, and this world has not had
+    // one. The point of the test is the two halves being present at once.
+    expect(lines).toEqual([
+      "Place Conveyor (facing north)",
+      "  tile occupied",
+      "Mill",
+      "  holding 2 wheat",
+      "soil",
+    ]);
+  });
+
+  it("describes a bot standing in the way", () => {
+    const w = new World({ seed: 1 });
+    const lines = describePlacement(
+      w.snapshot(),
+      w.getBot(1).pos,
+      armed("Place Crate", null, "tile occupied"),
+    );
+    expect(lines.some((l) => l.startsWith("Bot 1"))).toBe(true);
+  });
+
+  it("says nothing extra about ground the player could simply build on", () => {
+    // Empty ground is unchanged: two lines, not a crop report the player did
+    // not ask for while they are aiming at something.
+    const w = new World({ seed: 1 });
+    const lines = describePlacement(
+      w.snapshot(),
+      { x: 20, y: 20 },
+      armed("Place Conveyor", "south", null),
+    );
+    expect(lines).toHaveLength(2);
+  });
+});
+
+describe("armedMessage", () => {
+  it("says what is held and how to stop holding it", () => {
+    expect(armedMessage({ label: "Place Conveyor", facing: "north" })).toBe(
+      "placing Conveyor (facing north) — R to turn, Esc to stop",
+    );
+  });
+
+  it("offers no turn for a machine with no front", () => {
+    expect(armedMessage({ label: "Place Crate", facing: null })).toBe(
+      "placing Crate — Esc to stop",
+    );
+  });
+
+  it("is nothing at all when nothing is held", () => {
+    expect(armedMessage(null)).toBe("");
   });
 });
