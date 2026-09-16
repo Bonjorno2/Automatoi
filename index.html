@@ -4,16 +4,49 @@
     <meta charset="utf-8" />
     <title>Automatori</title>
     <style>
-      :root { color-scheme: dark; }
+      /*
+        Milestone 7's Task 8. The page is a frame around the canvas, so it
+        recedes: one accent, a type scale with three sizes instead of five
+        ad-hoc ones, and spacing from a scale rather than from whatever looked
+        right in the line being written.
+
+        Nothing here changes what any control does, and no control moved. A
+        restyle that relocates a button is a restyle that invalidates the
+        milestone 3, 5 and 6 playtests.
+      */
+      :root {
+        color-scheme: dark;
+        /* Type: one step down for labels, one up for the few headings. */
+        --fs-sm: 11px;
+        --fs: 13px;
+        --fs-lg: 15px;
+        /* Space, doubling. Every margin and gap below is one of these. */
+        --sp-1: 0.25rem;
+        --sp-2: 0.5rem;
+        --sp-3: 0.75rem;
+        --sp-4: 1rem;
+        /* Ink, darkest to lightest. */
+        --bg: #16181a;
+        --bg-sunk: #101214;
+        --bg-raised: #1f2225;
+        --line: #2c3033;
+        --line-bright: #3a4045;
+        --text: #cfd3d6;
+        --text-dim: #7d858b;
+        /* The one accent, taken from the crop gold the canvas already uses. */
+        --accent: #f0d878;
+        --accent-dim: #4a4326;
+        --grow: #9be06a;
+      }
       * { box-sizing: border-box; }
       body {
         margin: 0;
         height: 100vh;
         display: grid;
         grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) 22rem;
-        font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
-        background: #1e1e1e;
-        color: #d4d4d4;
+        font: var(--fs) / 1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+        background: var(--bg);
+        color: var(--text);
       }
       /* Pixi sizes its canvas to this element, so it must not be sized by it. */
       #world {
@@ -22,63 +55,107 @@
         min-width: 0;
         overflow: hidden;
         background: #12140f;
-        border-right: 1px solid #333;
+        border-right: 1px solid var(--line);
       }
       #world canvas { display: block; }
       #world .tooltip {
         position: absolute;
         pointer-events: none;
         white-space: pre;
-        padding: 0.3rem 0.45rem;
+        padding: var(--sp-1) 0.45rem;
         background: #12140fe6;
         border: 1px solid #4a5540;
         border-radius: 3px;
         color: #d9d9c8;
-        font-size: 11px;
+        font-size: var(--fs-sm);
         line-height: 1.35;
         z-index: 2;
       }
       #editor { height: 100vh; min-width: 0; }
       #side {
-        border-left: 1px solid #333;
-        padding: 0.75rem;
+        border-left: 1px solid var(--line);
+        padding: var(--sp-3);
         overflow-y: auto;
         display: flex;
         flex-direction: column;
-        gap: 0.75rem;
+        gap: var(--sp-3);
+        background: var(--bg);
       }
-      #status { margin: 0; color: #888; font-size: 11px; }
+      /* A masthead rather than a row of buttons at the top of a grey column.
+         It carries the name and the one key binding nothing else mentions. */
+      #masthead {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: var(--sp-2);
+        margin: 0;
+        padding-bottom: var(--sp-2);
+        border-bottom: 1px solid var(--line);
+      }
+      #masthead h1 {
+        margin: 0;
+        font-size: var(--fs-lg);
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        color: var(--accent);
+      }
+      #masthead .camera-hint { font-size: var(--fs-sm); color: var(--text-dim); }
+      #status {
+        margin: 0;
+        color: var(--text-dim);
+        font-size: var(--fs-sm);
+        min-height: 1.2em;
+      }
       /* The armed banner. Loud on purpose: it is the answer to "why is my
          cursor a ghost", and it names the key that makes it stop. */
       #placing {
-        margin: 0.25rem 0 0;
+        margin: var(--sp-1) 0 0;
         padding: 0.15rem 0.4rem;
         color: #1a1a12;
-        background: #f0d878;
+        background: var(--accent);
         border-radius: 2px;
-        font-size: 11px;
+        font-size: var(--fs-sm);
       }
-      #controls { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+      #controls { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
       button, select {
         font: inherit;
-        background: #333;
-        color: #d4d4d4;
-        border: 1px solid #555;
+        font-size: var(--fs-sm);
+        background: var(--bg-raised);
+        color: var(--text);
+        border: 1px solid var(--line-bright);
         border-radius: 3px;
-        padding: 0.25rem 0.6rem;
+        padding: 0.3rem 0.65rem;
         cursor: pointer;
+        transition: background 90ms linear, border-color 90ms linear;
       }
-      button:hover, select:hover { background: #3f3f3f; }
+      button:hover, select:hover { background: #2a2e32; border-color: #4c545a; }
+      button:active { background: #14171a; }
+      button:focus-visible, select:focus-visible {
+        outline: 1px solid var(--accent);
+        outline-offset: 1px;
+      }
       button:disabled { opacity: 0.45; cursor: default; }
-      #panel { display: flex; flex-direction: column; gap: 0.5rem; }
-      .cargo { display: flex; align-items: center; gap: 0.4rem; font-size: 11px; }
-      .cargo-label { color: #888; min-width: 3.2rem; }
+      /* Run is the one thing on this page a player presses over and over. */
+      #run { border-color: var(--accent-dim); color: var(--accent); }
+      #run:hover { background: #2a2618; border-color: var(--accent); }
+      #panel { display: flex; flex-direction: column; gap: var(--sp-3); }
+      .group { display: flex; flex-direction: column; gap: var(--sp-1); }
+      .group-title {
+        margin: 0;
+        font-size: var(--fs-sm);
+        font-weight: 400;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--text-dim);
+      }
+      .cargo { display: flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-sm); }
+      .cargo-label { color: var(--text-dim); min-width: 3.2rem; }
       .cargo-count { color: #9cdcfe; }
       .bar {
         flex: 1;
         height: 0.6rem;
-        background: #181818;
-        border: 1px solid #3a3a3a;
+        background: var(--bg-sunk);
+        border: 1px solid var(--line);
         border-radius: 2px;
         overflow: hidden;
       }
@@ -86,9 +163,43 @@
       .bar i.full { background: #d8703c; }
       /* What the field has left. Amber rather than the research green: this is
          a supply that only ever goes down until the player plants something. */
-      .field { margin: 0; padding: 0; list-style: none; font-size: 11px; color: #c8b84a; }
-      .research { margin: 0; padding: 0; list-style: none; font-size: 11px; color: #9be06a; }
-      .research .muted { color: #666; }
+      .field {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        font-size: var(--fs-sm);
+        color: #c8b84a;
+      }
+      .research { margin: 0; padding: 0; list-style: none; font-size: var(--fs-sm); }
+      .research .muted { color: var(--text-dim); }
+      /* Progress, not a list. The words ride inside the bar so nothing is lost
+         when the fraction is a sliver. */
+      .research-row { margin-top: var(--sp-1); }
+      .research-bar {
+        position: relative;
+        display: block;
+        height: 1.35rem;
+        background: var(--bg-sunk);
+        border: 1px solid var(--line);
+        border-radius: 2px;
+        overflow: hidden;
+      }
+      .research-bar i {
+        position: absolute;
+        inset: 0 auto 0 0;
+        display: block;
+        background: #2f4a22;
+        transition: width 140ms linear;
+      }
+      .research-row.active .research-bar i { background: #3c6329; }
+      .research-text {
+        position: relative;
+        display: block;
+        padding: 0 0.4rem;
+        line-height: 1.25rem;
+        color: var(--grow);
+      }
+      .research-row:not(.active) .research-text { color: var(--text-dim); }
       /* The build menu: things you own and have not placed. Styled as offers
          rather than as status, because clicking one is the whole point. */
       .build { margin: 0; padding: 0; list-style: none; }
@@ -97,15 +208,15 @@
         display: block;
         width: 100%;
         text-align: left;
-        font-size: 11px;
-        color: #f0d878;
+        font-size: var(--fs-sm);
+        color: var(--accent);
         background: #2a2618;
-        border: 1px solid #4a4326;
+        border: 1px solid var(--accent-dim);
       }
-      .build button:hover { background: #3a3420; }
+      .build button:hover { background: #3a3420; border-color: #6a5f36; }
       .build button.build-active {
-        background: #4a4326;
-        border-color: #f0d878;
+        background: var(--accent-dim);
+        border-color: var(--accent);
         color: #fff;
       }
       /* Remove is a tool, not stock. Quieter than the offers above it and a
@@ -124,18 +235,19 @@
       }
       #log {
         margin: 0;
-        padding: 0.5rem;
+        padding: var(--sp-2);
         list-style: none;
-        background: #181818;
-        border: 1px solid #333;
+        background: var(--bg-sunk);
+        border: 1px solid var(--line);
         border-radius: 3px;
         flex: 1;
         min-height: 8rem;
         overflow-y: auto;
         font-size: 12px;
       }
-      #log li { padding: 0.1rem 0; border-bottom: 1px solid #222; }
-      .hint { color: #666; font-size: 11px; margin: 0; }
+      #log li { padding: 0.1rem 0; border-bottom: 1px solid #1c1f21; }
+      #log li:last-child { border-bottom: 0; }
+      .hint { color: var(--text-dim); font-size: var(--fs-sm); margin: 0; }
       #book {
         position: fixed;
         top: 2.5rem;
@@ -183,6 +295,10 @@
     <div id="world"></div>
     <div id="editor"></div>
     <aside id="side">
+      <header id="masthead">
+        <h1>AUTOMATORI</h1>
+        <span class="camera-hint">wheel zooms · space-drag pans · Home resets</span>
+      </header>
       <div id="controls">
         <button id="run" type="button">Run</button>
         <button id="stop" type="button">Stop</button>

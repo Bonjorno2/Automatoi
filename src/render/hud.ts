@@ -1,7 +1,7 @@
 import { Container, Graphics, Text } from "pixi.js";
 import { BOT_CAPACITY, CROP_GROWTH, RESEARCH_COST } from "../sim/config.ts";
 import { total } from "../sim/inventory.ts";
-import type { BotSnapshot, Item, WorldSnapshot } from "../sim/types.ts";
+import type { BotSnapshot, Item, ResearchName, WorldSnapshot } from "../sim/types.ts";
 import { buildOptions, type BuildOption } from "../editor/build-menu.ts";
 import type { Geometry, Size } from "./geometry.ts";
 
@@ -16,13 +16,35 @@ import type { Geometry, Size } from "./geometry.ts";
 
 /** One line per queued research, in queue order. */
 export function researchLines(snapshot: WorldSnapshot): string[] {
-  return snapshot.research.queue.map((name, i) => {
-    const cost = RESEARCH_COST[name];
-    // Only the head of the queue is being worked on; the rest are waiting, and
-    // showing them all at 0/n would imply otherwise.
-    const progress = i === 0 ? snapshot.research.progress : 0;
-    return `${name} ${progress}/${cost}`;
-  });
+  return researchRows(snapshot).map((row) => `${row.name} ${row.progress}/${row.cost}`);
+}
+
+/** One queued research, with enough to draw a bar rather than a sentence. */
+export interface ResearchRow {
+  name: ResearchName;
+  progress: number;
+  cost: number;
+  /** Only the head of the queue is being worked on. */
+  active: boolean;
+}
+
+/**
+ * The queue as numbers rather than as text.
+ *
+ * Milestone 7's Task 8 wanted the research panel to read as progress instead of
+ * as a list, and a bar needs the fraction rather than the sentence. The text
+ * version above is derived from this one so the two can never disagree about
+ * what is being worked on.
+ */
+export function researchRows(snapshot: WorldSnapshot): ResearchRow[] {
+  return snapshot.research.queue.map((name, i) => ({
+    name,
+    cost: RESEARCH_COST[name],
+    // Showing every entry at its own progress would imply the whole queue is
+    // being worked at once.
+    progress: i === 0 ? snapshot.research.progress : 0,
+    active: i === 0,
+  }));
 }
 
 /**
@@ -171,15 +193,30 @@ export interface SidePanel {
 
 export function createSidePanel(root: HTMLElement, onPick: (option: BuildOption) => void): SidePanel {
   let activeLabel: string | null = null;
+  // Headings, added by milestone 7's Task 8. Nothing here is a control and
+  // nothing moved: the four groups were always in this order and were simply
+  // unlabelled, which made the panel one undifferentiated column of small text.
   root.innerHTML = `
-    <div class="cargo">
-      <span class="cargo-label">cargo</span>
-      <span class="bar"><i></i></span>
-      <span class="cargo-count"></span>
-    </div>
-    <ul class="field"></ul>
-    <ul class="research"></ul>
-    <ul class="build"></ul>`;
+    <section class="group">
+      <h2 class="group-title">bot</h2>
+      <div class="cargo">
+        <span class="cargo-label">cargo</span>
+        <span class="bar"><i></i></span>
+        <span class="cargo-count"></span>
+      </div>
+    </section>
+    <section class="group">
+      <h2 class="group-title">field</h2>
+      <ul class="field"></ul>
+    </section>
+    <section class="group">
+      <h2 class="group-title">research</h2>
+      <ul class="research"></ul>
+    </section>
+    <section class="group">
+      <h2 class="group-title">build</h2>
+      <ul class="build"></ul>
+    </section>`;
 
   const fill = root.querySelector<HTMLElement>(".bar i")!;
   const count = root.querySelector<HTMLElement>(".cargo-count")!;
@@ -198,13 +235,55 @@ export function createSidePanel(root: HTMLElement, onPick: (option: BuildOption)
       count.textContent = `${carried}/${BOT_CAPACITY}`;
 
       fillList(field, fieldLines(snapshot), null);
-      fillList(research, researchLines(snapshot), "nothing researching");
+      renderResearch(research, researchRows(snapshot));
       renderBuild(build, snapshot, onPick, activeLabel);
     },
     setActive(label) {
       activeLabel = label;
     },
   };
+}
+
+/**
+ * The research queue as bars.
+ *
+ * The same numbers `researchLines` states in words, which is what a player
+ * mostly wants from this panel: not "planter 3/6" read as a sentence, but how
+ * far along it is, seen at a glance. The words stay inside the bar so nothing
+ * is lost when the fraction is small enough to be a sliver.
+ *
+ * Rebuilt only when it changed, for the same reason the build menu is: the
+ * panel is redrawn every frame, and replacing DOM sixty times a second under a
+ * player's pointer is how a click gets eaten.
+ */
+function renderResearch(root: HTMLElement, rows: ResearchRow[]): void {
+  const key = rows.map((r) => `${r.name}:${r.progress}/${r.cost}`).join("|");
+  if (root.dataset.key === key) return;
+  root.dataset.key = key;
+
+  root.textContent = "";
+  if (rows.length === 0) {
+    const li = document.createElement("li");
+    li.className = "muted";
+    li.textContent = "nothing researching";
+    root.append(li);
+    return;
+  }
+
+  for (const row of rows) {
+    const li = document.createElement("li");
+    li.className = row.active ? "research-row active" : "research-row";
+    const bar = document.createElement("span");
+    bar.className = "research-bar";
+    const fill = document.createElement("i");
+    fill.style.width = `${Math.min(1, row.cost > 0 ? row.progress / row.cost : 0) * 100}%`;
+    const text = document.createElement("span");
+    text.className = "research-text";
+    text.textContent = `${row.name} ${row.progress}/${row.cost}`;
+    bar.append(fill, text);
+    li.append(bar);
+    root.append(li);
+  }
 }
 
 /**
