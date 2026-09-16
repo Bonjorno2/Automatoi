@@ -5,7 +5,7 @@ import {
   removalCost,
 } from "../../src/render/inspector";
 import { World } from "../../src/sim/world";
-import { MACHINE_CAPACITY, WHEAT_GROWTH_TICKS } from "../../src/sim/config";
+import { CONVEYOR_TICKS, MACHINE_CAPACITY, WHEAT_GROWTH_TICKS } from "../../src/sim/config";
 import type { Direction } from "../../src/sim/types";
 import { ticks } from "../sim/helpers";
 
@@ -143,6 +143,20 @@ describe("describeTile on the new machines", () => {
     const lines = describeTile(w.snapshot(), { x: 18, y: 16 });
     expect(lines).toContain("  jammed — no room for the output");
     expect(lines).not.toContain("  starved — nothing to consume");
+  });
+
+  it("tells a jammed belt to look ahead rather than to make room", () => {
+    // Milestone 8's Task 3. The default wording is a mill's problem: a
+    // dead-ended belt has plenty of room and nowhere to put what is in it, and
+    // "no room for the output" would send the player to the wrong tile.
+    const w = new World({ seed: 1 });
+    w.research.unlocked.add("conveyor");
+    w.placeMachine("conveyor", { x: 18, y: 18 }, "east").inventory = { wheat: 2 };
+    ticks(w, CONVEYOR_TICKS);
+
+    const lines = describeTile(w.snapshot(), { x: 18, y: 18 });
+    expect(lines).toContain("  jammed — nothing ahead to hand to");
+    expect(lines).not.toContain("  jammed — no room for the output");
   });
 
   it("names which way a belt faces", () => {

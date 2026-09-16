@@ -19,6 +19,22 @@ const MACHINE_LABEL: Record<MachineKind, string> = {
 };
 
 /**
+ * Why a machine is jammed, where the default would be wrong.
+ *
+ * "No room for the output" is a mill's problem. A dead-ended belt has plenty of
+ * room and nowhere to put what is in it, and telling a player to make room would
+ * send them to the wrong tile — the fix is to turn the belt, or to build the
+ * thing it is pointing at.
+ *
+ * `Partial`, like `CAPACITY` and `FACES`: only a kind that differs from the
+ * default needs a row, and the absence is the rule rather than an omission.
+ */
+const JAMMED: Partial<Record<MachineKind, string>> = {
+  conveyor: "jammed — nothing ahead to hand to",
+};
+const JAMMED_DEFAULT = "jammed — no room for the output";
+
+/**
  * What is on a tile, in display order: most specific first.
  *
  * Pure over a snapshot, which is the whole reason it is a separate function —
@@ -56,7 +72,7 @@ export function describeTile(snapshot: WorldSnapshot, tile: Vec): string[] {
     // Jammed first: a machine that is both is stuck in the way feeding it will
     // not fix, and naming the fixable one first would send the player to the
     // wrong problem.
-    if (machine.jammed) lines.push("  jammed — no room for the output");
+    if (machine.jammed) lines.push(`  ${JAMMED[machine.kind] ?? JAMMED_DEFAULT}`);
     else if (machine.starved) lines.push("  starved — nothing to consume");
   }
 

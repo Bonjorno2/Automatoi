@@ -105,13 +105,111 @@ describe("a belt is inert until Task 4", () => {
     expect(belt.progress).toBe(0);
   });
 
-  it("is never reported as starved or jammed", () => {
+  it("is never reported as starved, and an empty one is never jammed either", () => {
+    // Narrowed by milestone 8's Task 3, which made a *loaded* dead-ended belt
+    // jammed. The assertions below never covered that case — the belt here is
+    // empty — but the name did, and a test whose title denies a rule it does not
+    // exercise is worse than one that fails.
+    //
+    // Starved stays false for any belt at all: starvation is a recipe's problem
+    // and a belt has no recipe.
     const w = beltWorld();
     const belt = w.placeMachine("conveyor", { x: 18, y: 18 }, "east");
     ticks(w, 10);
     const snap = w.snapshot().machines.find((m) => m.id === belt.id)!;
     expect(snap.starved).toBe(false);
     expect(snap.jammed).toBe(false);
+  });
+});
+
+/**
+ * Milestone 6's finding 3: "a belt that cannot deliver looks exactly like one
+ * that is briefly full".
+ *
+ * The wrong-facing corner is the case — four wheat ride the line, reach the belt
+ * whose facing was never turned, and stop there for two hundred ticks. The mill
+ * beyond it correctly reported `starved`; the belt itself had no state for this.
+ *
+ * The rule is about the layout, not about the belt being full: nothing ahead of
+ * it *ever*, versus no room ahead of it *right now*.
+ */
+describe("a belt with nowhere to put its cargo says so", () => {
+  const snapOf = (w: World, id: number) => w.snapshot().machines.find((m) => m.id === id)!;
+
+  it("is jammed when it holds something and faces bare ground", () => {
+    const w = beltWorld();
+    const belt = w.placeMachine("conveyor", { x: 18, y: 18 }, "east");
+    belt.inventory = { wheat: 2 };
+    ticks(w, CONVEYOR_TICKS);
+    expect(snapOf(w, belt.id).jammed).toBe(true);
+  });
+
+  it("is jammed facing the world's edge, which is the same mistake", () => {
+    const w = beltWorld();
+    const belt = w.placeMachine("conveyor", { x: 31, y: 20 }, "east");
+    belt.inventory = { wheat: 1 };
+    ticks(w, CONVEYOR_TICKS);
+    expect(snapOf(w, belt.id).jammed).toBe(true);
+    // And still holds it: a flag is not a way to destroy something.
+    expect(belt.inventory).toEqual({ wheat: 1 });
+  });
+
+  it("is not jammed when it is merely backed up behind a full machine", () => {
+    // The line that matters. This belt is in a working line whose far end is
+    // busy; flagging it would light up the whole line and teach the player that
+    // the colour means nothing. Whatever is at the end is what is stuck.
+    //
+    // A crate rather than a mill, which the first version of this test used and
+    // which does not hold still: a mill filled to capacity immediately eats
+    // three wheat and makes room, so the belt delivered and the case under test
+    // never happened.
+    const w = beltWorld();
+    w.research.unlocked.add("crate");
+    const crate = w.placeMachine("crate", { x: 19, y: 18 });
+    crate.inventory = { wheat: capacityOf("crate") };
+    const belt = w.placeMachine("conveyor", { x: 18, y: 18 }, "east");
+    belt.inventory = { wheat: 2 };
+
+    ticks(w, CONVEYOR_TICKS * 2);
+    expect(snapOf(w, belt.id).jammed).toBe(false);
+    expect(belt.inventory).toEqual({ wheat: 2 });
+  });
+
+  it("stops being jammed the step after something is built in front of it", () => {
+    const w = beltWorld();
+    w.research.unlocked.add("crate");
+    const belt = w.placeMachine("conveyor", { x: 18, y: 18 }, "east");
+    belt.inventory = { wheat: 2 };
+    ticks(w, CONVEYOR_TICKS);
+    expect(snapOf(w, belt.id).jammed).toBe(true);
+
+    w.placeMachine("crate", { x: 19, y: 18 });
+    ticks(w, CONVEYOR_TICKS);
+    expect(snapOf(w, belt.id).jammed).toBe(false);
+  });
+
+  it("stops being jammed once it is emptied", () => {
+    const w = beltWorld();
+    const belt = w.placeMachine("conveyor", { x: 18, y: 18 }, "east");
+    belt.inventory = { wheat: 1 };
+    ticks(w, CONVEYOR_TICKS);
+    expect(snapOf(w, belt.id).jammed).toBe(true);
+
+    belt.inventory = {};
+    ticks(w, CONVEYOR_TICKS);
+    expect(snapOf(w, belt.id).jammed).toBe(false);
+  });
+
+  it("says so once, not every step", () => {
+    // The edge-triggered `flag` helper every other machine state uses. A belt
+    // steps every CONVEYOR_TICKS and a per-step event would be a mark that
+    // never fades.
+    const w = beltWorld();
+    const belt = w.placeMachine("conveyor", { x: 18, y: 18 }, "east");
+    belt.inventory = { wheat: 2 };
+    ticks(w, CONVEYOR_TICKS * 5);
+    const jams = w.drainEvents().filter((e) => e.kind === "jammed" && e.machineId === belt.id);
+    expect(jams).toHaveLength(1);
   });
 });
 
