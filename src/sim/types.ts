@@ -19,7 +19,9 @@ export type ResearchName =
   | "conveyor"
   | "chassis"
   | "radio"
-  | "builder";
+  | "builder"
+  | "library"
+  | "fabricator";
 
 export interface Vec {
   x: number;

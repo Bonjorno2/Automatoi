@@ -220,6 +220,14 @@ export interface ScriptColonyOptions extends ColonyOptions {
    * depends on. The page passes a `RealtimeClock`.
    */
   clock?: Clock;
+  /**
+   * The colony's shared library, compiled into scope ahead of every script.
+   *
+   * A getter rather than a string on some callers, because the page edits it
+   * while bots are running and a snapshot taken at construction would go stale
+   * the first time the player saved. Headless callers pass a plain string.
+   */
+  library?: string | (() => string);
 }
 
 /**
@@ -248,6 +256,8 @@ export class ScriptColony extends Colony {
   private readonly workers = new Map<number, WorkerHandle>();
   private readonly settlers = new Map<number, (o: Settled) => void>();
   private readonly spawnWorker: SpawnWorker;
+  /** Read afresh per run, so the page can edit the library while bots run. */
+  private readonly library: () => string;
   readonly clock: Clock;
   private pendingRuns = 0;
   private looping = false;
@@ -255,6 +265,8 @@ export class ScriptColony extends Colony {
   constructor(opts: ScriptColonyOptions) {
     super(opts);
     this.spawnWorker = opts.spawnWorker;
+    const library = opts.library ?? "";
+    this.library = typeof library === "function" ? library : () => library;
     this.clock = opts.clock ?? new DemandClock();
   }
 
@@ -284,7 +296,7 @@ export class ScriptColony extends Colony {
     const channel = this.channels.get(botId);
     if (channel) channel.lastActive = Date.now();
 
-    const worker = this.spawnWorker({ sab, botId, source });
+    const worker = this.spawnWorker({ sab, botId, source, library: this.library() });
     this.workers.set(botId, worker);
 
     worker.onMessage((raw) => {

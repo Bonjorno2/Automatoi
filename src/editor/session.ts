@@ -32,6 +32,15 @@ export class GameSession {
   /** The bot a fresh game starts with, and the one the editor opens on. */
   readonly firstBotId = 1;
 
+  /**
+   * The colony's shared library, read afresh every time a script starts.
+   *
+   * A hook rather than a string, because the player edits the library while bots
+   * are running: a value captured here would go stale the first time they saved,
+   * and the bug would be a function that works in one bot and not in the next.
+   */
+  library: () => string = () => "";
+
   constructor(opts: SessionOptions = {}) {
     this.world = new World({ seed: opts.seed ?? 1 });
     this.clock = new RealtimeClock({ hz: opts.hz ?? 20 });
@@ -39,6 +48,7 @@ export class GameSession {
       world: this.world,
       spawnWorker: spawnWeb,
       clock: this.clock,
+      library: () => this.library(),
     });
   }
 

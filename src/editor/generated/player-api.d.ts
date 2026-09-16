@@ -14,7 +14,7 @@ type Terrain = "grass" | "soil";
 type Item = "wheat" | "flour" | "bread";
 type ModuleName = "harvester" | "planter" | "scanner" | "radio" | "builder";
 type MachineKind = "console" | "crate" | "mill" | "oven" | "conveyor";
-type ResearchName = "planter" | "scanner" | "crate" | "mill" | "oven" | "conveyor" | "chassis" | "radio" | "builder";
+type ResearchName = "planter" | "scanner" | "crate" | "mill" | "oven" | "conveyor" | "chassis" | "radio" | "builder" | "library" | "fabricator";
 interface Vec {
     x: number;
     y: number;

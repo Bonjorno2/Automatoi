@@ -136,6 +136,12 @@ export const RESEARCH_COST: Record<ResearchName, number> = {
   chassis: 6,
   radio: 4,
   builder: 10,
+  // The design holds `import` back until one file per bot is genuinely
+  // miserable, so the library is priced past the second bot rather than beside
+  // it: a player who has not yet wanted two scripts cannot buy the thing that
+  // makes three bearable.
+  library: 12,
+  fabricator: 15,
 };
 
 /**
@@ -163,6 +169,9 @@ export const RESEARCH_ITEM: Partial<Record<ResearchName, Item>> = {
   // does, because it is the second half of the same lesson rather than a
   // replacement for the first.
   builder: "bread",
+  // Cycle 4 is bought with what cycle 3 produced.
+  library: "bread",
+  fabricator: "bread",
 };
 
 /** Chebyshev radius of the soil field around the console. */

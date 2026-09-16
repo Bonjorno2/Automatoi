@@ -918,7 +918,12 @@ export class World {
       case "mill":
       case "oven":
       case "conveyor":
+      case "fabricator":
         return; // unlocks placeMachine(kind), nothing to stock
+      case "library":
+        // Unlocks a source buffer, which lives in the editor rather than in the
+        // world. The sim's only part in it is saying whether it exists.
+        return;
       default: {
         // Exhaustive rather than a silent fallthrough: mill and oven landed in
         // milestone 5 without a case here and granted nothing by accident
