@@ -153,10 +153,37 @@ export class Colony {
     }
   }
 
+  /**
+   * Hand a result back through the channel.
+   *
+   * **An answer that does not fit must still be an answer.** `writeFrame` throws
+   * when a result is larger than the response region — `bot.scanner.scan(7)` is
+   * 225 tiles and about 19KB against a 16KB frame — and before milestone 10 that
+   * throw escaped here. The consequences were all silent: `pending` stayed true
+   * so `serve` skipped the channel forever, the worker stayed parked on
+   * `Atomics.wait`, and the watchdog deliberately never fires for a channel that
+   * is sitting on a REQUEST. The bot was dead for the rest of the session, the
+   * fleet list said "idle", the status line said "ready", and the only trace
+   * anywhere was an uncaught rejection in the browser's own console.
+   *
+   * So the overflow is converted into an ordinary failed result. The script gets
+   * an error it can catch, on the line it called from, which is what the design's
+   * "Failure is content" promises for everything else.
+   */
   private reply(ch: Channel, result: CommandResult): void {
-    const payload = result.ok ? result.value : result.error;
-    Atomics.store(ch.ctrl, RES_LEN, writeFrame(ch.res, payload));
-    Atomics.store(ch.ctrl, RES_OK, result.ok ? 1 : 0);
+    let ok = result.ok;
+    let length: number;
+    try {
+      length = writeFrame(ch.res, result.ok ? result.value : result.error);
+    } catch {
+      ok = false;
+      // Deliberately not `writeFrame`'s own wording: "frame" is the bridge's
+      // vocabulary and a player never sees it anywhere else. What they can act
+      // on is that the call asked for too much at once.
+      length = writeFrame(ch.res, "result too large to return — ask for less at once");
+    }
+    Atomics.store(ch.ctrl, RES_LEN, length);
+    Atomics.store(ch.ctrl, RES_OK, ok ? 1 : 0);
     ch.pending = false;
     Atomics.store(ch.ctrl, STATE, RESULT);
     Atomics.notify(ch.ctrl, STATE);
