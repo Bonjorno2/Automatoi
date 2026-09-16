@@ -13,7 +13,15 @@ import { armedMessage, createInspector, type Placement } from "../render/inspect
 import { CLOCKWISE } from "../sim/world.ts";
 import { FACES } from "../sim/config.ts";
 import { createHud, createSidePanel } from "../render/hud.ts";
-import { fitView, panBy, viewGeometry, zoomAbout, type View } from "../render/camera.ts";
+import {
+  fitView,
+  frameView,
+  occupiedRect,
+  panBy,
+  viewGeometry,
+  zoomAbout,
+  type View,
+} from "../render/camera.ts";
 import { keyTarget } from "../render/keys.ts";
 import type { Size } from "../render/geometry.ts";
 import type { BuildOption } from "./build-menu.ts";
@@ -52,6 +60,32 @@ const stage = await createStage(worldEl, grid);
  * asks for and the cheapest version of it.
  */
 let snap = session.world.snapshot();
+
+/**
+ * The camera, which is a view and nothing else.
+ *
+ * Per Decision 5 of the milestone 7 plan it produces a `Geometry` and every
+ * layer already consumes one, so zooming is a resize that happened for a
+ * different reason. The inspector's hit-testing follows for free, which is the
+ * property the decision exists to buy — and the thing that would break if this
+ * were a scaled container.
+ *
+ * It opens framed on what the player has rather than on the whole grid, which
+ * is milestone 7's finding 1: the grid is 32x32, the field is 13x13, and a
+ * narrow window opened at 8 pixels per tile where a belt's arrow is 2.4 of
+ * them. `Home` still goes to `fitView` — that is "show me everything" and has
+ * to keep meaning it.
+ *
+ * **Decided here, above every layer, rather than below them.** `stage.geometry`
+ * is computed with the plain fit when the stage is built and is only recomputed
+ * when something resizes, so a camera installed after the layers would leave
+ * them drawn at a tile size the camera had already replaced — and the page
+ * would open at the old view until the player touched the window.
+ */
+let view = frameView(occupiedRect(snap), grid, paneSize());
+stage.geometryFor = (pane) => viewGeometry(view, grid, pane);
+stage.refresh();
+
 const tiles = createTileLayer(stage.staticLayer, stage.tickLayer, stage.geometry, snap);
 const actors = createActorLayer(stage.frameLayer, stage.geometry);
 const animated = createAnimatedLayer(actors.overlayContainer, stage.geometry);
@@ -64,17 +98,6 @@ const overlay = createOverlay(stage.overlayLayer, {
 });
 const hud = createHud(stage.app.stage, { width: stage.app.screen.width, height: stage.app.screen.height });
 const sidePanel = createSidePanel(document.querySelector<HTMLElement>("#panel")!, pick);
-
-/**
- * The camera, which is a view and nothing else.
- *
- * Per Decision 5 it produces a `Geometry` and every layer already consumes one,
- * so zooming is a resize that happened for a different reason. The inspector's
- * hit-testing follows for free, which is the property the decision exists to
- * buy — and the thing that would break if this were a scaled container.
- */
-let view = fitView(grid, paneSize());
-stage.geometryFor = (pane) => viewGeometry(view, grid, pane);
 
 function paneSize(): Size {
   return { width: stage.app.screen.width, height: stage.app.screen.height };

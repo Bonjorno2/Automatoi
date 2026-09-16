@@ -2,6 +2,8 @@ import {
   ZOOM,
   clampView,
   fitView,
+  frameView,
+  occupiedRect,
   minSize,
   panBy,
   viewGeometry,
@@ -10,6 +12,7 @@ import {
   type View,
 } from "../../src/render/camera";
 import { fit, toTile } from "../../src/render/geometry";
+import { World } from "../../src/sim/world";
 
 const GRID = { width: 32, height: 32 };
 const PANE = { width: 653, height: 900 };
@@ -199,5 +202,111 @@ describe("panning", () => {
     const once = panBy(zoomed(), GRID, PANE, -9999, -9999);
     expect(panBy(once, GRID, PANE, -9999, -9999)).toEqual(once);
     expect(clampView(once, GRID, PANE)).toEqual(once);
+  });
+});
+
+/**
+ * Milestone 8's Task 1, closing milestone 7's finding 1.
+ *
+ * The page opened at the whole-grid fit, so a narrow window started at 8 pixels
+ * per tile where a belt's arrow is 2.4 pixels. The grid is 32x32 and what is on
+ * it fits in about 13x13; the rest was empty grass the player paid for in
+ * legibility.
+ */
+describe("framing what the player actually has", () => {
+  const FIELD = { x: 10, y: 10, width: 13, height: 13 };
+
+  it("opens larger than the fit does, which is the whole point", () => {
+    const framed = frameView(FIELD, GRID, PANE);
+    expect(framed.size).toBeGreaterThan(fitView(GRID, PANE).size);
+  });
+
+  it("is exactly the fit when the rectangle is the whole grid", () => {
+    // The property that makes this safe to put on the startup path: framing
+    // everything and fitting everything are the same view, not two views that
+    // happen to look alike.
+    const whole = { x: 0, y: 0, width: GRID.width, height: GRID.height };
+    for (const pane of [PANE, { width: 351, height: 768 }, { width: 1200, height: 400 }]) {
+      expect(frameView(whole, GRID, pane)).toEqual(fitView(GRID, pane));
+    }
+  });
+
+  it("puts the rectangle's centre at the pane's centre", () => {
+    const pane = { width: 800, height: 600 };
+    const framed = frameView(FIELD, GRID, pane);
+    const geo = viewGeometry(framed, GRID, pane);
+    const cx = geo.originX + (FIELD.x + FIELD.width / 2) * geo.size;
+    const cy = geo.originY + (FIELD.y + FIELD.height / 2) * geo.size;
+    // Within a tile: the pan is rounded to whole pixels and may be clamped so
+    // the grid still covers the pane, which is a rule this must not break.
+    expect(Math.abs(cx - pane.width / 2)).toBeLessThan(geo.size);
+    expect(Math.abs(cy - pane.height / 2)).toBeLessThan(geo.size);
+  });
+
+  it("never zooms past the wheel's own ceiling", () => {
+    // A one-tile world would otherwise frame at four hundred pixels per tile.
+    const framed = frameView({ x: 16, y: 16, width: 1, height: 1 }, GRID, PANE);
+    expect(framed.size).toBeLessThanOrEqual(ZOOM.max);
+    expect(framed).toEqual(clampView(framed, GRID, PANE));
+  });
+
+  it("never zooms out past the fit either", () => {
+    const framed = frameView({ x: 0, y: 0, width: 999, height: 999 }, GRID, PANE);
+    expect(framed.size).toBeGreaterThanOrEqual(minSize(GRID, PANE));
+  });
+
+  it("falls back to the fit for a rectangle with no area", () => {
+    // The page really does lay out before there is anything to frame.
+    for (const rect of [
+      { x: 0, y: 0, width: 0, height: 0 },
+      { x: 5, y: 5, width: 4, height: 0 },
+      { x: 5, y: 5, width: -2, height: 4 },
+    ]) {
+      expect(frameView(rect, GRID, PANE)).toEqual(fitView(GRID, PANE));
+    }
+  });
+
+  it("survives the degenerate pane the page lays out at startup", () => {
+    const pane = { width: 0, height: 0 };
+    expect(frameView(FIELD, GRID, pane)).toEqual(fitView(GRID, pane));
+  });
+});
+
+describe("occupiedRect", () => {
+  it("is the field, plus a tile of air, on a fresh world", () => {
+    // FIELD_RADIUS is 6 around a console at (16,16), so the soil is 13x13 from
+    // (10,10) — and this asserts the number the sim produces rather than
+    // recomputing it here, which is the point of deriving it from a snapshot.
+    const rect = occupiedRect(new World({ seed: 1 }).snapshot());
+    expect(rect).toEqual({ x: 9, y: 9, width: 15, height: 15 });
+  });
+
+  it("grows to include a machine built outside the field", () => {
+    // `canPlace` accepts grass as readily as soil, and a test in build-menu
+    // exists to keep it that way. A rectangle that read FIELD_RADIUS instead
+    // would frame a view with the player's own mill outside it.
+    const w = new World({ seed: 1 });
+    w.research.unlocked.add("crate");
+    w.placeMachine("crate", { x: 30, y: 30 });
+    const rect = occupiedRect(w.snapshot());
+    expect(rect.x + rect.width).toBe(32);
+    expect(rect.y + rect.height).toBe(32);
+  });
+
+  it("never runs off the grid, however wide the margin", () => {
+    const rect = occupiedRect(new World({ seed: 1 }).snapshot(), 99);
+    expect(rect).toEqual({ x: 0, y: 0, width: 32, height: 32 });
+  });
+
+  it("is the whole grid when there is nothing to frame", () => {
+    const empty = {
+      ...new World({ seed: 1 }).snapshot(),
+      tiles: [],
+      machines: [],
+      bots: [],
+      width: 32,
+      height: 32,
+    };
+    expect(occupiedRect(empty)).toEqual({ x: 0, y: 0, width: 32, height: 32 });
   });
 });
