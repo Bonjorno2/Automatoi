@@ -1,6 +1,7 @@
 import { Container, Graphics } from "pixi.js";
 import type { WorldSnapshot } from "../sim/types.ts";
-import { CROP_HEIGHT, TERRAIN, cropColor, cropStage } from "./palette.ts";
+import { CROP_HEIGHT, cropColor, cropStage } from "./palette.ts";
+import { RIM_COLOR, RIM_WIDTH, fieldRim, groundShade } from "./texture.ts";
 import { toPixel, type Geometry } from "./geometry.ts";
 
 /**
@@ -48,18 +49,40 @@ export function createTileLayer(
   tickLayer.addChild(crops);
   const pool = new Map<number, CropSprite>();
 
+  /**
+   * Ground, then the field's edge on top of it.
+   *
+   * Two passes rather than one, because the rim of a soil tile has to sit over
+   * the grass tile beside it as well as its own — drawn tile by tile in one
+   * pass, whichever came later would paint over the other's line.
+   *
+   * Still one `Graphics` and still only on resize. The grain costs a hash per
+   * tile at build time and nothing at all per frame.
+   */
   function drawTerrain(snap: WorldSnapshot): void {
     terrain.clear();
     for (let y = 0; y < snap.height; y++) {
       for (let x = 0; x < snap.width; x++) {
         const tile = snap.tiles[y * snap.width + x];
         if (!tile) continue;
-        const shade = TERRAIN[tile.terrain];
         const p = toPixel(geo, { x, y });
         terrain.rect(p.x, p.y, geo.size, geo.size);
-        terrain.fill((x + y) % 2 === 0 ? shade.base : shade.alt);
+        terrain.fill(groundShade(tile.terrain, x, y));
       }
     }
+
+    const w = Math.max(1, Math.round(geo.size * RIM_WIDTH));
+    for (let y = 0; y < snap.height; y++) {
+      for (let x = 0; x < snap.width; x++) {
+        const rim = fieldRim(snap.tiles, snap.width, snap.height, x, y);
+        const p = toPixel(geo, { x, y });
+        if (rim.north) terrain.rect(p.x, p.y, geo.size, w);
+        if (rim.south) terrain.rect(p.x, p.y + geo.size - w, geo.size, w);
+        if (rim.west) terrain.rect(p.x, p.y, w, geo.size);
+        if (rim.east) terrain.rect(p.x + geo.size - w, p.y, w, geo.size);
+      }
+    }
+    terrain.fill(RIM_COLOR);
   }
 
   /**
