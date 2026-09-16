@@ -464,6 +464,27 @@ const scripts = new ScriptStore(session.firstBotId);
 // a feature they have not bought (and cannot yet see).
 session.library = () =>
   session.world.research.unlocked.has("library") ? scripts.library() : "";
+
+/**
+ * A bot built by a script gets the same console panel a bot started from the
+ * editor gets.
+ *
+ * Milestone 9's playtest: a spawned bot whose script threw on its first line
+ * reported nothing anywhere — the parent said it had succeeded, because it had,
+ * and the fleet list said "idle", because the sim had no other word for a bot
+ * whose script is dead. The error existed and had nowhere to go.
+ *
+ * No generation check, unlike `run` below: nothing can restart a spawned bot's
+ * script, so there is no previous run whose callbacks could arrive late and
+ * label this one stopped.
+ */
+session.onSpawned = (botId) => {
+  panel.start(botId);
+  return {
+    onLog: (m) => panel.log(botId, m),
+    onSettle: (outcome) => panel.settle(botId, outcome),
+  };
+};
 let selectedBotId: number | null = session.firstBotId;
 
 inspector.onSelect = (botId) => {

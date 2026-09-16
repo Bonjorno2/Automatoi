@@ -250,6 +250,16 @@ export interface ScriptColonyOptions extends ColonyOptions {
    * the first time the player saved. Headless callers pass a plain string.
    */
   library?: string | (() => string);
+  /**
+   * How to watch a bot that another bot's script built.
+   *
+   * Without this a spawned bot's logs and its dying error go nowhere: the page
+   * wires `onLog` and `onSettle` when *it* starts a script, and nothing wires
+   * them when a script does. Milestone 9's playtest found exactly that — a child
+   * whose script threw on its first line, with the parent reporting success and
+   * the fleet list saying "idle".
+   */
+  onSpawned?: (botId: number) => RunOptions;
 }
 
 /**
@@ -280,6 +290,7 @@ export class ScriptColony extends Colony {
   private readonly spawnWorker: SpawnWorker;
   /** Read afresh per run, so the page can edit the library while bots run. */
   private readonly library: () => string;
+  private readonly onSpawned?: (botId: number) => RunOptions;
   readonly clock: Clock;
   private pendingRuns = 0;
   private looping = false;
@@ -289,6 +300,7 @@ export class ScriptColony extends Colony {
     this.spawnWorker = opts.spawnWorker;
     const library = opts.library ?? "";
     this.library = typeof library === "function" ? library : () => library;
+    this.onSpawned = opts.onSpawned;
     this.clock = opts.clock ?? new DemandClock();
   }
 
@@ -423,7 +435,7 @@ export class ScriptColony extends Colony {
    * hang the spawning script on the lifetime of its child.
    */
   protected override startSpawned(botId: number, source: string): void {
-    void this.run(botId, source);
+    void this.run(botId, source, this.onSpawned?.(botId) ?? {});
   }
 
   async stopAll(): Promise<void> {

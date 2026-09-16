@@ -41,6 +41,16 @@ export class GameSession {
    */
   library: () => string = () => "";
 
+  /**
+   * How to watch a bot that a script built rather than the player.
+   *
+   * Assigned by the page so a spawned bot's logs and errors reach a console
+   * panel. Without it they are dropped, which milestone 9's playtest found the
+   * hard way: a child whose script threw on its first line, a parent reporting
+   * success, and nothing on screen saying otherwise.
+   */
+  onSpawned: (botId: number) => RunOptions = () => ({});
+
   constructor(opts: SessionOptions = {}) {
     this.world = new World({ seed: opts.seed ?? 1 });
     this.clock = new RealtimeClock({ hz: opts.hz ?? 20 });
@@ -49,6 +59,7 @@ export class GameSession {
       spawnWorker: spawnWeb,
       clock: this.clock,
       library: () => this.library(),
+      onSpawned: (botId) => this.onSpawned(botId),
     });
   }
 

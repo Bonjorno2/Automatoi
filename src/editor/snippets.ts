@@ -6,9 +6,10 @@
  * one of the patterns that doc already names as cycle 1 or cycle 2 — this is
  * not a curriculum invented alongside it.
  *
- * It copies text. It is not the Shared Library upgrade, which brings `import`
- * between scripts, arrives deliberately late, and is out of first-playable
- * scope. If this file starts growing toward a module system, stop.
+ * It copies text, and it is still not the Shared Library — that arrived in
+ * milestone 9 as a buffer of its own, and the chip below shows what to put in
+ * it rather than becoming it. If this file starts growing toward a module
+ * system, stop.
  */
 export interface Snippet {
   title: string;
@@ -22,6 +23,29 @@ export interface Snippet {
 }
 
 export const SNIPPETS: Snippet[] = [
+  {
+    title: "Stamp a layout",
+    blurb:
+      "Cycle four. Write this in the Library, not in a bot, and every bot can stamp it.",
+    // The design's blueprints, and deliberately **not** an engine feature:
+    // research hands out primitives and capacity, and every higher-level
+    // function is player-authored. `bot.builder.place` is the primitive; this
+    // is what a player builds on top of it, and the only thing milestone 9
+    // added was somewhere to put it so that more than one bot can call it.
+    requires: "builder",
+    code: `function stamp(layout) {
+  for (const step of layout) {
+    bot.builder.place(step.machine, step.dir, step.facing);
+    bot.move(step.dir);
+  }
+}
+
+// Then, from any bot:
+// stamp([
+//   { machine: "conveyor", dir: "east", facing: "east" },
+//   { machine: "conveyor", dir: "east", facing: "east" },
+// ]);`,
+  },
   {
     title: "Harvest in a loop",
     blurb: "Cycle one. The first thing to reach for when pressing Run gets old.",

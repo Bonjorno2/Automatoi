@@ -212,16 +212,162 @@ git commit -m "docs: milestone 9 playtest findings"
 
 ---
 
+## Findings from Task 7
+
+Recorded, and one of them fixed. Driven on 2026-09-16 against seed 1, with the
+same caveat every milestone since 3 has carried: these are mechanical findings
+from driving the real page, and the design's two scoring numbers still need human
+playtesters. This milestone's own question — whether this is the point where a
+player wants `expand(ironLine, 3)` — is squarely in that category and is not
+answered below.
+
+Finding 1 is the exception milestone 5 established: a defect rather than a
+judgement gets fixed with a test and gets said out loud. It was a feature that
+did not work, and it was one this milestone created.
+
+### 1. A spawned bot's script could die and nobody was told
+
+**Fixed — see below.** Decision 3's trap was walked into on purpose, as Task 7
+instructed: a script that refers to an outer variable inside `spawn`.
+
+```js
+const where = "east";
+colony.fabricator.spawn(() => {
+  while (true) { bot.harvester.harvest(); bot.move(where); }
+});
+bot.log("spawned, and I am fine");
+```
+
+The parent was fine. It logged "spawned, and I am fine", settled `done`, and the
+status line agreed — all correct, because the parent genuinely succeeded. The
+child threw `where is not defined` on its first line and **nothing anywhere said
+so.** The fleet list read `bot 4 idle · empty`. The child's console panel was
+empty. The status line was green.
+
+The cause: the page wires `onLog` and `onSettle` when *it* starts a script, and
+nothing wired them when a *script* started one. `startSpawned` called
+`run(botId, source)` with no options, so the error was produced, delivered, and
+dropped. The design's own "Failure is content" table promises a runtime error
+reaches the bot's console; this was the one path where it did not.
+
+`onSpawned` is now a hook the page fills in, and clicking the child in the fleet
+list shows `where is not defined (line 2)` — the child's own line, which is
+`blameLine` working through two layers of wrapping.
+
+**What is still true after the fix** is the smaller half: the fleet list says
+`idle` for a bot whose script is dead, because the sim has no word for it.
+Milestone 8's `stalled` counts commands that achieved nothing, and a script that
+never ran a command has a count of zero. A dead bot and a finished bot are the
+same bot to the panel.
+
+### 2. A second bot is worth nothing, and the console is why
+
+The milestone's own measurement, and it did not come out the way the milestone
+wanted. One bot: **500 ticks for 40 wheat.** Two bots, one half of the field
+each, running the same function from the shared library: **505.** A second run
+gave 517 and 500. Within the harness's noise, a second pair of hands is worth
+nothing at all.
+
+The fabricator is not the problem. Both bots deliver into one Research Console,
+which accepts one item per tick and holds sixteen, so a colony's throughput past
+one bot is bounded by a machine rather than by hands. That is milestone 6's
+finding 8 — "the bot becomes the mill's servant" — restated one level up, and it
+is now the oldest unaddressed thing in this project.
+
+It also means the fabricator sells a capability the colony cannot use. Cycle 5 is
+planner scripts that read demand and expand; a planner that adds bots to a colony
+whose sink is one machine will expand into a wall.
+
+Three earlier versions of that benchmark measured something else, and each is
+recorded in the test file rather than deleted, because the mistakes are the
+useful part. Timing a research measured the console's drain rate. Letting the
+parent decide when the colony had finished stopped the clock with the child still
+working. And a target larger than half the field made two bots look three times
+worse, because the parent then spun over its own picked-clean box while the
+single bot simply walked to the fresh side — a fault in the reference script, not
+in spawning.
+
+### 3. A parent cannot wait for its child
+
+Found while writing that benchmark, and the reason its final version is driven
+from outside the game. There is no bot-to-bot "are you done". `colony.bots()`
+gives positions and inventories, not whether a script is still running, and the
+radio a player would reach for needs a module the fabricator does not fit — it
+builds a chassis with a harvester and nothing else, and no script can install
+one.
+
+So a script that spawns a helper can start it and can never synchronise with it.
+The harness cheats by watching the world from outside, which a player cannot do.
+
+### 4. The library's error attribution earned itself in an hour
+
+Not a fault: a feature working, recorded because it was not obvious it would.
+Writing the reference script produced `inventory full (library line 30)` — a real
+bug, in shared code, named by file and line. The version of `workBox` that threw
+checked whether the bot was full *after* harvesting rather than before.
+
+Fact 2 asked whether the prelude would move the player's line numbers. It does
+not, and the first implementation subtracted one line too many — caught by a test
+that ran four library lengths rather than one, which is why that test exists in
+that shape.
+
+### 5. Nothing tells a player the library exists
+
+The button appears when the research completes, which is right, and the research
+is in the menu beforehand, which is right. But the library is the first thing in
+this game that is neither a machine to place nor a module to fit, and the only
+announcement it gets is a button quietly becoming visible next to "Book". A
+player who researched it while looking at the field has no reason to look at the
+toolbar afterwards.
+
+---
+
 ## Done criteria for milestone 9
 
 - `npm test` and `npm run typecheck` clean, with no test edit that was not named above.
+  > **Met on the tests, not on the prediction.** 602 tests, typecheck clean, up
+  > from 572. Two test files were edited and Decision 7 named neither.
+  > `actor-pos.test.ts` builds a whole `BotSnapshot` by hand and the compiler
+  > demanded the new `stalled` field — a fixture, not an assertion.
+  > `palette.test.ts` still pinned `Object.keys(MACHINE)`, which Decision 7 said
+  > had already been rewritten and had not; it broke for the third consecutive
+  > milestone and is retired rather than updated a fourth time.
 - Milestone 8's findings 1, 2 and 3 are closed.
+  > **Met.** The ghost keeps its facing, the remove ghost turns amber when the
+  > click destroys something, and a bot counts the commands that got it nowhere.
 - A function written once is callable from every bot, and a player's error still reports the line the player typed.
+  > **Met**, and driven on the page rather than only in tests: research the
+  > library, write `greet`, close it, and `bot.log(greet('world'))` on bot 1
+  > prints "hello world".
 - A running script can start another bot at a fabricator, and that bot outlives it.
+  > **Met**, twelve tests including all five parts of Fact 1.
 - `spawn` refuses through the sim's own reasons, not the bridge's.
+  > **Met.** `canSpawn` is the fourth predicate in the family `canPlace` started.
 - A headless test shows a script building a factory and staffing it, with the tick count recorded against milestone 6's baseline.
+  > **Met, and the number is bad.** 500 ticks against 505 for the same forty
+  > wheat: the second bot is worth nothing. Finding 2 has the cause, and the test
+  > asserts what is true rather than the speed-up that is not there.
 - `stamp` is **not** in the engine, per Decision 1, and appears only as a snippet.
+  > **Met.** It is a chip in the book that says to put it in the Library.
 - `config.ts` gains research costs and nothing else, per Decision 6.
+  > **Met**, verified by diff: two rows in `RESEARCH_COST`, two in
+  > `RESEARCH_ITEM`, and no other line changed.
+
+## What milestone 10 inherits
+
+**Finding 2 is the whole of it, and it is balance rather than features.** The
+colony's only sink takes one item per tick, so a second bot adds nothing and a
+tenth would add nothing either. Cycle 5 is planner scripts that expand a factory
+— and a planner that adds bots to this colony expands into a wall. Every
+remaining item on the design's list is downstream of fixing that: a second
+console, a faster one, or the non-food material that would give the chain
+somewhere else to go.
+
+**Finding 3 is small and blocks a real pattern**: a script can start a helper and
+can never synchronise with it. The radio exists; the fabricator cannot fit one.
+
+**Finding 1's residue** — a bot whose script is dead reads "idle" — is the third
+time the fleet list has wanted a word the sim does not have.
 
 ## What milestone 10 will build on this
 
