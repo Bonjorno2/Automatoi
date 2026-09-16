@@ -275,12 +275,14 @@ git commit -m "docs: milestone 7 playtest findings"
 
 ## Findings from Task 9
 
-Recorded, and one of them fixed. Driven on 2026-09-16 against seed 1.
+Recorded, and two of them fixed. Driven on 2026-09-16 against seed 1.
 
-Finding 2 is the exception milestone 5's playtest established and milestone 6
-carried forward: a defect rather than a judgement gets fixed with a test and
-gets said out loud. It is a feature that does not work, not a call that could
-have gone the other way. Everything else here is recorded and left alone.
+Findings 2 and 4 are the exception milestone 5's playtest established and
+milestone 6 carried forward: a defect rather than a judgement gets fixed with a
+test and gets said out loud. Finding 2 is a feature that does not work. Finding
+4 was written up as a judgement — a named hole with a known way round it — and
+turned out to be a defect once the way round it was driven in the case it does
+not cover. Everything else here is recorded and left alone.
 
 The same caveat every
 milestone since 3 has carried carries forward, and it bites harder here than
@@ -378,6 +380,12 @@ belts wondering why the mill is waiting.
 
 ### 4. A loaded cage can be escaped, and only a script can do it
 
+**Fixed — see below, and the fix is not the one this finding proposed.** The
+second defect in this milestone to be fixed after the fact, under the same
+exception as finding 2. What made it a defect rather than a judgement was not
+the reasoning below, which is sound as far as it goes; it was the case the
+reasoning did not reach.
+
 Decision 10 named this hole and Task 9 was told to try it. It is exactly as
 named, and the exit is real: three belts and the Research Console around a bot,
 every belt carrying wheat, and the remove ghost refuses all four — "conveyor is
@@ -391,6 +399,71 @@ that refuses says *"conveyor is not empty"* — which names the obstacle and not
 the remedy. So milestone 6's finding 1 is narrowed rather than closed: a player
 can always dismantle an empty cage with the mouse, and a loaded one still needs
 a line of code. The tooltip is one sentence away from being the fix.
+
+#### The case this missed, and why the tooltip was not the fix
+
+The escape works *because the bot has room*. Driven again with a bot at
+`BOT_CAPACITY` behind four belts at `capacityOf("conveyor")`, every exit is shut
+at once, and the test that now says so asserts all four rather than reasoning
+about them:
+
+| Route | Answer |
+|---|---|
+| `move` | `{ ok: true, value: false }` — a wall, four times |
+| `withdraw` | `0` transferred: the bot is full, so there is nowhere to put it |
+| `deposit` | `0` transferred: every wall is full |
+| `bot.builder.remove` | `conveyor is not empty` |
+| the hands | `conveyor is not empty` |
+
+That is a world that cannot be recovered by any means the game offers, which is
+the thing the design says cannot happen. A tooltip naming the remedy would have
+named a remedy that does not exist here — the cheapest fix in the document was
+cheap because it was answering the easier half of the problem.
+
+So **`canRemove` now takes who is asking**, and half of Decision 10 is reversed.
+The arm still refuses a machine with anything to lose; the hands do not. The two
+are told apart by what they are rather than by what they are pointed at: an arm
+is a line of code, which must never silently delete a harvest, and hands are a
+person who has been shown the cost.
+
+Being shown is the whole guard, so it is not optional. `removalCost` in
+`inspector.ts` puts the exact contents under the cursor, directly beneath the
+verb and above the machine's own description, and it is a pure function over a
+snapshot so "it says so" is a test. `removeMachine` returns what it destroyed,
+which the status line says once the tooltip has moved on — a function that can
+delete a player's items hands back what it deleted rather than trusting its
+caller to have looked first.
+
+A machine part-way through a conversion has already eaten its input, so what
+`removeMachine` returns is not the whole loss. That is why the cost line names
+the batch as a second thing, and why a test pins a mill returning `{}` while
+costing three wheat.
+
+Driven on the page, with a bot at 10 wheat inside four belts at 4 each:
+
+```
+Remove
+  click to remove
+  destroys 4 wheat
+Conveyor
+  facing north
+  holding 4 wheat
+```
+
+The click left `removed — 4 wheat destroyed` on the status line and the bot
+walked north out of the gap.
+
+Four test edits, each of them a claim this makes false. `canRemove(pos)` gains
+its second argument in three places, and "refuses what the arm refuses, for the
+same reason" is narrowed to the refusals the two still share — the console and a
+bare tile — with the divergence as its own test beside it. That is a stronger
+anti-drift property than the one it replaces: one function, two answers, both
+named, rather than one answer nobody could have told had drifted.
+
+**What this does not settle** is whether a player will remove a full crate by
+accident, having read the line and not taken it in. That is the risk the
+reversal takes on, it is a judgement rather than a defect, and it needs a
+playtester who did not write it.
 
 ### 5. The vignette is doing something, and it took switching it off to know
 
@@ -427,7 +500,8 @@ vignette together are the other 1.2 ms, and only at 65 belts.
 ## Done criteria for milestone 7
 
 - `npm test` and `npm run typecheck` clean.
-  > **Met.** 512 tests, typecheck clean. Five test edits across the milestone,
+  > **Met.** 527 tests, typecheck clean — 512 at the end of Task 9, and fifteen
+  > more from finding 4's fix. Five test edits across the milestone,
   > each named in the commit that made it: three in Task 0 (a length assertion
   > that became a filter, and the `mode` field two helpers now require), and in
   > Task 2 `stage.test.ts`'s exact consumer list gaining "overlay". Two more
@@ -436,14 +510,20 @@ vignette together are the other 1.2 ms, and only at 65 belts.
   > under frame splits in Task 6. Both are corrected in place with the wrong
   > version described, because the reason they were wrong is the finding.
 - **A player can take a machine back off the map with the mouse, and milestone 6's finding 1 is closed** — the cage a playtest built can be dismantled by the player who built it, without a script and without a research.
-  > **Narrowed, not closed, and the criterion overstated what Task 0 could
-  > deliver.** An *empty* cage comes apart with the mouse, which is the common
-  > case and the one the playtest actually hit. A cage whose belts are carrying
-  > something does not: removal still refuses a non-empty machine, deliberately,
-  > because relaxing that is how items start vanishing. The exit exists and was
-  > driven end to end in finding 4, and it needs a line of script. The claim
-  > should have read "an empty machine", and it is re-recorded for whichever
-  > milestone puts the remedy in the tooltip.
+  > **Met, after the fact, and only on the second attempt.** As Task 0 shipped
+  > it, this was narrowed rather than met: an *empty* cage came apart with the
+  > mouse and a loaded one needed a line of script, because removal refused a
+  > non-empty machine for both callers. Finding 4 then drove the case where that
+  > script has nowhere to put the cargo, which is an unrecoverable world, and
+  > half of Decision 10 was reversed — the hands may destroy what the arm may
+  > not, with the exact cost under the cursor before the click. Every cage now
+  > comes apart with the mouse. The write-up under finding 4 has the case, the
+  > reasoning and the four test edits.
+  >
+  > **The criterion was right and the implementation was not**, which is the
+  > useful thing here: it said "the cage a playtest built can be dismantled by
+  > the player who built it", and the honest response to failing it was to
+  > change the sim rather than to narrow the sentence.
 - The measured frame total is recorded, before and after, and is under 8 ms.
   > **Met.** 0.230 ms before, 1.050 ms after on the identical scene, 2.278 ms on
   > the heaviest scene the game can currently produce. Finding 7 has the
@@ -478,14 +558,18 @@ vignette together are the other 1.2 ms, and only at 65 belts.
 
 ## What milestone 8 inherits
 
-Three small things, in the order they cost a player something. Finding 2 was the
-fourth and is fixed in this milestone rather than handed on — it was a defect
-rather than a judgement, which is the one exception Task 9's rule allows.
+Two small things, in the order they cost a player something. Findings 2 and 4
+were the other two and are fixed in this milestone rather than handed on — both
+turned out to be defects rather than judgements, which is the one exception Task
+9's rule allows.
 
-**Finding 4 is one sentence of tooltip.** A cage of loaded belts is escapable and
-the refusal says "conveyor is not empty", which names the obstacle and not the
-remedy. Saying what to do instead would close milestone 6's finding 1 properly
-rather than narrowing it, and it is the cheapest thing in this document.
+**What finding 4's fix leaves behind, and it is a judgement rather than a
+defect:** the player's hands can now destroy a machine's contents. The cost is
+under the cursor before the click and on the status line after it, and whether
+that is enough to stop somebody emptying a full crate by accident is the kind of
+question only a playtester who did not write it can answer. If it turns out not
+to be, the answer is a confirmation on a machine holding a lot rather than a
+retreat to the rule that bricked a world.
 
 **Finding 1** leaves the opening view of a small window illegible until the
 player uses a camera they have been told about but not yet needed. A first-run
