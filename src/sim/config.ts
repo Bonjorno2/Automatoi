@@ -10,6 +10,16 @@ export const TICK_COST = {
   withdraw: 1,
   send: 1,
   receive: 1,
+  /**
+   * Building costs time, which is the only thing this milestone charges for it.
+   *
+   * It is deliberately *not* an answer to milestone 5's finding 5 — machines are
+   * still free and unlimited, because a build cost needs a material to be
+   * denominated in and every item in this game is food. What this does buy is
+   * that a hundred-tile belt run is a real expense in a script's own budget.
+   */
+  place: 4,
+  remove: 4,
 } as const;
 
 /**
@@ -125,6 +135,7 @@ export const RESEARCH_COST: Record<ResearchName, number> = {
   conveyor: 5,
   chassis: 6,
   radio: 4,
+  builder: 10,
 };
 
 /**
@@ -148,6 +159,10 @@ export const RESEARCH_ITEM: Partial<Record<ResearchName, Item>> = {
   // The belt is bought with what the chain makes. Priced in wheat it would be a
   // way to automate the chain without ever having run it.
   conveyor: "bread",
+  // And the arm that lays belts by script costs twice what laying them by hand
+  // does, because it is the second half of the same lesson rather than a
+  // replacement for the first.
+  builder: "bread",
 };
 
 /** Chebyshev radius of the soil field around the console. */

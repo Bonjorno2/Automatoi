@@ -76,7 +76,14 @@ describe("the palette covers every sim union", () => {
     for (const [name, c] of Object.entries(MODULE)) expect(isColor(c), name).toBe(true);
     // Pips are read by colour alone; two modules sharing one is unreadable.
     expect(new Set(values).size).toBe(values.length);
-    expect(Object.keys(MODULE).sort()).toEqual(["harvester", "planter", "radio", "scanner"]);
+    // Planned edit 1 of the milestone 6 plan, second half: the builder arm.
+    expect(Object.keys(MODULE).sort()).toEqual([
+      "builder",
+      "harvester",
+      "planter",
+      "radio",
+      "scanner",
+    ]);
   });
 });
 

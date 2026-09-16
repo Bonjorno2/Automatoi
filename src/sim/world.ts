@@ -56,6 +56,8 @@ const MODULE_FOR: Partial<Record<Command["kind"], ModuleName>> = {
   scan: "scanner",
   send: "radio",
   receive: "radio",
+  place: "builder",
+  remove: "builder",
 };
 
 const capitalise = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
@@ -462,6 +464,10 @@ export class World {
         return this.doSend(bot, cmd.channel, cmd.payload);
       case "receive":
         return this.doReceive(bot, cmd.channel);
+      case "place":
+        return this.doPlace(bot, cmd.machine, cmd.dir, cmd.facing ?? cmd.dir);
+      case "remove":
+        return this.doRemove(bot, cmd.dir);
       default: {
         const never: never = cmd;
         return fail(`unknown command ${String(never)}`);
@@ -568,6 +574,59 @@ export class World {
       addItem(bot.inventory, item, n);
     }
     return ok(n);
+  }
+
+  /**
+   * Build on the tile in `dir`, through the same predicate everything else asks.
+   *
+   * `canPlace` now has three callers — the ghost that colours itself, the build
+   * menu's click, and this — and exactly one of them decides. A builder arm that
+   * worked out for itself where a mill fits is the drift Decision 7 of the
+   * milestone 4 plan exists to prevent, one level up from a renderer.
+   */
+  private doPlace(bot: Bot, machine: MachineKind, dir: Direction, facing: Direction): Outcome {
+    const target = add(bot.pos, DIR[dir]);
+    const why = this.canPlace(machine, target);
+    if (why) {
+      // A world-side signal as well as the script's error, because somebody
+      // watching the canvas is a reader too.
+      this.emit({ kind: "refused", botId: bot.id, pos: { ...bot.pos }, command: "place" });
+      return fail(why);
+    }
+    this.addMachine(machine, target, facing);
+    return ok(true);
+  }
+
+  /**
+   * Take the machine on the tile in `dir` away.
+   *
+   * Removal exists mostly because a belt is a wall: a player who has fenced
+   * themselves out of their own field needs something that is not a new game.
+   *
+   * It refuses anything with something to lose. There is no ground for items to
+   * spill onto in this game, so removing a full crate would simply delete what
+   * was in it, and a machine part-way through a conversion has already eaten its
+   * input — an empty inventory is not the same as nothing to lose.
+   */
+  private doRemove(bot: Bot, dir: Direction): Outcome {
+    const target = add(bot.pos, DIR[dir]);
+    const machine = this.machineAt(target);
+    const refuse = (why: string): Outcome => {
+      this.emit({ kind: "refused", botId: bot.id, pos: { ...bot.pos }, command: "remove" });
+      return fail(why);
+    };
+    if (!machine) return fail(`no machine to the ${dir}`);
+    if (machine.kind === "console") return refuse("the Research Console cannot be removed");
+    if (total(machine.inventory) > 0) return refuse(`${machine.kind} is not empty`);
+    if (machine.progress > 0) return refuse(`${machine.kind} is working`);
+
+    this.machines.delete(machine.id);
+    // Ids are never reused, so a left-behind flag would never fire again — but
+    // it would sit in a set that only grows, and a leak that small is still a
+    // leak.
+    this.starved.delete(machine.id);
+    this.jammed.delete(machine.id);
+    return ok(true);
   }
 
   private doSend(bot: Bot, channel: string, payload: unknown): Outcome {
@@ -703,6 +762,7 @@ export class World {
       case "planter":
       case "scanner":
       case "radio":
+      case "builder":
         this.research.spareModules[name] = (this.research.spareModules[name] ?? 0) + 1;
         return;
       case "crate":

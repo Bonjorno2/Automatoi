@@ -12,9 +12,9 @@ type Terrain = "grass" | "soil";
  * makes the compiler ask the questions rather than leaving them to be noticed.
  */
 type Item = "wheat" | "flour" | "bread";
-type ModuleName = "harvester" | "planter" | "scanner" | "radio";
+type ModuleName = "harvester" | "planter" | "scanner" | "radio" | "builder";
 type MachineKind = "console" | "crate" | "mill" | "oven" | "conveyor";
-type ResearchName = "planter" | "scanner" | "crate" | "mill" | "oven" | "conveyor" | "chassis" | "radio";
+type ResearchName = "planter" | "scanner" | "crate" | "mill" | "oven" | "conveyor" | "chassis" | "radio" | "builder";
 interface Vec {
     x: number;
     y: number;
@@ -65,6 +65,20 @@ type Command = {
 } | {
     kind: "receive";
     channel?: string;
+}
+/**
+ * Build on the adjacent tile in `dir`. `facing` is which way the new machine
+ * points and defaults to `dir`, so the natural loop — place north, move
+ * north, repeat — lays a line pointing the way the bot is walking.
+ */
+ | {
+    kind: "place";
+    machine: MachineKind;
+    dir: Direction;
+    facing?: Direction;
+} | {
+    kind: "remove";
+    dir: Direction;
 };
 type CommandResult = {
     ok: true;

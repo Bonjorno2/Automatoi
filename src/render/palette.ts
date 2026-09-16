@@ -93,6 +93,7 @@ export const MODULE: Record<ModuleName, number> = {
   planter: 0x6fbf5a,
   scanner: 0x5aa8d8,
   radio: 0xc07fd0,
+  builder: 0x9aa4b0,
 };
 
 /**
