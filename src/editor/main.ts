@@ -10,6 +10,8 @@ import { ownedGates } from "./api-surface.ts";
 import { LIBRARY, ScriptStore } from "./script-store.ts";
 import { createConsolePanel } from "./console-panel.ts";
 import { createSnippetBook } from "./snippet-book.ts";
+import { createSuggester } from "./suggestions.ts";
+import { createSuggestionPanel } from "./suggestion-panel.ts";
 import { GameSession } from "./session.ts";
 import { connectResize, createOverlay, createStage } from "../render/stage.ts";
 import { createTileLayer } from "../render/tiles.ts";
@@ -382,6 +384,21 @@ const panel = createConsolePanel(document.querySelector("#log")!, statusEl);
 const pauseButton = document.querySelector<HTMLButtonElement>("#pause")!;
 
 /**
+ * What the game has to say about how the last few runs went.
+ *
+ * Fed only from `run`, which is the player pressing Run or Ctrl+S. A bot the
+ * fabricator started is deliberately not recorded: its source is not in any
+ * buffer, so a chip offered about it would be inserted into some other bot's
+ * script.
+ */
+const suggester = createSuggester();
+const suggestions = createSuggestionPanel(
+  document.querySelector<HTMLElement>("#suggest")!,
+  editor,
+  (id) => suggester.retire(id),
+);
+
+/**
  * Which run each bot's panel belongs to. Restarting settles the outgoing script
  * as "stopped", and that callback lands *after* the new one has started —
  * without this the player would press Ctrl+S and watch their fresh run be
@@ -408,15 +425,23 @@ async function run(): Promise<void> {
   }
   const mine = (generations.get(botId) ?? 0) + 1;
   generations.set(botId, mine);
-  scripts.stash(editor.getValue());
+  // Read once. The buffer is editable while the script runs, and the two reads
+  // this used to do could disagree about what was stashed and what was started.
+  const source = editor.getValue();
+  scripts.stash(source);
   panel.start(botId);
   clearRuntimeErrors(editor);
 
-  await session.runScript(botId, editor.getValue(), {
+  await session.runScript(botId, source, {
     onLog: (m) => { if (mine === generations.get(botId)) panel.log(botId, m); },
     onSettle: (outcome) => {
       if (mine !== generations.get(botId)) return;
       panel.settle(botId, outcome);
+      // The source that actually ran, not `editor.getValue()` — by the time a
+      // long script settles the player may well have typed a loop into the
+      // buffer, and suggesting one then would be the game reading a screen it
+      // was not looking at.
+      suggester.ran(botId, source, outcome.status);
       // Only mark the editor if it is still showing the bot that failed.
       if (outcome.status === "error" && selectedBotId === botId) {
         markRuntimeError(editor, outcome.line, outcome.message ?? "error");
@@ -616,6 +641,11 @@ function draw(): void {
   });
   sidePanel.update(snap, selectedBotId);
   syncApiSurface();
+  // Nothing to offer the library: it has no runs of its own, and a chip
+  // inserted there would be advice about a bot, written into every bot.
+  suggestions.show(
+    selectedBotId === null || scripts.editingLibrary ? null : suggester.suggest(selectedBotId),
+  );
   // The research is the only gate: the button appears when the buffer becomes
   // real, and the prelude stays empty until then.
   libraryButton.hidden = !snap.research.unlocked.includes("library");

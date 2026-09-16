@@ -1,4 +1,5 @@
 import type * as monaco from "monaco-editor";
+import { insertAtCursor } from "./insert.ts";
 import { SNIPPETS } from "./snippets.ts";
 import type { Snippet } from "./snippets.ts";
 
@@ -63,7 +64,7 @@ export function createSnippetBook(editor: monaco.editor.IStandaloneCodeEditor): 
     chip.append(code);
 
     chip.addEventListener("click", () => {
-      insert(editor, snippet.code);
+      insertAtCursor(editor, snippet.code);
       root.hidden = true;
     });
 
@@ -76,16 +77,4 @@ export function createSnippetBook(editor: monaco.editor.IStandaloneCodeEditor): 
       root.hidden = !root.hidden;
     },
   };
-}
-
-/** Drop the chip in at the cursor and leave the caret after it, focused. */
-function insert(editor: monaco.editor.IStandaloneCodeEditor, code: string): void {
-  const selection = editor.getSelection();
-  if (!selection) return;
-  editor.executeEdits("snippet-book", [{
-    range: selection,
-    text: `${code}\n`,
-    forceMoveMarkers: true,
-  }]);
-  editor.focus();
 }

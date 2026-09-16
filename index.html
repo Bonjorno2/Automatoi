@@ -265,6 +265,34 @@
         border-color: #c89a90;
         color: #fff;
       }
+      /* The suggested chip. Sized for a 22rem column rather than for the book's
+         26rem panel: no title row — the heading above it already says what it
+         is — and the accent borrowed from the build menu, because both are
+         offers rather than readouts. */
+      #suggest .chip-suggest {
+        margin-top: 0;
+        border: 1px solid var(--accent-dim);
+        background: #24211a;
+      }
+      #suggest .chip-suggest:hover { background: #2f2a1d; border-color: var(--accent); }
+      #suggest .chip-blurb { margin: 0 0 var(--sp-1); color: var(--accent); }
+      #suggest .chip pre { font-size: 10px; }
+      .chip-take {
+        display: block;
+        margin-top: var(--sp-1);
+        color: var(--text-dim);
+        font-style: normal;
+        font-size: 10px;
+      }
+      /* Quieter than the offer it refuses, and always the same one click. */
+      .suggest-dismiss {
+        margin-top: var(--sp-1);
+        padding: 0.15rem 0.4rem;
+        font-size: 10px;
+        color: var(--text-dim);
+        background: transparent;
+        border-color: var(--line);
+      }
       #log {
         margin: 0;
         padding: var(--sp-2);
@@ -347,6 +375,11 @@
       </div>
       <p class="hint">Ctrl+S restarts this bot's script.</p>
       <div id="panel"></div>
+      <!-- Above the console and below the panel: the console is what the bot
+           said, and this is what the game has to say about it. Hidden until
+           there is something, so an empty heading never sits there looking
+           like a feature that is broken. -->
+      <section class="group" id="suggest" hidden></section>
       <ul id="log"></ul>
       <p id="status">starting…</p>
       <p id="placing" hidden></p>
