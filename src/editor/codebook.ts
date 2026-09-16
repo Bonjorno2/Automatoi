@@ -1,11 +1,14 @@
 import type * as monaco from "monaco-editor";
 import { insertAtCursor } from "./insert.ts";
-import { SNIPPETS } from "./snippets.ts";
-import type { Snippet } from "./snippets.ts";
+import { LADDERS, SNIPPETS, needsFor } from "./snippets.ts";
+import type { Ladder, Rung } from "./snippets.ts";
+import { PRIMITIVE_LABEL } from "./source.ts";
+import type { Primitive } from "./source.ts";
 import type { Suggestion } from "./suggestions.ts";
 
 /**
- * The codebook: every pattern the game knows, and whichever one it is offering.
+ * The codebook: what the player has learned, and whichever chip the game is
+ * offering them next.
  *
  * **One surface, deliberately.** The suggestion and the book used to be two
  * things — a chip in the side panel and a floating panel behind a button — and
@@ -15,35 +18,56 @@ import type { Suggestion } from "./suggestions.ts";
  * them something and then took it away. So the suggestion **is** the book,
  * raising the chip it wants them to see, in the place they will come back to.
  *
- * That also settles what dismissal means. "No thanks" retires the *suggestion*
- * and leaves the *chip* exactly where it was, one click further down. Refusing
- * advice is not the same as losing it.
+ * **A ladder, not a list.** Several chips turned out to be the same program
+ * growing up, and showing them as siblings hid the only interesting thing about
+ * them. Each ladder is a line of descent; the player toggles along it to see
+ * what their program became, and the rungs open as they earn them.
  *
- * Three tiers, top to bottom:
+ * Two gates, and they are deliberately different:
  *
- * 1. **Suggested now** — at most one, with the reason it is being offered.
- * 2. **Offered before** — chips the game has raised at some point. What it has
- *    taught you is the part of the book you are most likely to want again.
- * 3. **The rest**, collapsed until the player asks for it.
- *
- * Clicking any chip anywhere inserts it at the cursor. Insertion, not the
- * clipboard: milestone 7 settled that and `insert.ts` carries the reasoning.
+ * - **Hardware hides a ladder.** No scanner, no scanner ladder — the same answer
+ *   part one gives in autocomplete, where a locked namespace is absent rather
+ *   than struck through.
+ * - **A rung the player has not earned is shown, locked, and names what it
+ *   needs.** The opposite call, on purpose. A completion list answers "what can
+ *   I type right now", where anything extra is noise. A book is a thing you read
+ *   ahead in, and one you can see further into is one worth climbing. It is also
+ *   the most useful hint the game has: on a fresh save the first rung reads
+ *   *"needs while"*, which is the whole lesson of the first ten minutes.
  */
 
-function chipNeed(s: Snippet): string {
-  if (s.requires) return `needs the ${s.requires}`;
-  if (s.needsMachine) return `needs a ${s.needsMachine} beside you`;
-  return "";
+export interface CodebookView {
+  suggestion: Suggestion | null;
+  /** Chips the game has raised. Each counts as its rung being unlocked. */
+  offered: ReadonlySet<string>;
+  /** Primitives the player has run. */
+  vocabulary: ReadonlySet<Primitive>;
+  /** Modules on the bot whose script is open. */
+  modules: ReadonlySet<string>;
+  /** Machine kinds standing in the world. */
+  machines: ReadonlySet<string>;
 }
 
 export interface Codebook {
-  /** Expand or collapse the full list. The suggestion is visible either way. */
+  /** Expand or collapse the ladders. The suggestion is visible either way. */
   toggle(): void;
-  /**
-   * Redraw. Called every frame, so it does nothing when neither the suggestion
-   * nor the set of chips the game has raised has changed.
-   */
-  update(suggestion: Suggestion | null, offered: ReadonlySet<string>): void;
+  /** Redraw, doing nothing when nothing that shows has changed. */
+  update(view: CodebookView): void;
+}
+
+const unlocked = (ladder: Ladder, i: number, view: CodebookView): boolean =>
+  view.offered.has(ladder.rungs[i]!.title) ||
+  needsFor(ladder, i).every((p) => view.vocabulary.has(p));
+
+const owned = (ladder: Ladder, view: CodebookView): boolean =>
+  (!ladder.requires || view.modules.has(ladder.requires)) &&
+  (!ladder.needsMachine || view.machines.has(ladder.needsMachine));
+
+/** What a locked rung is still waiting on, in the player's words. */
+function missing(ladder: Ladder, i: number, view: CodebookView): string[] {
+  return needsFor(ladder, i)
+    .filter((p) => !view.vocabulary.has(p))
+    .map((p) => PRIMITIVE_LABEL[p]);
 }
 
 export function createCodebook(
@@ -54,48 +78,35 @@ export function createCodebook(
   root.innerHTML = `
     <h2 class="group-title">codebook</h2>
     <div class="book-suggested"></div>
-    <div class="book-known"></div>
-    <div class="book-rest" hidden></div>
+    <div class="book-ladders" hidden></div>
     <p class="hint book-hint"></p>`;
 
   const suggestedEl = root.querySelector<HTMLElement>(".book-suggested")!;
-  const knownEl = root.querySelector<HTMLElement>(".book-known")!;
-  const restEl = root.querySelector<HTMLElement>(".book-rest")!;
+  const laddersEl = root.querySelector<HTMLElement>(".book-ladders")!;
   const hintEl = root.querySelector<HTMLElement>(".book-hint")!;
 
   let open = false;
+  /** Which rung of each ladder is on show. UI state, so it survives a redraw. */
+  const showing = new Map<string, number>();
   /** What the last redraw drew, so a frame that changes nothing touches no DOM. */
   let drawn = "";
+  let view: CodebookView | null = null;
 
-  function chipFor(snippet: Snippet, compact: boolean): HTMLButtonElement {
+  function codeChip(rung: Rung, accent: boolean): HTMLButtonElement {
     const chip = document.createElement("button");
     chip.type = "button";
-    chip.className = compact ? "chip chip-compact" : "chip";
+    chip.className = accent ? "chip chip-suggest" : "chip";
 
-    const title = document.createElement("strong");
-    title.textContent = snippet.title;
-    chip.append(title);
+    const blurb = document.createElement("span");
+    blurb.className = "chip-blurb";
+    blurb.textContent = rung.blurb;
+    chip.append(blurb);
 
-    const need = chipNeed(snippet);
-    if (need) {
-      const tag = document.createElement("em");
-      tag.className = "chip-need";
-      tag.textContent = need;
-      chip.append(tag);
-    }
+    const code = document.createElement("pre");
+    code.textContent = rung.code;
+    chip.append(code);
 
-    if (!compact) {
-      const blurb = document.createElement("span");
-      blurb.className = "chip-blurb";
-      blurb.textContent = snippet.blurb;
-      chip.append(blurb);
-
-      const code = document.createElement("pre");
-      code.textContent = snippet.code;
-      chip.append(code);
-    }
-
-    chip.addEventListener("click", () => insertAtCursor(editor, snippet.code));
+    chip.addEventListener("click", () => insertAtCursor(editor, rung.code));
     return chip;
   }
 
@@ -103,19 +114,23 @@ export function createCodebook(
     suggestedEl.replaceChildren();
     if (!suggestion) return;
 
-    const snippet = SNIPPETS.find((s) => s.title === suggestion.chip);
-    if (!snippet) return;
+    const rung = LADDERS.flatMap((l) => l.rungs).find((r) => r.title === suggestion.chip);
+    if (!rung) return;
 
     const why = document.createElement("p");
     why.className = "book-why";
     why.textContent = suggestion.why;
     suggestedEl.append(why);
 
-    const chip = chipFor(snippet, false);
-    chip.classList.add("chip-suggest");
+    const title = document.createElement("p");
+    title.className = "rung-title";
+    title.textContent = rung.title;
+    suggestedEl.append(title);
+
+    const chip = codeChip(rung, true);
     // Taken is as final as refused. A chip that comes back after the player has
-    // used it is a chip telling them they did it wrong. The chip itself stays in
-    // the book below, which is the whole point of the book being one surface.
+    // used it is a chip telling them they did it wrong. The rung itself stays in
+    // the ladder below, unlocked — which is the whole point of one surface.
     chip.addEventListener("click", () => onRetire(suggestion.id));
     suggestedEl.append(chip);
 
@@ -130,47 +145,127 @@ export function createCodebook(
     suggestedEl.append(no);
   }
 
-  function draw(suggestion: Suggestion | null, offered: ReadonlySet<string>): void {
-    drawSuggestion(suggestion);
+  /** The rung to open a ladder on: the furthest the player has got. */
+  function defaultRung(ladder: Ladder, v: CodebookView): number {
+    let best = 0;
+    ladder.rungs.forEach((_, i) => {
+      if (unlocked(ladder, i, v)) best = i;
+    });
+    return best;
+  }
 
-    // Everything the game has raised, minus the one it is raising right now —
-    // which is already above, in full, and does not want to be in two places.
-    const known = SNIPPETS.filter((s) => offered.has(s.title) && s.title !== suggestion?.chip);
-    knownEl.replaceChildren();
-    if (known.length) {
-      const label = document.createElement("p");
-      label.className = "book-label";
-      label.textContent = "offered before";
-      knownEl.append(label);
-      for (const s of known) knownEl.append(chipFor(s, true));
-    }
+  function drawLadder(ladder: Ladder, v: CodebookView): HTMLElement {
+    const box = document.createElement("div");
+    box.className = "ladder";
 
-    restEl.replaceChildren();
-    for (const s of SNIPPETS) {
-      if (s.title === suggestion?.chip || offered.has(s.title)) continue;
-      restEl.append(chipFor(s, false));
+    const at = Math.min(showing.get(ladder.id) ?? defaultRung(ladder, v), ladder.rungs.length - 1);
+    const rung = ladder.rungs[at]!;
+    const isUnlocked = unlocked(ladder, at, v);
+
+    const head = document.createElement("div");
+    head.className = "ladder-head";
+
+    const name = document.createElement("strong");
+    name.textContent = ladder.name;
+    head.append(name);
+
+    // The toggle only exists where there is something to toggle between.
+    if (ladder.rungs.length > 1) {
+      const nav = document.createElement("span");
+      nav.className = "rung-nav";
+
+      const back = document.createElement("button");
+      back.type = "button";
+      back.textContent = "‹";
+      back.disabled = at === 0;
+      back.title = "the form before this one";
+      back.addEventListener("click", () => {
+        showing.set(ladder.id, at - 1);
+        redraw(true);
+      });
+
+      const count = document.createElement("span");
+      count.className = "rung-count";
+      count.textContent = `${at + 1}/${ladder.rungs.length}`;
+
+      const on = document.createElement("button");
+      on.type = "button";
+      on.textContent = "›";
+      on.disabled = at === ladder.rungs.length - 1;
+      on.title = "what it grows into";
+      on.addEventListener("click", () => {
+        showing.set(ladder.id, at + 1);
+        redraw(true);
+      });
+
+      nav.append(back, count, on);
+      head.append(nav);
     }
-    restEl.hidden = !open;
+    box.append(head);
+
+    const title = document.createElement("p");
+    title.className = "rung-title";
+    title.textContent = rung.title;
+    box.append(title);
+
+    if (isUnlocked) {
+      box.append(codeChip(rung, false));
+    } else {
+      const lock = document.createElement("p");
+      lock.className = "rung-locked";
+      const needs = missing(ladder, at, v);
+      lock.textContent = needs.length
+        ? `locked — use ${needs.join(", ")} in a script of your own`
+        : "locked";
+      box.append(lock);
+    }
+    return box;
+  }
+
+  function draw(v: CodebookView): void {
+    drawSuggestion(v.suggestion);
+
+    laddersEl.replaceChildren();
+    const visible = LADDERS.filter((l) => owned(l, v));
+    for (const ladder of visible) laddersEl.append(drawLadder(ladder, v));
+    laddersEl.hidden = !open;
+
+    const climbed = visible.reduce(
+      (n, l) => n + l.rungs.filter((_, i) => unlocked(l, i, v)).length,
+      0,
+    );
     hintEl.textContent = open
       ? "Click a chip to drop it in at the cursor."
-      : `Book: ${SNIPPETS.length} patterns.`;
+      : `${climbed} of ${SNIPPETS.length} patterns learned.`;
+  }
+
+  function redraw(force = false): void {
+    if (!view) return;
+    const v = view;
+    const key = [
+      v.suggestion?.id ?? "",
+      [...v.offered].sort().join(","),
+      [...v.vocabulary].sort().join(","),
+      [...v.modules].sort().join(","),
+      [...v.machines].sort().join(","),
+      [...showing].map(([k, n]) => `${k}:${n}`).sort().join(","),
+      open ? "open" : "shut",
+    ].join("|");
+    if (!force && key === drawn) return;
+    drawn = key;
+    draw(v);
   }
 
   return {
     toggle() {
       open = !open;
-      restEl.hidden = !open;
-      hintEl.textContent = open
-        ? "Click a chip to drop it in at the cursor."
-        : `Book: ${SNIPPETS.length} patterns.`;
+      redraw(true);
       if (open) root.scrollIntoView({ block: "nearest" });
     },
 
-    update(suggestion, offered) {
-      const key = `${suggestion?.id ?? ""}|${[...offered].sort().join(",")}`;
-      if (key === drawn) return;
-      drawn = key;
-      draw(suggestion, offered);
+    update(next) {
+      view = next;
+      redraw();
     },
   };
 }

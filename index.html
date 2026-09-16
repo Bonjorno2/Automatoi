@@ -315,8 +315,43 @@
         white-space: pre-wrap;
         overflow-x: auto;
       }
-      /* One line, for a chip the player has already been shown once. */
-      .chip-compact { padding: 0.25rem 0.5rem; font-size: var(--fs-sm); }
+      /* A line of descent: one program, and what it grew into. */
+      .ladder {
+        margin-top: var(--sp-2);
+        padding-top: var(--sp-2);
+        border-top: 1px solid var(--line);
+      }
+      .ladder-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: var(--sp-1);
+        font-size: var(--fs-sm);
+      }
+      .ladder-head strong { color: var(--text); font-weight: 600; }
+      .rung-nav { display: flex; align-items: center; gap: 0.2rem; flex: none; }
+      .rung-nav button {
+        padding: 0 0.3rem;
+        font-size: var(--fs-sm);
+        line-height: 1.2;
+        background: transparent;
+        border-color: var(--line);
+        color: var(--text-dim);
+      }
+      .rung-nav button:hover:not(:disabled) { color: var(--accent); border-color: var(--accent-dim); }
+      .rung-count { color: var(--text-dim); font-size: 10px; min-width: 1.8rem; text-align: center; }
+      .rung-title { margin: 0.15rem 0 0; color: #dcdcaa; font-size: var(--fs-sm); }
+      /* A rung you can see and have not earned. Named, because naming it is the
+         most useful hint the game has. */
+      .rung-locked {
+        margin: 0.15rem 0 0;
+        padding: 0.3rem 0.4rem;
+        background: var(--bg-sunk);
+        border: 1px dashed var(--line-bright);
+        border-radius: 3px;
+        color: var(--text-dim);
+        font-size: 10px;
+      }
       /* What the game is offering right now: the accent the build menu uses for
          its offers, because that is what this is. */
       .chip-suggest {
@@ -325,13 +360,6 @@
       }
       .chip-suggest:hover { background: #2f2a1d; border-color: var(--accent); }
       .book-why { margin: var(--sp-1) 0 0; color: var(--accent); font-size: var(--fs-sm); }
-      .book-label {
-        margin: var(--sp-2) 0 0;
-        font-size: 10px;
-        letter-spacing: 0.1em;
-        text-transform: uppercase;
-        color: var(--text-dim);
-      }
       .book-hint { margin-top: var(--sp-1); font-size: 10px; }
       /* Quieter than the offer it refuses, and always the same one click. */
       .suggest-dismiss {

@@ -1,11 +1,6 @@
 import { SNIPPETS } from "../../src/editor/snippets.ts";
 import { OPENING_SCRIPT } from "../../src/editor/opening-script.ts";
-import {
-  SUGGESTED_CHIPS,
-  createSuggester,
-  hasLoop,
-  mentions,
-} from "../../src/editor/suggestions.ts";
+import { SUGGESTED_CHIPS, createSuggester } from "../../src/editor/suggestions.ts";
 import type { WorldEvent } from "../../src/sim/events.ts";
 import type { WorldSnapshot } from "../../src/sim/types.ts";
 
@@ -313,42 +308,5 @@ describe("suggestions", () => {
     });
   });
 
-  describe("mentions", () => {
-    it("sees a real call and not a comment", () => {
-      expect(mentions("bot.scanner.scan(2);", "bot.scanner")).toBe(true);
-      expect(mentions("// one day, bot.scanner", "bot.scanner")).toBe(false);
-      expect(mentions('bot.log("bot.scanner");', "bot.scanner")).toBe(false);
-    });
-  });
 
-  describe("hasLoop", () => {
-    it("sees the loops a player writes", () => {
-      expect(hasLoop("while (true) {}")).toBe(true);
-      expect(hasLoop("for (let i = 0; i < 5; i++) {}")).toBe(true);
-      expect(hasLoop("for (const t of bot.scanner.scan(2)) {}")).toBe(true);
-      expect(hasLoop("do { bot.move('east'); } while (true);")).toBe(true);
-    });
-
-    it("is not fooled by prose", () => {
-      // The reason this function is a scanner and not a regex over the source.
-      expect(hasLoop("bot.move('east'); // go east for one tile")).toBe(false);
-      expect(hasLoop("/* harvest while there is wheat */\nbot.harvester.harvest();")).toBe(false);
-      expect(hasLoop('bot.log("waiting for the mill");')).toBe(false);
-      expect(hasLoop("bot.log('do not overfill');")).toBe(false);
-    });
-
-    it("is not fooled by a comment marker inside a string, or the reverse", () => {
-      expect(hasLoop('bot.log("// for");')).toBe(false);
-      expect(hasLoop("// a quote ' and then\nwhile (true) {}")).toBe(true);
-    });
-
-    it("does not mistake a longer word for a loop", () => {
-      expect(hasLoop("const format = 1; const doing = 2; const forward = 3;")).toBe(false);
-    });
-
-    it("says the opening script does not loop", () => {
-      // The fact the whole rule rests on.
-      expect(hasLoop(OPENING_SCRIPT)).toBe(false);
-    });
-  });
 });

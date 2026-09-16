@@ -2,6 +2,8 @@ import type { ScriptStatus } from "../bridge/colony.ts";
 import type { WorldEvent } from "../sim/events.ts";
 import type { ResearchName, WorldSnapshot } from "../sim/types.ts";
 import { SNIPPETS } from "./snippets.ts";
+import { hasLoop, mentions, primitivesIn } from "./source.ts";
+import type { Primitive } from "./source.ts";
 
 /**
  * When the codebook has something worth saying, and which of its chips says it.
@@ -233,65 +235,6 @@ const looping = (h: History): boolean => {
   return source !== undefined && hasLoop(source);
 };
 
-/**
- * True when the source actually loops.
- *
- * Comments and strings are blanked first, so `// go east for one tile` is prose
- * and not a `for`. The cost of getting that wrong is a suggestion that silently
- * never appears, which is the worst kind of bug this file could have: nobody
- * would ever report it.
- */
-export function hasLoop(source: string): boolean {
-  return /\b(?:while|for|do)\b/.test(stripNonCode(source));
-}
-
-/** True when the source really calls this, rather than mentioning it in a comment. */
-export function mentions(source: string, needle: string): boolean {
-  return stripNonCode(source).includes(needle);
-}
-
-/**
- * The source with comment and string bodies removed.
- *
- * A left-to-right scan rather than a chain of regexes: a `//` inside a string and
- * a quote inside a comment each break the regex version, in opposite directions.
- *
- * Known limit, stated rather than hidden: a regex literal containing a quote —
- * `/["']/` — opens a string that is never closed, and the rest of the file is
- * swallowed. A beginner's farm script does not contain one, and the failure is a
- * suggestion that does not appear rather than a wrong one that does.
- */
-function stripNonCode(source: string): string {
-  const out: string[] = [];
-  let i = 0;
-  while (i < source.length) {
-    const pair = source.slice(i, i + 2);
-    if (pair === "//") {
-      while (i < source.length && source[i] !== "\n") i++;
-      continue;
-    }
-    if (pair === "/*") {
-      i += 2;
-      while (i < source.length && source.slice(i, i + 2) !== "*/") i++;
-      i += 2;
-      continue;
-    }
-    const quote = source[i]!;
-    if (quote === '"' || quote === "'" || quote === "`") {
-      i++;
-      while (i < source.length && source[i] !== quote) {
-        // A backslash eats whatever follows it, including the closing quote.
-        i += source[i] === "\\" ? 2 : 1;
-      }
-      i++;
-      continue;
-    }
-    out.push(quote);
-    i++;
-  }
-  return out.join("");
-}
-
 export interface Suggester {
   /** A run is starting: this script's failures are its own, and this is its source. */
   started(botId: number, source: string): void;
@@ -308,16 +251,26 @@ export interface Suggester {
   /**
    * Chips the game has raised at some point, whether or not they were taken.
    *
-   * The codebook pins these above the rest: what the game has taught you is the
-   * part of the book you are most likely to come back for.
+   * The codebook counts these as unlocked rungs. **Being shown something counts
+   * as having learned it** — the alternative gates the loop chip behind having
+   * written a loop, which makes it unreachable for exactly the player it is for.
    */
   offered(): ReadonlySet<string>;
+  /**
+   * Every primitive the player has actually set running, across every bot.
+   *
+   * Colony-wide and never forgotten, because it is a record of what this player
+   * knows rather than of what some bot is doing. The codebook unlocks its rungs
+   * against this.
+   */
+  vocabulary(): ReadonlySet<Primitive>;
 }
 
 export function createSuggester(): Suggester {
   const histories = new Map<number, History>();
   const retired = new Set<string>();
   const seen = new Set<string>();
+  const known = new Set<Primitive>();
   const colony: Colony = { landed: new Set(), hasCrate: false };
 
   const historyFor = (botId: number): History => {
@@ -335,6 +288,11 @@ export function createSuggester(): Suggester {
       h.current = source;
       h.bumps = 0;
       h.fulls = 0;
+      // Counted at the start rather than at the end: a `while (true)` is the
+      // most that can be known about a player's vocabulary and it never settles,
+      // so waiting for a verdict would mean the best scripts taught the book
+      // nothing. Running it is the demonstration; finishing it is not.
+      for (const p of primitivesIn(source)) known.add(p);
     },
 
     ran(botId, source, status) {
@@ -372,6 +330,10 @@ export function createSuggester(): Suggester {
 
     offered() {
       return seen;
+    },
+
+    vocabulary() {
+      return known;
     },
   };
 }

@@ -647,13 +647,22 @@ function draw(): void {
   sidePanel.update(snap, selectedBotId);
   syncApiSurface();
   suggester.world(snap);
-  // Nothing is *suggested* while the library is on screen: a chip inserted there
-  // would be advice about one bot, written into every bot. The book itself stays
-  // — it is a book, and the library is exactly where a player reaches for one.
-  codebook.update(
-    selectedBotId === null || scripts.editingLibrary ? null : suggester.suggest(selectedBotId),
-    suggester.offered(),
-  );
+  codebook.update({
+    // Nothing is *suggested* while the library is on screen: a chip inserted
+    // there would be advice about one bot, written into every bot. The book
+    // itself stays — it is a book, and the library is where you reach for one.
+    suggestion:
+      selectedBotId === null || scripts.editingLibrary ? null : suggester.suggest(selectedBotId),
+    offered: suggester.offered(),
+    vocabulary: suggester.vocabulary(),
+    // The chassis whose script is open, matching what autocomplete is offering.
+    // The library sees the fleet's union, for the reason `syncApiSurface` gives.
+    modules: new Set(
+      (scripts.editingLibrary ? snap.bots : snap.bots.filter((b) => b.id === selectedBotId))
+        .flatMap((b) => b.modules),
+    ),
+    machines: new Set(snap.machines.map((m) => m.kind)),
+  });
   // The research is the only gate: the button appears when the buffer becomes
   // real, and the prelude stays empty until then.
   libraryButton.hidden = !snap.research.unlocked.includes("library");
