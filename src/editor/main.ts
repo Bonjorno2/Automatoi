@@ -8,6 +8,7 @@ import { createTileLayer } from "../render/tiles.ts";
 import { createActorLayer } from "../render/actors.ts";
 import { createAnimatedLayer } from "../render/animated.ts";
 import { createMarkLayer, heldMarks } from "../render/marks.ts";
+import { createEffectLayer } from "../render/effects.ts";
 import { armedMessage, createInspector, type Placement } from "../render/inspector.ts";
 import { CLOCKWISE } from "../sim/world.ts";
 import { FACES } from "../sim/config.ts";
@@ -52,6 +53,7 @@ const tiles = createTileLayer(stage.staticLayer, stage.tickLayer, stage.geometry
 const actors = createActorLayer(stage.frameLayer, stage.geometry);
 const animated = createAnimatedLayer(actors.overlayContainer, stage.geometry);
 const marks = createMarkLayer(stage.frameLayer);
+const effects = createEffectLayer(stage.frameLayer);
 const inspector = createInspector(worldEl, stage.frameLayer, grid, stage.geometry);
 const overlay = createOverlay(stage.overlayLayer, {
   width: stage.app.screen.width,
@@ -339,7 +341,13 @@ function draw(): void {
   animated.update(snap, now);
   // Drained every frame, not every tick: an undrained event is a lost signal,
   // and marks decay against the wall clock rather than the sim's.
-  marks.update(session.world.drainEvents(), heldMarks(snap), now, stage.geometry);
+  //
+  // Drained **once**, into both readers. Two calls to `drainEvents` would give
+  // the second one an empty list, and whichever layer ran second would silently
+  // never see anything.
+  const events = session.world.drainEvents();
+  marks.update(events, heldMarks(snap), now, stage.geometry);
+  effects.update(events, snap, now, stage.geometry);
   inspector.update(snap, stage.geometry);
   hud.update(snap, {
     paused: session.clock.paused,

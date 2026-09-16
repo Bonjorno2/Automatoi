@@ -508,6 +508,8 @@ export class World {
       return fail("inventory full");
     }
     addItem(bot.inventory, tile.crop.item, 1);
+    // Emitted before the crop is cleared, so the event carries what was taken.
+    this.emit({ kind: "harvest", botId: bot.id, pos: { ...bot.pos }, item: tile.crop.item });
     tile.crop = null;
     return ok(true);
   }
