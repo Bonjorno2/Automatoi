@@ -123,6 +123,47 @@ export class ScriptStore {
     return this.sources.get(target) ?? (target === LIBRARY ? OPENING_LIBRARY : OPENING_SCRIPT);
   }
 
+  /** Every buffer, for a progress key to carry. The library reports as null. */
+  all(): { botId: number | null; source: string }[] {
+    return [...this.sources].map(([target, source]) => ({
+      botId: target === LIBRARY ? null : target,
+      source,
+    }));
+  }
+
+  /**
+   * True when a buffer still holds what the game put there.
+   *
+   * **A key should not carry code the player did not write.** Found by watching
+   * a brand new game issue a 655-character key: the shared library opens with a
+   * twelve-line comment explaining itself, and every one of those lines was
+   * being spelled out in full, forever, in the key of every player who had never
+   * opened the library at all. A fresh game is now thirteen characters.
+   *
+   * Restoring a key with a buffer missing is already the right behaviour — the
+   * store falls back to the same default it would have shown anyway.
+   */
+  static isUntouched(botId: number | null, source: string): boolean {
+    return source === (botId === null ? OPENING_LIBRARY : OPENING_SCRIPT);
+  }
+
+  /**
+   * Put back what a key carried.
+   *
+   * Replaces the buffers it names and leaves the others alone, which is the
+   * behaviour a player restoring onto a machine they have already played on
+   * would expect: their key is about their bots, not about wiping this browser.
+   *
+   * @returns the source now showing, when the buffer on screen was one of them
+   */
+  load(buffers: readonly { botId: number | null; source: string }[]): string | null {
+    for (const { botId, source } of buffers) {
+      this.sources.set(botId === null ? LIBRARY : botId, source);
+    }
+    this.persist();
+    return this.selected === null ? null : this.sourceFor(this.selected);
+  }
+
   /** Write the on-screen text back to whichever bot currently owns it. */
   stash(currentText: string): void {
     if (this.selected === null) return;

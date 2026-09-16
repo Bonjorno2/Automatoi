@@ -1,18 +1,25 @@
-import { LADDERS } from "../../src/editor/snippets.ts";
+import { LADDERS, SNIPPETS } from "../../src/editor/snippets.ts";
 import { PRIMITIVE_LABEL } from "../../src/editor/source.ts";
 import type { Primitive } from "../../src/editor/source.ts";
 import { RESEARCH_COST } from "../../src/sim/config.ts";
+import { ALPHABET, checksum } from "../../src/editor/bits.ts";
 import {
   FACTS,
   decodeKey,
   encodeKey,
   factsFrom,
+  keyCost,
   partition,
 } from "../../src/editor/progress-key.ts";
-import type { Fact } from "../../src/editor/progress-key.ts";
+import type { Fact, KeyContents } from "../../src/editor/progress-key.ts";
+
+const key = (facts: Iterable<Fact> = [], buffers: KeyContents["buffers"] = []): KeyContents =>
+  ({ facts: new Set(facts), buffers });
+
+const plain = (k: string): string => k.replace(/-/g, "");
 
 /**
- * The save, as a code you can read out loud.
+ * The save, as a code you can paste into a text file.
  *
  * The first block is the important one and it is deliberately dumb: a literal
  * copy of the fact list. A compact key is a bitfield, so every bit's meaning is
@@ -43,8 +50,7 @@ describe("the fact list", () => {
   });
 
   it("covers every primitive the book can name", () => {
-    const every = Object.keys(PRIMITIVE_LABEL) as Primitive[];
-    for (const p of every) expect(FACTS).toContain(`p:${p}`);
+    for (const p of Object.keys(PRIMITIVE_LABEL) as Primitive[]) expect(FACTS).toContain(`p:${p}`);
   });
 
   it("covers every research the sim prices", () => {
@@ -59,55 +65,51 @@ describe("the fact list", () => {
 });
 
 describe("a progress key", () => {
-  const someFacts = new Set<Fact>(["p:while", "p:move", "r:scanner", "c:field-loop/0"]);
+  const facts: Fact[] = ["p:while", "p:move", "r:scanner", "c:field-loop/0"];
 
-  it("is short enough to write on paper", () => {
-    // The whole reason this is a key and not a save file.
-    expect(encodeKey(someFacts).replace(/-/g, "").length).toBeLessThanOrEqual(12);
+  it("carries progress alone in a handful of characters", () => {
+    expect(plain(encodeKey(key(facts))).length).toBeLessThanOrEqual(14);
   });
 
   it("round-trips", () => {
-    const back = decodeKey(encodeKey(someFacts));
+    const back = decodeKey(encodeKey(key(facts)));
     expect(back.error).toBeUndefined();
-    expect([...back.facts].sort()).toEqual([...someFacts].sort());
+    expect([...back.facts].sort()).toEqual([...facts].sort());
   });
 
   it("round-trips a player who has learned nothing", () => {
-    const back = decodeKey(encodeKey(new Set()));
+    const back = decodeKey(encodeKey(key()));
     expect(back.error).toBeUndefined();
     expect(back.facts.size).toBe(0);
+    expect(back.buffers).toEqual([]);
   });
 
   it("round-trips a player who has learned everything", () => {
-    const all = new Set<Fact>(FACTS);
-    const back = decodeKey(encodeKey(all));
+    const back = decodeKey(encodeKey(key(FACTS)));
     expect(back.error).toBeUndefined();
     expect(back.facts.size).toBe(FACTS.length);
   });
 
   it("gives different progress a different key", () => {
-    expect(encodeKey(new Set<Fact>(["p:while"]))).not.toBe(encodeKey(new Set<Fact>(["p:for"])));
+    expect(encodeKey(key(["p:while"]))).not.toBe(encodeKey(key(["p:for"])));
   });
 
   it("does not care about case, spaces or the dashes it added", () => {
-    const key = encodeKey(someFacts);
-    const mangled = ` ${key.replace(/-/g, "").toLowerCase()}  `;
-    expect([...decodeKey(mangled).facts].sort()).toEqual([...someFacts].sort());
+    const mangled = ` ${plain(encodeKey(key(facts))).toLowerCase()}  `;
+    expect([...decodeKey(mangled).facts].sort()).toEqual([...facts].sort());
   });
 
   it("forgives the characters people misread", () => {
-    // Crockford's point: a key read down a phone or off a screenshot turns 1
-    // into I and 0 into O, and the reader should simply cope.
-    const key = encodeKey(someFacts).replace(/1/g, "I").replace(/0/g, "O");
-    expect(decodeKey(key).error).toBeUndefined();
+    // A key copied off a screenshot turns 1 into I and 0 into O.
+    const muddled = plain(encodeKey(key(facts))).replace(/1/g, "I").replace(/0/g, "O");
+    expect(decodeKey(muddled).error).toBeUndefined();
   });
 
   it("refuses a key with a typo rather than obeying it", () => {
     // The failure that matters. Without the checksum a mistyped character is a
     // valid key for somebody else's progress, and the player is silently handed
     // a different game.
-    const key = encodeKey(someFacts);
-    const chars = [...key.replace(/-/g, "")];
+    const chars = [...plain(encodeKey(key(facts, [{ botId: 1, source: "bot.move(\"east\");" }])))];
     let caught = 0;
     for (let i = 0; i < chars.length; i++) {
       const wrong = [...chars];
@@ -125,14 +127,98 @@ describe("a progress key", () => {
     expect(decodeKey("   ").error).toBe("no key entered");
   });
 
-  it("refuses a key from another version instead of misreading it", () => {
-    // Built by hand at version 2, checksum and all, which is what a key issued
-    // by a future build would look like to today's reader.
-    const body = "2" + "0".repeat(9);
-    let sum = 0;
-    for (const c of body) sum = (sum * 31 + "0123456789ABCDEFGHJKMNPQRSTVWXYZ".indexOf(c)) % 32;
-    const future = body + "0123456789ABCDEFGHJKMNPQRSTVWXYZ"[sum];
-    expect(decodeKey(future).error).toContain("newer version");
+  it("refuses a key from a newer build instead of misreading it", () => {
+    // Version 31, checksummed properly — what a far-future key looks like today.
+    const body = ALPHABET[31]! + "0".repeat(12);
+    expect(decodeKey(body + checksum(body)).error).toContain("newer version");
+  });
+
+  it("still reads a version 1 key, which carried no scripts", () => {
+    // Not a courtesy: this is the proof the version marker does its job. A v1
+    // key is the same bit stream, stopping after the facts.
+    let bits = ALPHABET.indexOf("1").toString(2).padStart(5, "0");
+    for (const fact of FACTS) bits += facts.includes(fact) ? "1" : "0";
+    while (bits.length % 5) bits += "0";
+    let body = "";
+    for (let i = 0; i < bits.length; i += 5) body += ALPHABET[parseInt(bits.slice(i, i + 5), 2)];
+
+    const back = decodeKey(body + checksum(body));
+    expect(back.error).toBeUndefined();
+    expect([...back.facts].sort()).toEqual([...facts].sort());
+    expect(back.buffers).toEqual([]);
+  });
+
+  it("reports a truncated key rather than throwing", () => {
+    const full = plain(encodeKey(key(facts, [{ botId: 1, source: SNIPPETS[2]!.code }])));
+    // Lop the end off and re-checksum, so it is damage rather than a typo.
+    const body = full.slice(0, 10);
+    expect(decodeKey(body + checksum(body)).error).toContain("missing its end");
+  });
+});
+
+describe("the scripts a key carries", () => {
+  const chip = SNIPPETS[2]!.code;
+  const planner = `function expand(n) {\n  for (let i = 0; i < n; i++) {\n    stamp(blueprint, spotFor(i));\n  }\n}`;
+
+  it("round-trips a script made of the book", () => {
+    const back = decodeKey(encodeKey(key([], [{ botId: 1, source: chip }])));
+    expect(back.error).toBeUndefined();
+    expect(back.buffers).toEqual([{ botId: 1, source: chip }]);
+  });
+
+  it("round-trips a script the player wrote themselves", () => {
+    const back = decodeKey(encodeKey(key([], [{ botId: 3, source: planner }])));
+    expect(back.buffers).toEqual([{ botId: 3, source: planner }]);
+  });
+
+  it("round-trips the shared library, which has no bot", () => {
+    const back = decodeKey(encodeKey(key([], [{ botId: null, source: "function stamp(layout) {\n}" }])));
+    expect(back.buffers[0]!.botId).toBeNull();
+  });
+
+  it("round-trips several buffers at once, keeping them apart", () => {
+    const buffers = [
+      { botId: 1, source: chip },
+      { botId: 2, source: planner },
+      { botId: null, source: "// shared" },
+    ];
+    expect(decodeKey(encodeKey(key([], buffers))).buffers).toEqual(buffers);
+  });
+
+  it("keeps blank lines and indentation", () => {
+    const spaced = 'while (true) {\n\n  bot.move("east");\n\n}';
+    expect(decodeKey(encodeKey(key([], [{ botId: 1, source: spaced }]))).buffers[0]!.source)
+      .toBe(spaced);
+  });
+
+  it("round-trips text that is not ASCII", () => {
+    // The chip that logs an em dash proved this was worth a test.
+    const unicode = 'bot.log("full — nowhere to put it 🌾");';
+    expect(decodeKey(encodeKey(key([], [{ botId: 1, source: unicode }]))).buffers[0]!.source)
+      .toBe(unicode);
+  });
+
+  it("round-trips an empty buffer", () => {
+    expect(decodeKey(encodeKey(key([], [{ botId: 1, source: "" }]))).buffers)
+      .toEqual([{ botId: 1, source: "" }]);
+  });
+
+  it("costs far less for code the game already knows", () => {
+    // The whole reason the line dictionary exists, asserted as a ratio rather
+    // than as a number so that growing the dictionary does not fail this.
+    const fromBook = plain(encodeKey(key([], [{ botId: 1, source: chip }]))).length;
+    const ownWork = plain(encodeKey(key([], [{ botId: 1, source: planner }]))).length;
+    expect(fromBook).toBeLessThan(ownWork / 3);
+  });
+
+  it("says how it spent its characters", () => {
+    const cost = keyCost(key([], [{ botId: 1, source: chip }]));
+    expect(cost.ownLines).toBe(0);
+    expect(cost.fromBook).toBe(chip.split("\n").length);
+    expect(cost.characters).toBeGreaterThan(0);
+
+    const mixed = keyCost(key([], [{ botId: 1, source: `${chip}\nconst mine = 1;` }]));
+    expect(mixed.ownLines).toBe(1);
   });
 });
 
@@ -172,7 +258,7 @@ describe("what a key is made of", () => {
       research: ["scanner", "crate", "builder"],
       offered: ["Harvest in a loop", "Stay on the field"],
     };
-    const after = partition(decodeKey(encodeKey(factsFrom(before))).facts);
+    const after = partition(decodeKey(encodeKey(key(factsFrom(before)))).facts);
     expect(after.vocabulary.sort()).toEqual([...before.vocabulary].sort());
     expect(after.research.sort()).toEqual([...before.research].sort());
     expect(after.offered.sort()).toEqual([...before.offered].sort());

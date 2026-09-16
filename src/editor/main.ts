@@ -12,7 +12,8 @@ import { createConsolePanel } from "./console-panel.ts";
 import { createCodebook } from "./codebook.ts";
 import { createSuggester } from "./suggestions.ts";
 import { createKeyPanel, sayAboutKey } from "./key-panel.ts";
-import { decodeKey, encodeKey, factsFrom, partition } from "./progress-key.ts";
+import { decodeKey, encodeKey, factsFrom, keyCost, partition } from "./progress-key.ts";
+import type { KeyContents } from "./progress-key.ts";
 import type { ResearchName } from "../sim/types.ts";
 import { GameSession } from "./session.ts";
 import { connectResize, createOverlay, createStage } from "../render/stage.ts";
@@ -472,19 +473,34 @@ const KEY_STORAGE = "automatori:key";
 const progressEl = document.querySelector<HTMLElement>("#progress")!;
 const keyPanel = createKeyPanel(progressEl, (typed) => useKey(typed, true));
 
-function currentKey(): string {
-  return encodeKey(
-    factsFrom({
+function currentContents(): KeyContents {
+  return {
+    facts: factsFrom({
       vocabulary: suggester.vocabulary(),
       research: session.world.research.unlocked,
       offered: suggester.offered(),
     }),
-  );
+    // What is on screen has not been stashed yet if the player is mid-edit, so
+    // the buffer they are looking at is read from the editor rather than from
+    // the store. A key that lagged the screen by one idle timeout would be a key
+    // that quietly saved the wrong thing.
+    //
+    // Then untouched buffers are dropped: a key carries what the player wrote,
+    // and the opening script and the library's explain-itself comment are not
+    // that. See `ScriptStore.isUntouched`.
+    buffers: scripts
+      .all()
+      .map((b) => {
+        const mine = scripts.editingLibrary ? b.botId === null : b.botId === selectedBotId;
+        return mine ? { ...b, source: editor.getValue() } : b;
+      })
+      .filter((b) => !ScriptStore.isUntouched(b.botId, b.source)),
+  };
 }
 
 /** Take a key, whether typed by the player or found in storage on boot. */
 function useKey(typed: string, fromPlayer: boolean): void {
-  const { facts, error } = decodeKey(typed);
+  const { facts, buffers, error } = decodeKey(typed);
   if (error) {
     // A bad key found in storage says nothing: the player did not type it and
     // cannot act on it. A bad key they typed is the only thing they want to hear.
@@ -496,9 +512,22 @@ function useKey(typed: string, fromPlayer: boolean): void {
   suggester.restore({ vocabulary, offered });
   for (const name of research) session.world.unlockResearch(name as ResearchName);
 
+  if (buffers.length) {
+    const showing = scripts.load(buffers);
+    if (showing !== null) {
+      editor.setValue(showing);
+      clearRuntimeErrors(editor);
+    }
+  }
+
   if (fromPlayer) {
     const learned = vocabulary.length + offered.length;
-    sayAboutKey(progressEl, `key accepted — ${research.length} researched, ${learned} learned`, true);
+    const code = buffers.length === 1 ? "1 script" : `${buffers.length} scripts`;
+    sayAboutKey(
+      progressEl,
+      `key accepted — ${research.length} researched, ${learned} learned, ${code}`,
+      true,
+    );
   }
 }
 
@@ -798,10 +827,11 @@ function syncApiSurface(): void {
 let shownKey = "";
 
 function syncKey(): void {
-  const key = currentKey();
+  const contents = currentContents();
+  const key = encodeKey(contents);
   if (key === shownKey) return;
   shownKey = key;
-  keyPanel.update(key);
+  keyPanel.update(key, keyCost(contents));
   try {
     globalThis.localStorage?.setItem(KEY_STORAGE, key);
   } catch {

@@ -1,36 +1,38 @@
+import { BitReader, BitWriter, KeyDamaged, checksum, group, normalise, ALPHABET } from "./bits.ts";
+import { INDEX_BITS, LINES, LINE_INDEX } from "./line-dictionary.ts";
 import { LADDERS } from "./snippets.ts";
 
 /**
- * The save, as a code you can read out loud.
+ * The save, as a code you can paste into a text file.
  *
- * There is no other save in this game — nothing persisted at all before this, so
- * a reload lost the world, the research and everything the codebook knew about
- * the player. What a key restores is deliberately **not** the world: it is what
- * the player has *learned* and what they have *researched*, which is small
- * enough to be eleven characters and is the part that took time to earn. Your
- * farm is a thing you can rebuild in a minute; your vocabulary is not.
+ * There was no save at all before this — no `localStorage` anywhere, so a reload
+ * lost the world, the research, the codebook and the player's scripts. A key is
+ * the whole save now, and it is one string precisely so that a game served off
+ * a static host with no account and no server can still be carried between a
+ * laptop and a phone by copying it out.
  *
- * That split is also the design's own. "Research hands out hardware, never
- * language features"; "code is always free". A save that is a certificate of
- * what you know rather than a snapshot of where your belts were is the same idea
- * stated once more.
+ * ## Two sections, and why the second one is cheap
  *
- * ## The ordering trap, handled up front
+ * **Facts**: 44 bits. What the player has learned and researched.
  *
- * A compact key is a bitfield, and a bitfield means every bit's meaning is its
- * **position**. Insert a primitive in the middle of the list in three months and
- * every key ever issued silently decodes into somebody else's progress — the
- * player types their own key and is handed a different game. There is no way to
- * detect it after the fact, which is what makes it worth a whole section here.
+ * **Scripts**: their code, stored as *line numbers* rather than as text. The
+ * game already knows every line the codebook contains, so a script assembled out
+ * of chips is a list of small integers — a whole chip is 26 characters instead
+ * of 276. A line the player wrote themselves is spelled out in full and costs
+ * what it costs. Measured: a beginner's three scripts come to about 50
+ * characters, a veteran's original planner to about 440, and neither is a
+ * problem for something you paste into Notepad.
  *
- * So `FACTS` is **append-only and frozen**. New facts go on the end, never in
- * the middle, and never get removed — a retired fact keeps its slot as a
- * tombstone. `tests/editor/progress-key.test.ts` pins the exact list, so
- * reordering it fails the build rather than the player.
+ * This means a key is only meaningful against a game with the same line
+ * dictionary — see `line-dictionary.ts`, which is append-only forever for
+ * exactly that reason.
  *
- * When the list outgrows what the current version can carry, bump `VERSION`.
- * A key names its own version, so an old reader refuses a new key with a
- * sentence rather than quietly misreading it.
+ * ## Versions
+ *
+ * A version 1 key carried facts alone. It still reads: the bit stream is
+ * identical up to the end of the facts, and a v1 key simply stops there. That is
+ * not a courtesy, it is the proof that the version marker does its job — a key
+ * from a *newer* build is refused with a sentence rather than misread.
  */
 
 /** Every fact a key can carry, in an order that must never change. */
@@ -87,103 +89,167 @@ export const FACTS = [
 
 export type Fact = (typeof FACTS)[number];
 
-/**
- * Bumped when a key issued today would be misread by the reader of the day.
- *
- * Appending facts does **not** need a bump: an old key simply has zeros where
- * the new facts are, which is the truth about a player who earned them before
- * they existed. A bump is for a change of encoding.
- */
-const VERSION = 1;
+/** The version this build writes. Readers accept this and everything below it. */
+const VERSION = 2;
+const VERSION_BITS = 5;
 
-/**
- * Crockford's base32: no I, L, O or U.
- *
- * The first three because a key that gets read down a phone or copied off a
- * screenshot must not turn a 1 into an I, and the U because it keeps accidental
- * profanity out of a string the game hands to strangers.
- */
-const ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
-const BITS = 5;
+/** Field widths, every one of them fixed forever. See `line-dictionary.ts`. */
+const BUFFER_COUNT_BITS = 4;
+const BOT_ID_BITS = 8;
+const LINE_COUNT_BITS = 16;
+const DEPTH_BITS = 3;
+const MAX_DEPTH = (1 << DEPTH_BITS) - 1;
+const LITERAL_LEN_BITS = 12;
+const MAX_LITERAL_BYTES = (1 << LITERAL_LEN_BITS) - 1;
+const MAX_BUFFERS = (1 << BUFFER_COUNT_BITS) - 1;
 
-/** What a misread character most likely was. */
-const CONFUSED: Record<string, string> = { I: "1", L: "1", O: "0", U: "V" };
+/** One editor buffer: a bot's script, or the shared library. */
+export interface Buffer {
+  /** A bot id, or null for the shared library. */
+  botId: number | null;
+  source: string;
+}
 
-export interface KeyResult {
+export interface KeyContents {
   facts: Set<Fact>;
+  buffers: Buffer[];
+}
+
+export interface KeyResult extends KeyContents {
   /** What to tell the player, or undefined when the key was good. */
   error?: string;
 }
 
-/** The key for a player who has earned exactly these facts. */
-export function encodeKey(facts: ReadonlySet<string>): string {
-  const bits = FACTS.map((f) => (facts.has(f) ? 1 : 0));
-  const payload: string[] = [];
-  for (let i = 0; i < bits.length; i += BITS) {
-    let value = 0;
-    for (let b = 0; b < BITS; b++) value = value * 2 + (bits[i + b] ?? 0);
-    payload.push(ALPHABET[value]!);
-  }
-  const body = ALPHABET[VERSION]! + payload.join("");
+/** How a key spends its characters, so the cost can be shown rather than guessed. */
+export interface KeyCost {
+  characters: number;
+  fromBook: number;
+  ownLines: number;
+}
+
+// ---- writing ----------------------------------------------------------
+
+export function encodeKey(contents: KeyContents): string {
+  const w = new BitWriter();
+  w.write(VERSION, VERSION_BITS);
+  for (const fact of FACTS) w.writeBit(contents.facts.has(fact));
+  writeBuffers(w, contents.buffers);
+  const body = w.toBase32();
   return group(body + checksum(body));
 }
 
-/**
- * Read a key back, or say why not.
- *
- * Forgiving about everything that is not information: case, spaces, the dashes
- * this file added for readability, and the four characters Crockford's alphabet
- * leaves out because they are the ones people mistype.
- */
-export function decodeKey(key: string): KeyResult {
-  const cleaned = [...key.trim().toUpperCase().replace(/[\s-]/g, "")]
-    .map((c) => CONFUSED[c] ?? c)
-    .join("");
+/** What the key costs, and why. Encodes nothing — it counts. */
+export function keyCost(contents: KeyContents): KeyCost {
+  let fromBook = 0;
+  let ownLines = 0;
+  for (const buffer of contents.buffers.slice(0, MAX_BUFFERS)) {
+    for (const raw of buffer.source.split("\n")) {
+      if (LINE_INDEX.has(raw.trim())) fromBook++;
+      else ownLines++;
+    }
+  }
+  return { characters: encodeKey(contents).replace(/-/g, "").length, fromBook, ownLines };
+}
 
-  if (cleaned.length === 0) return { facts: new Set(), error: "no key entered" };
+function writeBuffers(w: BitWriter, buffers: readonly Buffer[]): void {
+  const kept = buffers.slice(0, MAX_BUFFERS);
+  w.write(kept.length, BUFFER_COUNT_BITS);
+  const encoder = new TextEncoder();
+
+  for (const buffer of kept) {
+    w.writeBit(buffer.botId === null);
+    if (buffer.botId !== null) w.write(Math.min(buffer.botId, 255), BOT_ID_BITS);
+
+    const lines = buffer.source.split("\n");
+    const kept_lines = lines.slice(0, (1 << LINE_COUNT_BITS) - 1);
+    w.write(kept_lines.length, LINE_COUNT_BITS);
+
+    for (const raw of kept_lines) {
+      const trimmed = raw.trim();
+      // Depth is carried apart from the text so that the same statement at two
+      // nesting levels is one dictionary entry, and so re-indenting a script
+      // does not turn every line of it into a literal.
+      const indent = raw.length - raw.trimStart().length;
+      w.write(Math.min(indent >> 1, MAX_DEPTH), DEPTH_BITS);
+
+      const index = LINE_INDEX.get(trimmed);
+      if (index !== undefined) {
+        w.writeBit(true);
+        w.write(index, INDEX_BITS);
+        continue;
+      }
+      w.writeBit(false);
+      const bytes = encoder.encode(trimmed).slice(0, MAX_LITERAL_BYTES);
+      w.write(bytes.length, LITERAL_LEN_BITS);
+      w.writeBytes(bytes);
+    }
+  }
+}
+
+// ---- reading ----------------------------------------------------------
+
+export function decodeKey(key: string): KeyResult {
+  const empty = (): KeyResult => ({ facts: new Set(), buffers: [] });
+  const cleaned = normalise(key);
+
+  if (cleaned.length === 0) return { ...empty(), error: "no key entered" };
   for (const c of cleaned) {
-    if (!ALPHABET.includes(c)) return { facts: new Set(), error: `“${c}” is not part of a key` };
+    if (!ALPHABET.includes(c)) return { ...empty(), error: `“${c}” is not part of a key` };
   }
 
   const body = cleaned.slice(0, -1);
   if (cleaned.slice(-1) !== checksum(body)) {
-    // Before the version check, because a typo in the version character would
+    // Before the version check, because a typo in the version bits would
     // otherwise be reported as a key from the future.
-    return { facts: new Set(), error: "that key has a typo in it somewhere" };
+    return { ...empty(), error: "that key has a typo in it somewhere" };
   }
 
-  const version = ALPHABET.indexOf(body[0]!);
-  if (version > VERSION) {
-    return { facts: new Set(), error: "that key is from a newer version of the game" };
-  }
-  if (version < VERSION) {
-    return { facts: new Set(), error: "that key is from an older version of the game" };
-  }
+  try {
+    const r = new BitReader(body);
+    const version = r.read(VERSION_BITS);
+    if (version > VERSION) {
+      return { ...empty(), error: "that key is from a newer version of the game" };
+    }
+    if (version < 1) return { ...empty(), error: "that key is not one of ours" };
 
-  const bits: number[] = [];
-  for (const c of body.slice(1)) {
-    const value = ALPHABET.indexOf(c);
-    for (let b = BITS - 1; b >= 0; b--) bits.push((value >> b) & 1);
-  }
+    const facts = new Set<Fact>();
+    for (const fact of FACTS) {
+      if (r.readBit()) facts.add(fact);
+    }
 
-  const facts = new Set<Fact>();
-  FACTS.forEach((fact, i) => {
-    if (bits[i] === 1) facts.add(fact);
-  });
-  return { facts };
+    // A version 1 key stops here, and the padding is all that is left.
+    const buffers = version >= 2 ? readBuffers(r) : [];
+    return { facts, buffers };
+  } catch (e) {
+    if (e instanceof KeyDamaged) return { ...empty(), error: e.message };
+    throw e;
+  }
 }
 
-/** One character over the body, so a mistyped key is refused rather than obeyed. */
-function checksum(body: string): string {
-  let sum = 0;
-  for (const c of body) sum = (sum * 31 + ALPHABET.indexOf(c)) % ALPHABET.length;
-  return ALPHABET[sum]!;
+function readBuffers(r: BitReader): Buffer[] {
+  const count = r.read(BUFFER_COUNT_BITS);
+  const decoder = new TextDecoder();
+  const buffers: Buffer[] = [];
+
+  for (let b = 0; b < count; b++) {
+    const isLibrary = r.readBit();
+    const botId = isLibrary ? null : r.read(BOT_ID_BITS);
+    const lineCount = r.read(LINE_COUNT_BITS);
+    const lines: string[] = [];
+
+    for (let i = 0; i < lineCount; i++) {
+      const depth = r.read(DEPTH_BITS);
+      const text = r.readBit()
+        ? LINES[r.read(INDEX_BITS)] ?? ""
+        : decoder.decode(r.readBytes(r.read(LITERAL_LEN_BITS)));
+      lines.push(text ? " ".repeat(depth * 2) + text : "");
+    }
+    buffers.push({ botId, source: lines.join("\n") });
+  }
+  return buffers;
 }
 
-/** Fours, because that is how people read a code back to each other. */
-function group(s: string): string {
-  return (s.match(/.{1,4}/g) ?? []).join("-");
-}
+// ---- what a key is made of --------------------------------------------
 
 /**
  * The facts a codebook and a world add up to.
