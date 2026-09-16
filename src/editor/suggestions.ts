@@ -264,6 +264,14 @@ export interface Suggester {
    * against this.
    */
   vocabulary(): ReadonlySet<Primitive>;
+  /**
+   * Put back what a progress key remembered.
+   *
+   * Additive, never a replacement: a player who types a key mid-session keeps
+   * what they have learned since booting. There is no case where forgetting
+   * something the player has demonstrably done is the right answer.
+   */
+  restore(facts: { vocabulary: Iterable<string>; offered: Iterable<string> }): void;
 }
 
 export function createSuggester(): Suggester {
@@ -334,6 +342,11 @@ export function createSuggester(): Suggester {
 
     vocabulary() {
       return known;
+    },
+
+    restore(facts) {
+      for (const p of facts.vocabulary) known.add(p as Primitive);
+      for (const chip of facts.offered) seen.add(chip);
     },
   };
 }

@@ -265,6 +265,35 @@
         border-color: #c89a90;
         color: #fff;
       }
+      /* The key. Wide, monospaced and quietly the most precious thing on the
+         page, so it gets the accent and a field you can click once to copy. */
+      .key-out {
+        width: 100%;
+        font: inherit;
+        font-size: var(--fs);
+        letter-spacing: 0.08em;
+        padding: 0.3rem 0.4rem;
+        color: var(--accent);
+        background: var(--bg-sunk);
+        border: 1px solid var(--accent-dim);
+        border-radius: 3px;
+      }
+      .key-hint { margin-top: var(--sp-1); font-size: 10px; }
+      .key-in { display: flex; gap: var(--sp-1); margin-top: var(--sp-1); }
+      .key-field {
+        flex: 1;
+        min-width: 0;
+        font: inherit;
+        font-size: var(--fs-sm);
+        padding: 0.25rem 0.4rem;
+        color: var(--text);
+        background: var(--bg-raised);
+        border: 1px solid var(--line-bright);
+        border-radius: 3px;
+      }
+      .key-in button { flex: none; }
+      .key-said { margin: var(--sp-1) 0 0; font-size: 10px; color: var(--grow); }
+      .key-said.key-bad { color: #f48771; }
       #log {
         margin: 0;
         padding: var(--sp-2);
@@ -401,6 +430,10 @@
            two — the chip the game offers is a chip of this book, and this is
            where the player comes back for it. -->
       <section class="group" id="codebook"></section>
+      <!-- Under the codebook because it is the codebook, encoded: what the
+           player has learned and what they have researched, short enough to
+           read down a phone. -->
+      <section class="group" id="progress"></section>
       <ul id="log"></ul>
       <p id="status">starting…</p>
       <p id="placing" hidden></p>

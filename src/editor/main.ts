@@ -11,6 +11,9 @@ import { LIBRARY, ScriptStore } from "./script-store.ts";
 import { createConsolePanel } from "./console-panel.ts";
 import { createCodebook } from "./codebook.ts";
 import { createSuggester } from "./suggestions.ts";
+import { createKeyPanel, sayAboutKey } from "./key-panel.ts";
+import { decodeKey, encodeKey, factsFrom, partition } from "./progress-key.ts";
+import type { ResearchName } from "../sim/types.ts";
 import { GameSession } from "./session.ts";
 import { connectResize, createOverlay, createStage } from "../render/stage.ts";
 import { createTileLayer } from "../render/tiles.ts";
@@ -455,6 +458,56 @@ async function run(): Promise<void> {
 }
 
 document.querySelector("#book-toggle")!.addEventListener("click", () => codebook.toggle());
+
+/**
+ * The progress key: this game's only save, and the first one it has ever had.
+ *
+ * `localStorage` holds the last key as well as the scripts, so a reload keeps
+ * what the player had without their having to type anything. **The stored thing
+ * is the key string itself, not a second format** — one encoder, one decoder,
+ * and no way for the convenience copy to drift from the thing you can write
+ * down.
+ */
+const KEY_STORAGE = "automatori:key";
+const progressEl = document.querySelector<HTMLElement>("#progress")!;
+const keyPanel = createKeyPanel(progressEl, (typed) => useKey(typed, true));
+
+function currentKey(): string {
+  return encodeKey(
+    factsFrom({
+      vocabulary: suggester.vocabulary(),
+      research: session.world.research.unlocked,
+      offered: suggester.offered(),
+    }),
+  );
+}
+
+/** Take a key, whether typed by the player or found in storage on boot. */
+function useKey(typed: string, fromPlayer: boolean): void {
+  const { facts, error } = decodeKey(typed);
+  if (error) {
+    // A bad key found in storage says nothing: the player did not type it and
+    // cannot act on it. A bad key they typed is the only thing they want to hear.
+    if (fromPlayer) sayAboutKey(progressEl, error, false);
+    return;
+  }
+
+  const { vocabulary, research, offered } = partition(facts);
+  suggester.restore({ vocabulary, offered });
+  for (const name of research) session.world.unlockResearch(name as ResearchName);
+
+  if (fromPlayer) {
+    const learned = vocabulary.length + offered.length;
+    sayAboutKey(progressEl, `key accepted — ${research.length} researched, ${learned} learned`, true);
+  }
+}
+
+try {
+  const stored = globalThis.localStorage?.getItem(KEY_STORAGE);
+  if (stored) useKey(stored, false);
+} catch {
+  // No storage, no restored progress, and nothing worth saying about it.
+}
 libraryButton.addEventListener("click", () => editLibrary());
 
 document.querySelector("#run")!.addEventListener("click", () => void run());
@@ -493,6 +546,31 @@ window.addEventListener("keydown", (e) => {
  * bot 1 until there was a second bot to address.
  */
 const scripts = new ScriptStore(session.firstBotId);
+
+/**
+ * Show what was saved, and keep saving it.
+ *
+ * Both halves were found by reloading the page rather than by reading the code.
+ *
+ * The editor mounts long before the store exists — it needs a container and the
+ * store needs a session — so it opens on `OPENING_SCRIPT` whatever is in
+ * storage, and without this line a returning player is quietly handed the
+ * beginner's two-liner with their own work sitting in `localStorage` behind it.
+ *
+ * And `stash` used to be reached only by pressing Run or selecting another bot,
+ * so a player who typed for ten minutes and reloaded lost all of it. Saving on
+ * an idle pause is what everything else that holds text does, and the store
+ * skips the write when the string has not actually changed.
+ */
+editor.setValue(scripts.sourceFor(session.firstBotId));
+
+const SAVE_AFTER_IDLE_MS = 500;
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+editor.onDidChangeModelContent(() => {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => scripts.stash(editor.getValue()), SAVE_AFTER_IDLE_MS);
+});
+
 // Every worker starts with whatever is in the library buffer right now — but
 // only once it has been researched, so a beginner's error lines are untouched by
 // a feature they have not bought (and cannot yet see).
@@ -663,6 +741,7 @@ function draw(): void {
     ),
     machines: new Set(snap.machines.map((m) => m.kind)),
   });
+  syncKey();
   // The research is the only gate: the button appears when the buffer becomes
   // real, and the prelude stays empty until then.
   libraryButton.hidden = !snap.research.unlocked.includes("library");
@@ -705,6 +784,29 @@ function syncApiSurface(): void {
   if (key === apiKey) return;
   apiKey = key;
   setApiSurface(owned);
+}
+
+/**
+ * Keep the key on screen equal to the progress behind it, and store it.
+ *
+ * Driven from `draw` like every other panel here, for the reason `syncApiSurface`
+ * gives: the things that change a key — a research landing, a script starting —
+ * arrive by different paths and a snapshot read every frame cannot miss one.
+ * Writing to storage is skipped unless the string actually changed, so this is a
+ * string compare in the common case rather than a disk write every 16ms.
+ */
+let shownKey = "";
+
+function syncKey(): void {
+  const key = currentKey();
+  if (key === shownKey) return;
+  shownKey = key;
+  keyPanel.update(key);
+  try {
+    globalThis.localStorage?.setItem(KEY_STORAGE, key);
+  } catch {
+    // The key is still on screen to be written down, which is the point of it.
+  }
 }
 
 function loop(): void {

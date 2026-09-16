@@ -931,6 +931,28 @@ export class World {
     this.research.queue.push(name);
   }
 
+  /**
+   * Grant a research outright, as a restored progress key does.
+   *
+   * The same two steps the console performs when it finishes one — unlock it,
+   * then `grant` whatever it hands out — so a key that says "scanner" leaves a
+   * spare scanner to fit rather than a permission with no hardware behind it.
+   *
+   * Deliberately **not** a cheat hatch with a nicer name: it emits no `research`
+   * event, because nothing just happened in the world, and the suggestion rules
+   * key off that event. A restored colony should not be told its scanner has
+   * arrived; it had one before the page was closed.
+   *
+   * Silent about research it already has, because restoring is idempotent and a
+   * player typing their key twice has done nothing wrong.
+   */
+  unlockResearch(name: ResearchName): void {
+    if (!(name in RESEARCH_COST)) throw new Error(`unknown research ${name}`);
+    if (this.research.unlocked.has(name)) return;
+    this.research.unlocked.add(name);
+    this.grant(name);
+  }
+
   installModule(botId: number, module: ModuleName): void {
     const bot = this.getBot(botId);
     const spare = this.research.spareModules[module] ?? 0;
