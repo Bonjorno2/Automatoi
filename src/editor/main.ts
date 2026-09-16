@@ -84,34 +84,66 @@ function pick(option: BuildOption): void {
     return;
   }
 
-  const placing: Placement =
-    option.kind === "machine"
-      ? {
-          option: option.label,
-          label: `Place ${option.label}`,
-          // Only a kind with a front carries one, so `R` does nothing to a
-          // crate rather than silently turning something with no direction.
-          facing: FACES[option.machine] ? "north" : null,
-          reason: (tile) => world.canPlace(option.machine, tile),
-          apply: (tile) => void world.placeMachine(option.machine, tile, placing.facing ?? "north"),
-          rotate: () => {
-            if (placing.facing) placing.facing = CLOCKWISE[placing.facing];
-          },
-        }
-      : {
-          option: option.label,
-          label: "Deploy bot",
-          facing: null,
-          reason: (tile) => world.canDeploy(tile),
-          // Selecting the new bot is the point: milestone 5 gives it its own
-          // script, and the player almost certainly wants to write that next.
-          apply: (tile) => {
-            selectedBotId = world.deployBot(tile).id;
-          },
-          rotate: () => {},
-        };
-  inspector.placing = placing;
+  inspector.placing = armFor(option);
   sidePanel.setActive(option.label);
+}
+
+/**
+ * The armed mode an option puts the canvas into.
+ *
+ * Every branch is the same four answers — what it says, where it is allowed,
+ * what the click does, what `R` does — so that the ghost, the banner and the
+ * outcome cannot be three different opinions. Remove is a branch here rather
+ * than an interaction of its own, per Decision 9 of the milestone 7 plan.
+ */
+function armFor(option: Exclude<BuildOption, { kind: "module" }>): Placement {
+  const world = session.world;
+
+  if (option.kind === "machine") {
+    const placing: Placement = {
+      option: option.label,
+      label: `Place ${option.label}`,
+      mode: "place",
+      // Only a kind with a front carries one, so `R` does nothing to a crate
+      // rather than silently turning something with no direction.
+      facing: FACES[option.machine] ? "north" : null,
+      reason: (tile) => world.canPlace(option.machine, tile),
+      apply: (tile) => void world.placeMachine(option.machine, tile, placing.facing ?? "north"),
+      rotate: () => {
+        if (placing.facing) placing.facing = CLOCKWISE[placing.facing];
+      },
+    };
+    return placing;
+  }
+
+  if (option.kind === "remove") {
+    return {
+      option: option.label,
+      label: "Remove",
+      mode: "remove",
+      facing: null,
+      // The sim's refusals, unedited: "crate is not empty" is more use than
+      // anything this file could invent, and it is the same sentence the
+      // builder arm gives a script.
+      reason: (tile) => world.canRemove(tile),
+      apply: (tile) => world.removeMachine(tile),
+      rotate: () => {},
+    };
+  }
+
+  return {
+    option: option.label,
+    label: "Deploy bot",
+    mode: "place",
+    facing: null,
+    reason: (tile) => world.canDeploy(tile),
+    // Selecting the new bot is the point: milestone 5 gives it its own script,
+    // and the player almost certainly wants to write that next.
+    apply: (tile) => {
+      selectedBotId = world.deployBot(tile).id;
+    },
+    rotate: () => {},
+  };
 }
 
 inspector.onPlace = (tile) => {

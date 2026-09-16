@@ -81,7 +81,7 @@ Milestone 6's finding 1, and first because it is the only thing in this mileston
 
 **Step 2: A mode in the menu.** `BuildOption` gains `{ kind: "remove" }`, offered only when the world holds a machine that is not the console. A tool that can do nothing is not an offer, and gating it this way also leaves `buildOptions`' "offers nothing before any research completes" true, which it should be.
 
-**Step 3: A ghost that says take rather than put.** `Placement` gains a mode. In remove mode the ghost draws a cross instead of an arrow, the banner reads `removing — click a machine to take it back, Esc to stop`, and the tooltip always names what is on the tile rather than only doing so when armed over something occupied — "what am I about to delete" is the entire question, and the milestone 5 rule about not reporting crops nobody asked about does not apply to the thing under the cursor being the target.
+**Step 3: A ghost that says take rather than put.** `Placement` gains a mode. In remove mode the ghost draws a cross instead of an arrow, the banner reads `removing — click a machine to take it back, Esc to stop`, and the tooltip's second line says `click to remove`. It needs no new rule for naming what is about to be deleted: milestone 6 already made the tooltip describe an occupied tile as well as the placement, and the only tile removal can act on is occupied.
 
 Green still means the click will work and red still carries the sim's reason, unchanged, because that is a rule the player learned in milestone 5 and the worst possible place to invert it is the one mode that destroys something.
 

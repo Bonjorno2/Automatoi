@@ -108,6 +108,20 @@
         border-color: #f0d878;
         color: #fff;
       }
+      /* Remove is a tool, not stock. Quieter than the offers above it and a
+         different colour, so the list does not read as one more thing to spend. */
+      .build button.build-remove {
+        margin-top: 0.4rem;
+        color: #c89a90;
+        background: #241b1a;
+        border-color: #452e2a;
+      }
+      .build button.build-remove:hover { background: #342523; }
+      .build button.build-remove.build-active {
+        background: #452e2a;
+        border-color: #c89a90;
+        color: #fff;
+      }
       #log {
         margin: 0;
         padding: 0.5rem;

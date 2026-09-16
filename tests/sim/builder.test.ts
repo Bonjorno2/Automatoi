@@ -183,6 +183,93 @@ describe("the builder arm removes", () => {
   });
 });
 
+/**
+ * The hands-phase half, added by milestone 7's Task 0.
+ *
+ * Milestone 6 shipped removal as a script command only, and its playtest found
+ * the soft-lock that follows: a bot fenced in by belts cannot harvest, so the
+ * console cannot be fed, so the arm that would free it can never be researched.
+ * The player's own hands are the way out, and these tests are about the two
+ * paths staying one rule.
+ */
+describe("removing by hand", () => {
+  it("gives the same reason canRemove returns and removeMachine throws", () => {
+    const w = builderWorld();
+    w.placeMachine("conveyor", { x: 25, y: 25 }, "north");
+    w.placeMachine("crate", { x: 26, y: 25 });
+    w.machineAt({ x: 26, y: 25 })!.inventory = { wheat: 1 };
+
+    const cases = [
+      { x: 25, y: 25 }, // an empty belt: allowed
+      { x: 26, y: 25 }, // a crate with something in it
+      { x: 16, y: 16 }, // the console
+      { x: 2, y: 2 }, // bare ground
+    ];
+    for (const pos of cases) {
+      const reason = w.canRemove(pos);
+      if (reason === null) expect(() => w.removeMachine(pos)).not.toThrow();
+      else expect(() => w.removeMachine(pos)).toThrow(reason);
+    }
+  });
+
+  it("refuses what the arm refuses, for the same reason", () => {
+    // The anti-drift test this task exists to make possible. Milestone 6 wrote
+    // these rules inside doRemove, where a menu could not ask them; two copies
+    // would part company the first time one of them was edited.
+    const w = builderWorld();
+    run(w, 1, { kind: "place", machine: "mill", dir: "east" });
+    const mill = w.machineAt({ x: 21, y: 20 })!;
+    mill.inventory = { wheat: 3 };
+    ticks(w, 2);
+
+    expect(w.canRemove({ x: 21, y: 20 })).toBe("mill is working");
+    expect(run(w, 1, { kind: "remove", dir: "east" })).toEqual({
+      ok: false,
+      error: "mill is working",
+    });
+    expect(w.canRemove({ x: 16, y: 16 })).toBe("the Research Console cannot be removed");
+  });
+
+  it("frees a caged bot, which is the whole point", () => {
+    const w = builderWorld();
+    const bot = w.getBot(1);
+    const around = [
+      { dx: 0, dy: -1 },
+      { dx: 0, dy: 1 },
+      { dx: -1, dy: 0 },
+      { dx: 1, dy: 0 },
+    ];
+    for (const { dx, dy } of around) {
+      w.placeMachine("conveyor", { x: bot.pos.x + dx, y: bot.pos.y + dy }, "north");
+    }
+    // A wall is not an error: the move runs and reports that it went nowhere.
+    expect(run(w, 1, { kind: "move", dir: "north" })).toEqual({ ok: true, value: false });
+
+    w.removeMachine({ x: bot.pos.x, y: bot.pos.y - 1 });
+    expect(run(w, 1, { kind: "move", dir: "north" })).toEqual({ ok: true, value: true });
+  });
+
+  it("leaves nothing of the machine behind, on this path too", () => {
+    const w = builderWorld();
+    w.placeMachine("mill", { x: 25, y: 25 });
+    ticks(w, 3); // long enough for the mill to report itself starved
+    w.drainEvents();
+
+    w.removeMachine({ x: 25, y: 25 });
+    ticks(w, 3);
+    expect(w.machineAt({ x: 25, y: 25 })).toBeUndefined();
+    expect(w.drainEvents().filter((e) => e.kind === "starved")).toEqual([]);
+  });
+
+  it("costs no ticks, because a player's click is not a thing the sim charges for", () => {
+    const w = builderWorld();
+    w.placeMachine("conveyor", { x: 25, y: 25 }, "north");
+    const before = w.time;
+    w.removeMachine({ x: 25, y: 25 });
+    expect(w.time).toBe(before);
+  });
+});
+
 describe("researching the builder arm", () => {
   it("is bought with bread and stocks a module to fit", () => {
     const w = new World({ seed: 1 });

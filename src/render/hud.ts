@@ -233,7 +233,14 @@ function renderBuild(
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = option.label;
-    button.className = option.label === activeLabel ? "build-active" : "";
+    // Remove is not stock, and a menu of amber offers with a destructive one in
+    // the middle of it would read as one more thing to spend.
+    button.className = [
+      option.kind === "remove" ? "build-remove" : "",
+      option.label === activeLabel ? "build-active" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
     button.addEventListener("click", () => onPick(option));
     li.append(button);
     root.append(li);

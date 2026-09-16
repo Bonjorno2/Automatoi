@@ -100,6 +100,14 @@ export interface Placement {
   /** The build-menu option this came from, so the menu can show which is armed. */
   option: string;
   label: string;
+  /**
+   * Whether the click puts something down or takes something away.
+   *
+   * Milestone 7's Decision 9: removal is one more armed mode rather than a new
+   * way of pointing at a tile, so everything here — the ghost, the banner,
+   * `Esc`, right-click to cancel — is shared and only the words differ.
+   */
+  mode: "place" | "remove";
   /** Which way it would go down, for a kind with a front. Null for the rest. */
   facing: Direction | null;
   reason(tile: Vec): string | null;
@@ -110,7 +118,7 @@ export interface Placement {
 }
 
 /** The parts of a placement its text is made of. */
-type ArmedText = { label: string; facing: Direction | null };
+type ArmedText = { label: string; facing: Direction | null; mode: "place" | "remove" };
 
 /**
  * What the tooltip says while the player is holding something over a tile.
@@ -123,6 +131,10 @@ type ArmedText = { label: string; facing: Direction | null };
  *
  * Only for a tile something is standing on. Empty ground is left alone: a crop
  * report nobody asked for, while they are aiming at something, is noise.
+ *
+ * Remove mode needs no special case for that rule: the only tile it can act on
+ * holds a machine, so it is occupied, so the tooltip already names the thing
+ * that is about to be taken away.
  */
 export function describePlacement(
   snapshot: WorldSnapshot,
@@ -131,7 +143,7 @@ export function describePlacement(
 ): string[] {
   const head = [
     placing.facing ? `${placing.label} (facing ${placing.facing})` : placing.label,
-    `  ${placing.reason ?? "click to place"}`,
+    `  ${placing.reason ?? (placing.mode === "remove" ? "click to remove" : "click to place")}`,
   ];
   const occupied =
     snapshot.machines.some((m) => m.pos.x === tile.x && m.pos.y === tile.y) ||
@@ -148,10 +160,33 @@ export function describePlacement(
  */
 export function armedMessage(placing: ArmedText | null): string {
   if (!placing) return "";
+  // Its own sentence rather than "placing Remove". This banner is the one place
+  // that tells a player holding a destructive tool what it is about to do to
+  // whatever they click, and the verb has to be the first word.
+  if (placing.mode === "remove") {
+    return "removing — click a machine to take it back, Esc to stop";
+  }
   const what = placing.label.replace(/^Place /, "");
   const facing = placing.facing ? ` (facing ${placing.facing})` : "";
   const turn = placing.facing ? "R to turn, " : "";
   return `placing ${what}${facing} — ${turn}Esc to stop`;
+}
+
+/**
+ * The remove ghost's mark, inset from the tile's edge so the ghost's own border
+ * stays readable around it.
+ *
+ * Local rather than shared with `drawArrow`: an arrow is a fact about a belt
+ * that two things draw, and this is only ever a cursor.
+ */
+function drawCross(g: Graphics, p: Vec, size: number, colour: number): void {
+  const inset = size * 0.3;
+  const width = Math.max(1, size * 0.09);
+  g.moveTo(p.x + inset, p.y + inset)
+    .lineTo(p.x + size - inset, p.y + size - inset)
+    .moveTo(p.x + size - inset, p.y + inset)
+    .lineTo(p.x + inset, p.y + size - inset)
+    .stroke({ width, color: colour, alpha: 0.9 });
 }
 
 export interface Inspector {
@@ -212,7 +247,13 @@ export function createInspector(
           .rect(p.x + 1, p.y + 1, geo.size - 2, geo.size - 2)
           .fill({ color: colour, alpha: 0.35 })
           .stroke({ width: 2, color: colour });
-        if (placing.facing) {
+        if (placing.mode === "remove") {
+          // A cross, because green over a machine has meant "this is where it
+          // goes" since milestone 5 and here it means "this is what goes". The
+          // colours keep their old sense — green is still "the click will
+          // work" — and the shape carries which way the machine is moving.
+          drawCross(outline, p, geo.size, colour);
+        } else if (placing.facing) {
           // The same arrow the belt itself is drawn with, so what the ghost
           // promises and what lands are the same shape rather than two of them.
           outline.translateTransform(p.x + geo.size / 2, p.y + geo.size / 2);
