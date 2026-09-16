@@ -2,7 +2,9 @@
 
 **Goal:** The game stops looking like a debug view of a simulation and starts looking like a place. Nothing about what the world *does* changes; everything about how it *reads* does. A player who opens the page should want to watch it before they want to program it.
 
-**Architecture:** Additive. Milestone 6 is being built in parallel in the main tree and has already touched every file in `src/render/`, so this milestone adds new modules that existing files opt into in one or two lines, rather than rewriting them. Four new modules — `camera.ts`, `motion.ts`, `effects.ts`, `texture.ts` — and small, named edits to `tiles.ts`, `actors.ts`, `stage.ts` and `main.ts`.
+**Except once, first.** Milestone 6's playtest found a soft-lock — a player who rings their only bot in with belts can never free it, because removal is script-only and the script needs a research the caged bot can no longer pay for. Task 0 fixes that before any of the rest, and it is the one task in this milestone that changes what the game *does*. A polish pass laid over a world that can still be bricked is polish on the wrong thing.
+
+**Architecture:** Additive. Milestone 6 is being built in parallel in the main tree and has already touched every file in `src/render/`, so this milestone adds new modules that existing files opt into in one or two lines, rather than rewriting them. Four new modules — `camera.ts`, `motion.ts`, `effects.ts`, `texture.ts` — and small, named edits to `tiles.ts`, `actors.ts`, `stage.ts` and `main.ts`. Task 0 is the exception and touches `world.ts`, `build-menu.ts`, `inspector.ts` and `main.ts`.
 
 **Tech Stack:** Unchanged. No new dependencies, no asset pipeline, no textures loaded from disk. Everything is drawn with `Graphics` the way everything already is.
 
@@ -27,6 +29,14 @@
 7. **The vignette and the field edge are drawn in screen space, not world space.** They frame the *pane*, not the grid. Panning the camera must not slide the vignette off the corner of the screen.
 
 8. **No day/night cycle.** It is the most obviously "sick"-looking thing available and it is a trap: it changes the contrast of every colour decision recorded in `palette.ts` — the crop `young` green picked for visibility at small tile sizes, the belt body picked to read as floor, the starved/jammed pair picked to read as opposites — and it would do so continuously, so there would be no single lighting condition any of those choices could be verified under. If it is ever built it needs the palette to become a function of light level, which is a milestone, not a task.
+
+9. **Removal by hand is a mode in the build menu, not a new interaction.** Task 0 could have been a key held down, or a right-click on a machine, or a cursor state of its own. It is instead one more `Placement` — the same armed banner, the same ghost, the same `Esc`, the same right-click to cancel — because all of that machinery exists and because Task 7 replaces the coordinate system underneath it. A second way of pointing at a tile would be a second thing for the camera to break, and it would break in the half nobody re-tested. The price is that "Remove" sits in a list of things the player owns, which it is not; it is a tool. The menu says it differently rather than being given a home of its own.
+
+10. **The rule lives in the sim as `canRemove`, and the hands and the arm both ask it.** `canPlace` already carries this discipline with three callers — the ghost that colours itself, the menu's click, and `bot.builder.place` — and milestone 6 wrote the removal rules inline inside `doRemove` instead, where the hands cannot reach them. Task 0 lifts them out. What it must not do is *change* them: the refusals on the console, on a machine holding something, and on a machine part-way through a conversion are what keep this from becoming the milestone where items can be deleted, and a soft-lock is not an argument for deleting items.
+
+    **The residual hole, named rather than hidden:** a cage built of belts that are *carrying* something still cannot be taken apart, because a non-empty machine still refuses. The way out is real and one step longer — a caged bot is adjacent to all four of its walls, and `withdraw` needs no module, so it can empty a belt into itself and then the player's hands can lift the empty belt. Task 9 should try exactly that and say whether a player would ever find it.
+
+11. **The hands remove for free; the arm still pays.** Every other hands-phase action — `placeMachine`, `deployBot`, `installModule` — is instant, because a player's own clicking is not a thing the simulation charges for. `bot.builder.remove` keeps `TICK_COST.remove`, because a script doing it a hundred times is. Two costs for one verb is the asymmetry between a hand and an arm that already exists, not a new one.
 
 ---
 
@@ -58,6 +68,30 @@ Before the first animated thing is built, record the current number with `?perf`
 - **Tread.** The moving chevrons drawn on a conveyor's surface. Decoration: it does not represent cargo.
 - **Burst.** A short-lived particle group spawned from a `WorldEvent`, on the same stream `marks.ts` drains.
 - **Fit vs view.** `fit` is the whole grid in the pane, as today. The *view* is what the camera actually shows, which is the fit at a zoom and an offset.
+
+---
+
+### Task 0: The way back out
+
+Milestone 6's finding 1, and first because it is the only thing in this milestone that is not optional. A player who rings their only bot in with belts cannot move it, so cannot harvest, so cannot feed the console, so can never research the builder arm that is the game's only way to take a belt away. The design document promises that no failure is fatal. That one is.
+
+**Files:** modify `src/sim/world.ts`, `src/editor/build-menu.ts`, `src/render/inspector.ts`, `src/editor/main.ts`, `index.html`; test `tests/sim/builder.test.ts`, `tests/editor/build-menu.test.ts`, `tests/render/inspector.test.ts`
+
+**Step 1: One predicate.** Lift the three refusals out of `doRemove` into `canRemove(pos): string | null`, beside `canPlace` and `canDeploy` where the other hands-phase questions live, and add `removeMachine(pos)` as the player-side action that throws what `canRemove` returns — exactly the pair `canPlace`/`placeMachine` already are. `doRemove` keeps its own "no machine to the north" wording, because a direction is what a script asked with and a tile is what a cursor asked with, and it keeps emitting `refused`, which is a bot's signal and not a menu's. The deletion itself — the machine, and its `starved` and `jammed` flags — moves into one private helper both paths call, so the hands cannot leave behind the leak the arm's own test already checks for.
+
+**Step 2: A mode in the menu.** `BuildOption` gains `{ kind: "remove" }`, offered only when the world holds a machine that is not the console. A tool that can do nothing is not an offer, and gating it this way also leaves `buildOptions`' "offers nothing before any research completes" true, which it should be.
+
+**Step 3: A ghost that says take rather than put.** `Placement` gains a mode. In remove mode the ghost draws a cross instead of an arrow, the banner reads `removing — click a machine to take it back, Esc to stop`, and the tooltip always names what is on the tile rather than only doing so when armed over something occupied — "what am I about to delete" is the entire question, and the milestone 5 rule about not reporting crops nobody asked about does not apply to the thing under the cursor being the target.
+
+Green still means the click will work and red still carries the sim's reason, unchanged, because that is a rule the player learned in milestone 5 and the worst possible place to invert it is the one mode that destroys something.
+
+Tests: `canRemove` gives the same reason `removeMachine` throws, for a free tile, the console, a full crate and a working mill; the arm and the hands refuse the same tile for the same reason, which is the anti-drift test this task exists to make possible; a removed machine leaves no `starved` flag behind whichever path removed it; the menu offers Remove only once a removable machine exists; the armed banner and the tooltip say remove rather than place.
+
+**Manual check:** cage a bot in four belts, then take one away with the mouse and walk out. That is the playtest that found this, run backwards.
+
+```bash
+git commit -m "feat(editor): take a machine back off the map"
+```
 
 ---
 
@@ -229,6 +263,7 @@ Specifically:
 - **Does anything animated read as a signal it is not?** Decision 3's failure mode: a player waiting for a flickering oven to finish when the flicker meant nothing.
 - **Does the wind get annoying after ten minutes?** Decoration is judged over the length of a session, not a screenshot.
 - Does the vignette survive being toggled off and on — that is, was it doing anything?
+- **Can a bot caged in belts that are carrying something get out?** Decision 10's named hole. The route exists — withdraw the cargo, then lift the empty belt — and the question is whether anything on the screen would lead a player to it, or whether finding 1 has simply been made rarer rather than fixed.
 
 Append `## Findings from Task 9` in the style of milestones 3 through 6.
 
@@ -241,10 +276,11 @@ git commit -m "docs: milestone 7 playtest findings"
 ## Done criteria for milestone 7
 
 - `npm test` and `npm run typecheck` clean.
+- **A player can take a machine back off the map with the mouse, and milestone 6's finding 1 is closed** — the cage a playtest built can be dismantled by the player who built it, without a script and without a research.
 - The measured frame total is recorded, before and after, and is under 8 ms.
 - Crops sway, belts run, working machines look worked, and none of it carries information that is not also carried statically.
 - A camera zooms and pans, the inspector still names the right tile at every zoom, and `Home` reproduces the old view exactly.
-- Nothing in `src/sim/` changed except, possibly, one new event kind for Task 6.
+- Nothing in `src/sim/` changed except Task 0's `canRemove` and, possibly, one new event kind for Task 6.
 - No new dependency, and no asset loaded from disk.
 
 ## What this deliberately does not do
