@@ -61,6 +61,9 @@ export const MACHINE: Record<MachineKind, { body: number; trim: number }> = {
   crate: { body: 0x8a6a3a, trim: 0xc9a76a },
   mill: { body: 0x7a6a52, trim: 0xe8e0cc },
   oven: { body: 0x8a4a38, trim: 0xf0a860 },
+  // Darker than anything else on the field, because a belt is floor: it has to
+  // read as something the eye passes over on the way to what it feeds.
+  conveyor: { body: 0x3e4038, trim: 0x8e9484 },
 };
 
 /** One row per chassis module, for the pips along a bot's edge. */

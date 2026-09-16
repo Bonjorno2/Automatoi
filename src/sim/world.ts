@@ -3,8 +3,9 @@ import { addItem, removeItem, total } from "./inventory";
 import {
   BOT_CAPACITY,
   CROP_GROWTH,
+  FACES,
   FIELD_RADIUS,
-  MACHINE_CAPACITY,
+  capacityOf,
   RECIPE,
   RESEARCH_COST,
   RESEARCH_ITEM,
@@ -240,6 +241,7 @@ export class World {
         id: m.id,
         kind: m.kind,
         pos: { ...m.pos },
+        dir: m.dir,
         inventory: { ...m.inventory },
         starved: this.starved.has(m.id),
         jammed: this.jammed.has(m.id),
@@ -323,7 +325,7 @@ export class World {
    */
   private hasRoomFor(machine: Machine, recipe: Recipe): boolean {
     return entries(recipe.output).every(
-      ([item, n]) => (machine.inventory[item] ?? 0) + n <= MACHINE_CAPACITY,
+      ([item, n]) => (machine.inventory[item] ?? 0) + n <= capacityOf(machine.kind),
     );
   }
 
@@ -461,7 +463,7 @@ export class World {
     // Capped by the machine's room for *this item* as well as the bot's stock.
     // A partial transfer is the right answer: refusing the whole thing would
     // leave a bot holding cargo it could have delivered most of.
-    const room = MACHINE_CAPACITY - (machine.inventory[item] ?? 0);
+    const room = capacityOf(machine.kind) - (machine.inventory[item] ?? 0);
     const n = Math.min(Math.max(0, Math.floor(count)), bot.inventory[item] ?? 0, Math.max(0, room));
     if (n > 0) {
       removeItem(bot.inventory, item, n);
@@ -535,11 +537,16 @@ export class World {
     return this.addBot(pos, ["harvester"]);
   }
 
-  /** Place a machine the player has researched. */
-  placeMachine(kind: MachineKind, pos: Vec): Machine {
+  /**
+   * Place a machine the player has researched.
+   *
+   * `facing` is accepted for every kind and recorded only by those that have a
+   * front, so a build menu can offer one call rather than two.
+   */
+  placeMachine(kind: MachineKind, pos: Vec, facing: Direction = "north"): Machine {
     const why = this.canPlace(kind, pos);
     if (why) throw new Error(why);
-    return this.addMachine(kind, pos);
+    return this.addMachine(kind, pos, facing);
   }
 
   private tileBlocked(pos: Vec): string | null {
@@ -613,7 +620,17 @@ export class World {
         this.research.spareModules[name] = (this.research.spareModules[name] ?? 0) + 1;
         return;
       case "crate":
-        return; // unlocks placeMachine("crate"), nothing to stock
+      case "mill":
+      case "oven":
+      case "conveyor":
+        return; // unlocks placeMachine(kind), nothing to stock
+      default: {
+        // Exhaustive rather than a silent fallthrough: mill and oven landed in
+        // milestone 5 without a case here and granted nothing by accident
+        // rather than by decision, which happened to be right.
+        const never: never = name;
+        throw new Error(`no grant for research ${String(never)}`);
+      }
     }
   }
 
@@ -634,10 +651,17 @@ export class World {
     return bot;
   }
 
-  private addMachine(kind: MachineKind, pos: Vec): Machine {
+  private addMachine(kind: MachineKind, pos: Vec, facing: Direction = "north"): Machine {
     const tile = this.tileAt(pos);
     if (tile) tile.crop = null;
-    const machine: Machine = { id: this.nextId++, kind, pos: { ...pos }, inventory: {}, progress: 0 };
+    const machine: Machine = {
+      id: this.nextId++,
+      kind,
+      pos: { ...pos },
+      dir: FACES[kind] ? facing : null,
+      inventory: {},
+      progress: 0,
+    };
     this.machines.set(machine.id, machine);
     return machine;
   }

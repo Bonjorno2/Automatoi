@@ -1,5 +1,5 @@
 import { Container, Graphics, Text } from "pixi.js";
-import { MACHINE_CAPACITY, RESEARCH_COST } from "../sim/config.ts";
+import { RESEARCH_COST, capacityOf } from "../sim/config.ts";
 import { total } from "../sim/inventory.ts";
 import { DIR } from "../sim/world.ts";
 import type {
@@ -59,7 +59,7 @@ const MACHINE_STYLE: Record<MachineKind, MachineStyle> = {
       g.rect(-s / 2, -s * 0.1, s, s * 0.08).fill(MACHINE.crate.trim);
     },
     overlay(g, size, m) {
-      const fill = Math.min(1, total(m.inventory) / MACHINE_CAPACITY);
+      const fill = Math.min(1, total(m.inventory) / capacityOf(m.kind));
       if (fill <= 0) return;
       const s = size * 0.78;
       g.rect(-s / 2, s / 2 - s * fill, s, s * fill).fill({ color: MACHINE.crate.trim, alpha: 0.5 });
@@ -83,6 +83,17 @@ const MACHINE_STYLE: Record<MachineKind, MachineStyle> = {
       g.roundRect(-s * 0.26, -s * 0.05, s * 0.52, s * 0.3, s * 0.06).fill(MACHINE.oven.trim);
     },
     overlay: conversionArc,
+  },
+  conveyor: {
+    // A plate filling its tile, because a belt is floor rather than furniture.
+    // Task 5 gives it the arrow and draws what it is carrying; this is only
+    // enough for the compiler's demanded row and for a belt to be visible at
+    // all while Task 4 makes it move.
+    body(g, size) {
+      g.rect(-size / 2, -size / 2, size, size).fill(MACHINE.conveyor.body);
+      g.rect(-size / 2, -size * 0.06, size, size * 0.12).fill(MACHINE.conveyor.trim);
+    },
+    overlay() {},
   },
 };
 

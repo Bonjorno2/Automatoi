@@ -57,7 +57,17 @@ describe("the palette covers every sim union", () => {
       expect(isColor(pair.body), name).toBe(true);
       expect(isColor(pair.trim), name).toBe(true);
     }
-    expect(Object.keys(MACHINE).sort()).toEqual(["console", "crate", "mill", "oven"]);
+    // Planned edit 1 of the milestone 6 plan, and the second milestone running
+    // in which this line is the only thing a growing union breaks. It is kept
+    // for the loop above it — that the values are usable colours is not
+    // something the `Record` type can check — and not for this assertion.
+    expect(Object.keys(MACHINE).sort()).toEqual([
+      "console",
+      "conveyor",
+      "crate",
+      "mill",
+      "oven",
+    ]);
   });
 
   it("gives every module a pip colour, and no two the same", () => {

@@ -9,13 +9,14 @@ export type Terrain = "grass" | "soil";
  */
 export type Item = "wheat" | "flour" | "bread";
 export type ModuleName = "harvester" | "planter" | "scanner" | "radio";
-export type MachineKind = "console" | "crate" | "mill" | "oven";
+export type MachineKind = "console" | "crate" | "mill" | "oven" | "conveyor";
 export type ResearchName =
   | "planter"
   | "scanner"
   | "crate"
   | "mill"
   | "oven"
+  | "conveyor"
   | "chassis"
   | "radio";
 
@@ -85,6 +86,14 @@ export interface Machine {
   id: number;
   kind: MachineKind;
   pos: Vec;
+  /**
+   * Which way it hands things on, for a kind that has a front. Null for
+   * everything else, which is most of them: a crate has no direction to have.
+   *
+   * Fixed when the machine is placed. Turning one means removing it and placing
+   * it again, which is why nothing in the renderer has to watch this change.
+   */
+  dir: Direction | null;
   inventory: Inventory;
   /**
    * Ticks into the current conversion, 0 when not converting.
@@ -135,6 +144,8 @@ export interface MachineSnapshot {
   id: number;
   kind: MachineKind;
   pos: Vec;
+  /** Which way it hands things on, or null for a kind with no front. */
+  dir: Direction | null;
   inventory: Inventory;
   /**
    * Wants input it has not got. A state rather than an event, so whatever is
