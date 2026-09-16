@@ -98,6 +98,15 @@ function describeInventory(inv: Record<string, number | undefined>): string {
 }
 
 /**
+ * How many wasted commands before a bot is called stuck.
+ *
+ * Not one: a single blocked move is ordinary — a script that walks east until it
+ * cannot is the design's own first lesson, and it ends every sweep with exactly
+ * one refusal. Three is a bot that has tried and tried again.
+ */
+const STALLED_AFTER = 3;
+
+/**
  * What a bot is doing, as a sentence.
  *
  * Exported for the fleet list, which asks the same question the tooltip does.
@@ -110,6 +119,11 @@ function describeInventory(inv: Record<string, number | undefined>): string {
 export function describeBotActivity(bot: WorldSnapshot["bots"][number]): string {
   if (bot.blockedOn === "bot") return "blocked by another bot";
   if (bot.blockedOn === "radio") return "waiting for a message";
+  // Above `idle`, and above the action, because a bot repeating a move that
+  // does nothing is *doing* something in the sense that matters least. Milestone
+  // 8's finding 3: walled in by belts, this read "idle" — the same word as a bot
+  // whose script had ended.
+  if (bot.stalled >= STALLED_AFTER) return `stuck — ${bot.stalled} commands got nowhere`;
   if (!bot.action) return "idle";
   const dir = bot.action.dir ? ` ${bot.action.dir}` : "";
   return `${bot.action.kind}${dir} — ${bot.action.remaining} of ${bot.action.total} ticks left`;

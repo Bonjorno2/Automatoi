@@ -261,6 +261,7 @@ export class World {
         modules: [...b.modules],
         busy: b.action !== null,
         blockedOn: b.blockedOn,
+        stalled: b.stalled,
         action: b.action
           ? {
               kind: b.action.command.kind,
@@ -476,6 +477,35 @@ export class World {
     bot.action = null;
     bot.blockedOn = null;
     bot.result = outcome;
+    this.scoreProgress(bot, outcome);
+  }
+
+  /**
+   * Did that command achieve anything?
+   *
+   * Milestone 8's finding 3: a bot walled in by belts read "idle", exactly like
+   * one whose script had ended, because `blockedOn` models bot-on-bot and radio
+   * and not walking into a machine.
+   *
+   * **A count rather than a third `blockedOn` value**, per Decision 5 of the
+   * milestone 9 plan. Those two are *waiting* — the command has not resolved and
+   * the script is suspended. Bumping a machine is not waiting: the move
+   * resolves, answers false, and the script runs on. One field holding both
+   * would mean "blocked" stopped having a single meaning.
+   *
+   * What counts as nothing is the command's own answer, not a list of command
+   * kinds kept in step by hand: a `move` that returned false, a `deposit` or
+   * `withdraw` that transferred zero, a `harvest` with nothing to take. A `wait`
+   * answers `undefined` and therefore resets, which is right — waiting on
+   * purpose is not being stuck.
+   *
+   * A failed outcome is left alone. That is an error, the script stops, and the
+   * design gives errors their own signal.
+   */
+  private scoreProgress(bot: Bot, outcome: Outcome): void {
+    if (outcome === RETRY || !outcome.ok) return;
+    const nothing = outcome.value === false || outcome.value === 0;
+    bot.stalled = nothing ? bot.stalled + 1 : 0;
   }
 
   private execute(bot: Bot, cmd: Command): Outcome {
@@ -911,6 +941,7 @@ export class World {
       result: null,
       inbox: [],
       blockedOn: null,
+      stalled: 0,
     };
     this.bots.set(bot.id, bot);
     return bot;

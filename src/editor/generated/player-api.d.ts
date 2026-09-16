@@ -106,6 +106,14 @@ interface Bot {
     result: CommandResult | null;
     inbox: Message[];
     blockedOn: BlockedOn;
+    /**
+     * Commands in a row that resolved having achieved nothing.
+     *
+     * Milestone 8's finding 3. Not a `BlockedOn` member: those two are *waiting*,
+     * and a bot that walked into a machine is not waiting — the move resolved and
+     * answered false. See `scoreProgress` in `world.ts`.
+     */
+    stalled: number;
 }
 interface Machine {
     id: number;
@@ -158,6 +166,14 @@ interface BotSnapshot {
     modules: ModuleName[];
     busy: boolean;
     blockedOn: BlockedOn;
+    /**
+     * Commands in a row that resolved having achieved nothing.
+     *
+     * Milestone 8's finding 3. Not a `BlockedOn` member: those two are *waiting*,
+     * and a bot that walked into a machine is not waiting — the move resolved and
+     * answered false. See `scoreProgress` in `world.ts`.
+     */
+    stalled: number;
     action: ActionSnapshot | null;
 }
 interface MachineSnapshot {
