@@ -13,6 +13,8 @@ import { armedMessage, createInspector, type Placement } from "../render/inspect
 import { CLOCKWISE } from "../sim/world.ts";
 import { FACES } from "../sim/config.ts";
 import { createHud, createSidePanel } from "../render/hud.ts";
+import { fitView, panBy, viewGeometry, zoomAbout, type View } from "../render/camera.ts";
+import type { Size } from "../render/geometry.ts";
 import type { BuildOption } from "./build-menu.ts";
 import type { ModuleName } from "../sim/types.ts";
 
@@ -62,6 +64,26 @@ const overlay = createOverlay(stage.overlayLayer, {
 const hud = createHud(stage.app.stage, { width: stage.app.screen.width, height: stage.app.screen.height });
 const sidePanel = createSidePanel(document.querySelector<HTMLElement>("#panel")!, pick);
 
+/**
+ * The camera, which is a view and nothing else.
+ *
+ * Per Decision 5 it produces a `Geometry` and every layer already consumes one,
+ * so zooming is a resize that happened for a different reason. The inspector's
+ * hit-testing follows for free, which is the property the decision exists to
+ * buy — and the thing that would break if this were a scaled container.
+ */
+let view = fitView(grid, paneSize());
+stage.geometryFor = (pane) => viewGeometry(view, grid, pane);
+
+function paneSize(): Size {
+  return { width: stage.app.screen.width, height: stage.app.screen.height };
+}
+
+function setView(next: View): void {
+  view = next;
+  stage.refresh();
+}
+
 // Three of the layers cache the fit they were built with. Without this the
 // terrain redraws at a new tile size and the bots stay at the old one.
 connectResize(stage, {
@@ -77,8 +99,66 @@ connectResize(stage, {
   hud,
   overlay,
   snapshot: () => snap,
-  pane: () => ({ width: stage.app.screen.width, height: stage.app.screen.height }),
+  pane: paneSize,
 });
+
+/**
+ * The camera's controls.
+ *
+ * Wheel zooms about the cursor, middle-drag or space-drag pans, `Home` goes
+ * back to the fit — which is today's view and must stay one keystroke away.
+ *
+ * Left-drag is deliberately not a pan: it is already how a player places a
+ * machine and selects a bot, and stealing it would make every misdrag a
+ * cancelled placement.
+ */
+{
+  const rect = (): DOMRect => worldEl.getBoundingClientRect();
+  let spaceHeld = false;
+  let dragging: { x: number; y: number } | null = null;
+
+  worldEl.addEventListener(
+    "wheel",
+    (e) => {
+      e.preventDefault();
+      const r = rect();
+      const steps = -Math.sign(e.deltaY);
+      setView(zoomAbout(view, grid, paneSize(), { x: e.clientX - r.left, y: e.clientY - r.top }, steps));
+    },
+    { passive: false },
+  );
+
+  worldEl.addEventListener("pointerdown", (e) => {
+    if (e.button !== 1 && !(e.button === 0 && spaceHeld)) return;
+    e.preventDefault();
+    dragging = { x: e.clientX, y: e.clientY };
+    worldEl.setPointerCapture(e.pointerId);
+  });
+  worldEl.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    setView(panBy(view, grid, paneSize(), e.clientX - dragging.x, e.clientY - dragging.y));
+    dragging = { x: e.clientX, y: e.clientY };
+  });
+  const endDrag = (): void => {
+    dragging = null;
+  };
+  worldEl.addEventListener("pointerup", endDrag);
+  worldEl.addEventListener("pointercancel", endDrag);
+
+  window.addEventListener("keydown", (e) => {
+    // Not while typing: Monaco is a different element, and a player writing a
+    // script should not send the camera home with the Home key.
+    if (e.target !== document.body) return;
+    if (e.key === "Home") setView(fitView(grid, paneSize()));
+    else if (e.code === "Space") {
+      spaceHeld = true;
+      e.preventDefault();
+    }
+  });
+  window.addEventListener("keyup", (e) => {
+    if (e.code === "Space") spaceHeld = false;
+  });
+}
 
 /**
  * Picking a build option arms the canvas; it does not place anything.

@@ -31,6 +31,16 @@ export interface Stage {
   readonly overlayLayer: Container;
   /** Current fit of the grid into the pane. Replaced on resize. */
   geometry: Geometry;
+  /**
+   * How a pane size becomes a geometry. `fit` until a camera replaces it.
+   *
+   * Milestone 7's Task 7: per Decision 5 a camera is a resize that happens for
+   * a different reason, so it belongs here rather than in a transform on a
+   * container. This hook is the whole of the seam.
+   */
+  geometryFor: (pane: Size) => Geometry;
+  /** Recompute the geometry from the current pane and fan it out. */
+  refresh(): void;
   /** Called after `geometry` changes, so layers can rebuild against it. */
   onResize: (g: Geometry) => void;
   destroy(): void;
@@ -158,6 +168,21 @@ export async function createStage(host: HTMLElement, grid: Size): Promise<Stage>
     frameLayer,
     overlayLayer,
     geometry: fit(grid, { width: app.screen.width, height: app.screen.height }),
+    geometryFor: (pane) => fit(grid, pane),
+    refresh() {
+      const next = stage.geometryFor({ width: host.clientWidth, height: host.clientHeight });
+      // Origin Y as well as X and the size. A camera pans vertically, and a
+      // check that only looked at two of the three would swallow that.
+      if (
+        next.size === stage.geometry.size &&
+        next.originX === stage.geometry.originX &&
+        next.originY === stage.geometry.originY
+      ) {
+        return;
+      }
+      stage.geometry = next;
+      stage.onResize(next);
+    },
     onResize: () => {},
     destroy() {
       observer.disconnect();
@@ -167,12 +192,7 @@ export async function createStage(host: HTMLElement, grid: Size): Promise<Stage>
 
   // `resizeTo` resizes the renderer but knows nothing about the grid fit, so
   // the geometry is recomputed here rather than read per draw.
-  const observer = new ResizeObserver(() => {
-    const next = fit(grid, { width: host.clientWidth, height: host.clientHeight });
-    if (next.size === stage.geometry.size && next.originX === stage.geometry.originX) return;
-    stage.geometry = next;
-    stage.onResize(next);
-  });
+  const observer = new ResizeObserver(() => stage.refresh());
   observer.observe(host);
 
   return stage;
