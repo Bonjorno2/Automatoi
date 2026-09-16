@@ -1,7 +1,7 @@
 import { Container, Graphics, Text } from "pixi.js";
-import { BOT_CAPACITY, RESEARCH_COST } from "../sim/config.ts";
+import { BOT_CAPACITY, CROP_GROWTH, RESEARCH_COST } from "../sim/config.ts";
 import { total } from "../sim/inventory.ts";
-import type { BotSnapshot, WorldSnapshot } from "../sim/types.ts";
+import type { BotSnapshot, Item, WorldSnapshot } from "../sim/types.ts";
 import { buildOptions, type BuildOption } from "../editor/build-menu.ts";
 import type { Geometry, Size } from "./geometry.ts";
 
@@ -22,6 +22,45 @@ export function researchLines(snapshot: WorldSnapshot): string[] {
     // showing them all at 0/n would imply otherwise.
     const progress = i === 0 ? snapshot.research.progress : 0;
     return `${name} ${progress}/${cost}`;
+  });
+}
+
+/**
+ * What is standing in the field, per plantable item: ripe now, and coming.
+ *
+ * Milestone 5's finding 3. The wild field holds 119 wheat, the chain eats it at
+ * roughly ten per bread, and it empties at about tick 5015 — one hauling round
+ * after the chassis research completes, which is exactly when a new player is
+ * most pleased with themselves. This milestone makes that arrive sooner, because
+ * belts spend the field faster than a bot walking can.
+ *
+ * **This is a read-out and not a fix.** The fix is the planter and a script that
+ * replants, and the design is right that running out is what teaches it. What is
+ * being removed is the surprise, not the cliff.
+ *
+ * One line per plantable item rather than one line per item present, so the
+ * count reads "none ready" instead of disappearing. A field that has run out
+ * looks exactly like a field somebody else already harvested, and a read-out
+ * that went silent at zero would go silent at the only moment it is needed.
+ */
+export function fieldLines(snapshot: WorldSnapshot): string[] {
+  const ready = new Map<Item, number>();
+  const growing = new Map<Item, number>();
+  for (const tile of snapshot.tiles) {
+    const crop = tile.crop;
+    // A crop of something unplantable cannot be grown or harvested, so counting
+    // it would be counting scenery.
+    const ripe = crop ? CROP_GROWTH[crop.item] : undefined;
+    if (!crop || ripe === undefined) continue;
+    const bucket = crop.growth >= ripe ? ready : growing;
+    bucket.set(crop.item, (bucket.get(crop.item) ?? 0) + 1);
+  }
+
+  return (Object.keys(CROP_GROWTH) as Item[]).map((item) => {
+    const n = ready.get(item) ?? 0;
+    const coming = growing.get(item) ?? 0;
+    const head = `${item} — ${n > 0 ? `${n} ready` : "none ready"}`;
+    return coming > 0 ? `${head}, ${coming} growing` : head;
   });
 }
 
@@ -138,12 +177,14 @@ export function createSidePanel(root: HTMLElement, onPick: (option: BuildOption)
       <span class="bar"><i></i></span>
       <span class="cargo-count"></span>
     </div>
+    <ul class="field"></ul>
     <ul class="research"></ul>
     <ul class="build"></ul>`;
 
   const fill = root.querySelector<HTMLElement>(".bar i")!;
   const count = root.querySelector<HTMLElement>(".cargo-count")!;
   const label = root.querySelector<HTMLElement>(".cargo-label")!;
+  const field = root.querySelector<HTMLElement>(".field")!;
   const research = root.querySelector<HTMLElement>(".research")!;
   const build = root.querySelector<HTMLElement>(".build")!;
 
@@ -156,6 +197,7 @@ export function createSidePanel(root: HTMLElement, onPick: (option: BuildOption)
       fill.classList.toggle("full", carried >= BOT_CAPACITY);
       count.textContent = `${carried}/${BOT_CAPACITY}`;
 
+      fillList(field, fieldLines(snapshot), null);
       fillList(research, researchLines(snapshot), "nothing researching");
       renderBuild(build, snapshot, onPick, activeLabel);
     },
