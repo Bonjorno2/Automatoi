@@ -146,10 +146,41 @@ export function describePlacement(
     placing.facing ? `${placing.label} (facing ${placing.facing})` : placing.label,
     `  ${placing.reason ?? (placing.mode === "remove" ? "click to remove" : "click to place")}`,
   ];
+  // The price of the click, directly under the verb and above everything else,
+  // because it is the only line here the player cannot afford to skim.
+  if (placing.mode === "remove" && placing.reason === null) {
+    const cost = removalCost(snapshot, tile);
+    if (cost) head.push(`  ${cost}`);
+  }
   const occupied =
     snapshot.machines.some((m) => m.pos.x === tile.x && m.pos.y === tile.y) ||
     snapshot.bots.some((b) => b.pos.x === tile.x && b.pos.y === tile.y);
   return occupied ? [...head, ...describeTile(snapshot, tile)] : head;
+}
+
+/**
+ * What removing the machine on this tile would destroy, or null if nothing.
+ *
+ * This is the guard that makes `canRemove(pos, "hands")` defensible. The sim
+ * lets the player's hands delete items so that a cage of loaded belts cannot
+ * brick a world; what stops that from being a misclick is that the exact cost
+ * is under the cursor before the click, and being a pure function over a
+ * snapshot is what makes "it says so" a test rather than a screenshot.
+ *
+ * A machine part-way through a conversion has already eaten its input, so it
+ * has something to lose that its inventory does not show. Both halves are named
+ * because a mill holding two flour and grinding three more wheat loses both.
+ */
+export function removalCost(snapshot: WorldSnapshot, tile: Vec): string | null {
+  const machine = snapshot.machines.find((m) => m.pos.x === tile.x && m.pos.y === tile.y);
+  if (!machine) return null;
+  const held = Object.entries(machine.inventory)
+    .filter(([, n]) => (n ?? 0) > 0)
+    .map(([item, n]) => `${n} ${item}`);
+  const parts = [...held];
+  if (machine.progress > 0) parts.push("the batch it is working on");
+  if (parts.length === 0) return null;
+  return `destroys ${parts.join(", ")}`;
 }
 
 /**

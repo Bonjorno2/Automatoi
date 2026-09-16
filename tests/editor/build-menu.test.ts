@@ -166,7 +166,9 @@ describe("the sim decides where things go, not the menu", () => {
     w.research.unlocked.add("crate");
     w.placeMachine("crate", { x: 20, y: 20 });
     for (const pos of [{ x: 20, y: 20 }, { x: 16, y: 16 }, { x: 2, y: 2 }]) {
-      const reason = w.canRemove(pos);
+      // "hands", because that is who the ghost belongs to. The arm's answers
+      // are a different set and are tested where the arm is.
+      const reason = w.canRemove(pos, "hands");
       if (reason === null) expect(() => w.removeMachine(pos)).not.toThrow();
       else expect(() => w.removeMachine(pos)).toThrow(reason);
     }

@@ -256,11 +256,24 @@ function armFor(option: Exclude<BuildOption, { kind: "module" }>): Placement {
       label: "Remove",
       mode: "remove",
       facing: null,
-      // The sim's refusals, unedited: "crate is not empty" is more use than
-      // anything this file could invent, and it is the same sentence the
-      // builder arm gives a script.
-      reason: (tile) => world.canRemove(tile),
-      apply: (tile) => world.removeMachine(tile),
+      // The sim's refusals, unedited: "the Research Console cannot be removed"
+      // is more use than anything this file could invent. `"hands"` is the
+      // caller saying which of the two rule sets it is — the hands may destroy
+      // what a machine holds and the builder arm may not, which is what stops a
+      // cage of loaded belts from bricking a world.
+      reason: (tile) => world.canRemove(tile, "hands"),
+      apply: (tile) => {
+        const lost = world.removeMachine(tile);
+        // Said after the fact as well as before it. The tooltip named the cost
+        // while the cursor was over the tile; this is what the player can still
+        // read once the tile is bare and the tooltip has moved on.
+        const spilled = Object.entries(lost)
+          .filter(([, n]) => (n ?? 0) > 0)
+          .map(([item, n]) => `${n} ${item}`);
+        statusEl.textContent = spilled.length
+          ? `removed — ${spilled.join(", ")} destroyed`
+          : "removed";
+      },
       rotate: () => {},
     };
   }
