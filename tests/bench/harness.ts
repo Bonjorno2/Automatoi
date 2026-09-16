@@ -125,6 +125,15 @@ export interface BenchResult {
   /** Did `until` actually come true, or did the run hit its deadline? */
   reachedTarget: boolean;
   /**
+   * Everything every bot logged, tagged with which one said it, and any verdict
+   * a script settled on.
+   *
+   * A benchmark asserts on numbers; a *playtest* needs to read what the colony
+   * said while producing them. Without this the only way to see a script's own
+   * account of itself is to run it somewhere else.
+   */
+  logs: string[];
+  /**
    * Did every bot alive at the close issue at least one command inside the
    * window?
    *
@@ -160,6 +169,17 @@ export async function measure(opts: BenchOptions): Promise<BenchResult> {
   const timeoutMs = opts.timeoutMs ?? 120_000;
   const clock = opts.clock ?? new RealtimeClock({ hz });
 
+  const logs: string[] = [];
+  /** Wires a run so nothing a script says is lost, whoever started it. */
+  const watch = (botId: number): { onLog: (m: string) => void; onSettle: (o: { status: string; message?: string; line?: number }) => void } => ({
+    onLog: (m) => logs.push(`bot ${botId}: ${m}`),
+    onSettle: (o) => {
+      if (o.status === "done") return;
+      const where = o.line ? ` (line ${o.line})` : "";
+      logs.push(`bot ${botId} ${o.status}: ${o.message ?? ""}${where}`);
+    },
+  });
+
   const colony = new CountingColony({
     world,
     clock,
@@ -167,6 +187,10 @@ export async function measure(opts: BenchOptions): Promise<BenchResult> {
     // A benchmark's scripts are long-lived and the watchdog is not what is being
     // tested. It still fires, just not on the scale of a measurement.
     hungMs: 120_000,
+    // Milestone 9's finding 1 in harness form: a bot a *script* started is
+    // watched on the same terms as one the harness started, so a child that dies
+    // on its first line says so instead of reading as idle.
+    onSpawned: (botId) => watch(botId),
   });
 
   /** First tick each bot was seen to issue a command. */
@@ -181,7 +205,7 @@ export async function measure(opts: BenchOptions): Promise<BenchResult> {
   const expired = (): boolean => Date.now() > deadline;
 
   try {
-    void colony.run(1, script);
+    void colony.run(1, script, watch(1));
 
     // Phase 1: warm up, if asked. Boots are recorded here too, so a bot that
     // started during the warm-up still reports the tick it started on.
@@ -222,6 +246,7 @@ export async function measure(opts: BenchOptions): Promise<BenchResult> {
       hz,
       bots,
       reachedTarget,
+      logs,
       everyBotWorked: bots.length > 0 && bots.every((b) => b.commands > 0),
     };
   } finally {
