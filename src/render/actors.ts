@@ -11,6 +11,7 @@ import type {
 } from "../sim/types.ts";
 import { toCentre, type Geometry } from "./geometry.ts";
 import { COLOR, MACHINE, MIN_ID_SIZE, MODULE, botColor, cargoPips } from "./palette.ts";
+import { SHADOW, shadowRings } from "./texture.ts";
 import { actorPos } from "./actor-pos.ts";
 
 /**
@@ -117,6 +118,33 @@ const MACHINE_STYLE: Record<MachineKind, MachineStyle> = {
 const PIPS_PER_BELT = 4;
 
 /**
+ * How wide a machine's shadow is, as a fraction of its tile.
+ *
+ * **The conveyor is absent, and that is the decision.** A belt is floor — the
+ * palette says so, its body fills the whole tile so a line reads as one run, and
+ * something lying on the ground does not cast a shadow onto the ground. Giving
+ * every machine one indiscriminately would put a dark halo under every tile of
+ * a long belt run and turn the flattest thing in the game into the busiest.
+ *
+ * The numbers match each style's own body width, so a crate's shadow is a
+ * crate's width rather than all four sharing one.
+ */
+const MACHINE_SHADOW: Partial<Record<MachineKind, number>> = {
+  console: 0.86,
+  crate: 0.78,
+  mill: 0.84,
+  oven: 0.84,
+};
+
+/** The stack of ellipses under one thing, drawn once. */
+function drawShadow(g: Graphics, size: number, width: number): void {
+  g.clear();
+  for (const ring of shadowRings(size, width)) {
+    g.ellipse(0, ring.y, ring.rx, ring.ry).fill({ color: SHADOW.color, alpha: ring.alpha });
+  }
+}
+
+/**
  * Which way a belt hands things on.
  *
  * Built from the sim's own direction vector rather than from four hand-drawn
@@ -171,6 +199,8 @@ interface BotSprite {
   root: Container;
   body: Graphics;
   ring: Graphics;
+  /** In the shadow container, not in `root`: shadows go under every machine. */
+  shadow: Graphics;
   /** The bot's own number, drawn on the chassis where the tile is big enough. */
   label: Text;
   /** What the body was last drawn for, so an unchanged bot skips the rebuild. */
@@ -183,6 +213,8 @@ interface MachineSprite {
   root: Container;
   body: Graphics;
   overlay: Graphics;
+  /** Null for a kind that is floor and casts none. */
+  shadow: Graphics | null;
   key: string;
 }
 
@@ -193,9 +225,14 @@ export function createActorLayer(frameLayer: Container, geometry: Geometry): Act
 
   // Machines below bots: a bot standing beside a crate should never be hidden
   // by it, and milestone 5 lets bots stand next to a lot more of them.
+  //
+  // Shadows below both, in a container of their own rather than inside each
+  // sprite: a bot's shadow inside its own root would draw above the machine it
+  // is standing beside, because bots are the higher container.
+  const shadowContainer = new Container();
   const machineContainer = new Container();
   const botContainer = new Container();
-  frameLayer.addChild(machineContainer, botContainer);
+  frameLayer.addChild(shadowContainer, machineContainer, botContainer);
 
   function drawBot(sprite: BotSprite, bot: BotSnapshot, active: boolean, index: number): void {
     const size = geo.size;
@@ -239,6 +276,7 @@ export function createActorLayer(frameLayer: Container, geometry: Geometry): Act
         const root = new Container();
         const ring = new Graphics();
         const body = new Graphics();
+        const shadow = new Graphics();
         const label = new Text({
           text: "",
           style: { fill: COLOR.botOutline, fontFamily: "ui-monospace, Menlo, monospace" },
@@ -248,7 +286,9 @@ export function createActorLayer(frameLayer: Container, geometry: Geometry): Act
         label.position.set(0, -geo.size * 0.06);
         root.addChild(ring, body, label);
         botContainer.addChild(root);
-        sprite = { root, body, ring, label, key: "", facing: "east" };
+        shadowContainer.addChild(shadow);
+        drawShadow(shadow, geo.size, 0.66);
+        sprite = { root, body, ring, shadow, label, key: "", facing: "east" };
         bots.set(bot.id, sprite);
       }
 
@@ -275,10 +315,13 @@ export function createActorLayer(frameLayer: Container, geometry: Geometry): Act
 
       const p = toCentre(geo, actorPos(bot, alpha));
       sprite.root.position.set(p.x, p.y);
+      // The one extra write per bot per frame that Task 2 costs.
+      sprite.shadow.position.set(p.x, p.y);
     });
     for (const [id, sprite] of bots) {
       if (seen.has(id)) continue;
       sprite.root.destroy({ children: true });
+      sprite.shadow.destroy();
       bots.delete(id);
     }
   }
@@ -295,7 +338,19 @@ export function createActorLayer(frameLayer: Container, geometry: Geometry): Act
         const overlay = new Graphics();
         root.addChild(body, overlay);
         machineContainer.addChild(root);
-        sprite = { root, body, overlay, key: "" };
+
+        const width = MACHINE_SHADOW[machine.kind];
+        let shadow: Graphics | null = null;
+        if (width !== undefined) {
+          shadow = new Graphics();
+          shadowContainer.addChild(shadow);
+          drawShadow(shadow, geo.size, width);
+          // A machine never moves, so this is the only time its shadow is placed.
+          const c = toCentre(geo, machine.pos);
+          shadow.position.set(c.x, c.y);
+        }
+
+        sprite = { root, body, overlay, shadow, key: "" };
         machines.set(machine.id, sprite);
         style.body(body, geo.size, machine);
       }
@@ -315,6 +370,9 @@ export function createActorLayer(frameLayer: Container, geometry: Geometry): Act
     for (const [id, sprite] of machines) {
       if (seen.has(id)) continue;
       sprite.root.destroy({ children: true });
+      // Milestone 7's Task 0 made this reachable by a player rather than only by
+      // a script: a shadow left behind is a dark patch on an empty tile.
+      sprite.shadow?.destroy();
       machines.delete(id);
     }
   }
@@ -328,8 +386,14 @@ export function createActorLayer(frameLayer: Container, geometry: Geometry): Act
       geo = next;
       // Every sprite's geometry is in pixels, so a new fit invalidates all of
       // it. Cheap: there are a handful of actors, not a thousand tiles.
-      for (const [, s] of bots) s.root.destroy({ children: true });
-      for (const [, s] of machines) s.root.destroy({ children: true });
+      for (const [, s] of bots) {
+        s.root.destroy({ children: true });
+        s.shadow.destroy();
+      }
+      for (const [, s] of machines) {
+        s.root.destroy({ children: true });
+        s.shadow?.destroy();
+      }
       bots.clear();
       machines.clear();
     },

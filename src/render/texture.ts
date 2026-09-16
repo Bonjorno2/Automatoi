@@ -1,4 +1,5 @@
 import type { Terrain } from "../sim/types.ts";
+import type { Size } from "./geometry.ts";
 import { TERRAIN, lerpColor } from "./palette.ts";
 
 /**
@@ -142,3 +143,122 @@ export const RIM_COLOR = lerpColor(TERRAIN.soil.base, 0x000000, RIM_DARKEN);
 
 /** Thickness of the rim, as a fraction of a tile. */
 export const RIM_WIDTH = 0.14;
+
+/**
+ * One ellipse of a shadow. A stack of them fakes softness.
+ *
+ * Pixi can blur, and a blur filter is a render target and a shader pass per
+ * sprite. Three ellipses of falling alpha cost one `Graphics` drawn once and
+ * look the same at the sizes this game renders at. That is the whole trick.
+ */
+export interface ShadowRing {
+  /** Half-width and half-height, in pixels. */
+  rx: number;
+  ry: number;
+  /** How far below the sprite's centre this sits. */
+  y: number;
+  alpha: number;
+}
+
+export const SHADOW = {
+  color: 0x000000,
+  /** Darkest alpha, at the middle of the stack. */
+  alpha: 0.3,
+  /** Half-width of the innermost ellipse, as a fraction of the tile. */
+  rx: 0.36,
+  /** Ellipses are flat: this is a shadow on the ground, seen from above and in front. */
+  flatten: 0.42,
+  /** How far below centre the shadow sits, as a fraction of the tile. */
+  drop: 0.3,
+  rings: 3,
+  /** How much larger and fainter each ring beyond the first is. */
+  spread: 0.26,
+} as const;
+
+/**
+ * The ellipses that make up one shadow, largest and faintest first.
+ *
+ * `width` is the sprite's own width as a fraction of its tile, so a crate's
+ * shadow is a crate's width rather than every machine sharing one.
+ */
+export function shadowRings(size: number, width: number): ShadowRing[] {
+  const rings: ShadowRing[] = [];
+  for (let i = SHADOW.rings - 1; i >= 0; i--) {
+    const scale = 1 + i * SHADOW.spread;
+    const rx = size * SHADOW.rx * width * scale;
+    rings.push({
+      rx,
+      ry: rx * SHADOW.flatten,
+      y: size * SHADOW.drop,
+      alpha: SHADOW.alpha / (i + 1),
+    });
+  }
+  return rings;
+}
+
+/** One rectangle of the vignette. Screen space: these frame the pane, not the grid. */
+export interface VignetteBand {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  alpha: number;
+}
+
+export const VIGNETTE = {
+  color: 0x05060a,
+  /** How far in from the edge the darkening reaches, as a fraction of the pane's short side. */
+  reach: 0.34,
+  /**
+   * Alpha at the very edge.
+   *
+   * Tuned by looking, not chosen: 0.4 over a 0.4 reach read as a dark frame
+   * around the canvas rather than as light falling off, which is the thing the
+   * plan warned this task is easiest to overdo. Switching it off is the test —
+   * at this value the grass loses its depth when it goes, and nothing about the
+   * corners announces itself while it is on.
+   */
+  strength: 0.26,
+  /** Rings. More is smoother and costs only build time, since this is drawn once. */
+  steps: 24,
+} as const;
+
+/**
+ * A frame of nested rings, darkest at the pane's edge and gone by `reach` in.
+ *
+ * Rings rather than stacked full rectangles, so the alpha at a given depth is
+ * that ring's alpha rather than a sum — which makes the falloff something this
+ * function decides and a test can read, instead of an accident of how many
+ * shapes happened to overlap.
+ *
+ * Per Decision 7 this is screen space. It frames the pane, and Task 7's camera
+ * must not slide it off the corner of the screen.
+ */
+export function vignetteBands(pane: Size): VignetteBand[] {
+  const short = Math.min(pane.width, pane.height);
+  if (short <= 0) return [];
+  const step = (short * VIGNETTE.reach) / VIGNETTE.steps;
+  const bands: VignetteBand[] = [];
+
+  for (let i = 0; i < VIGNETTE.steps; i++) {
+    const inset = i * step;
+    const w = pane.width - inset * 2;
+    const h = pane.height - inset * 2;
+    if (w <= 0 || h <= 0) break;
+    // Quadratic, because a linear ramp reads as a grey border with an edge to it.
+    const t = 1 - i / VIGNETTE.steps;
+    const alpha = VIGNETTE.strength * t * t;
+    const side = Math.max(0, h - step * 2);
+    bands.push({ x: inset, y: inset, width: w, height: Math.min(step, h), alpha });
+    if (h > step) {
+      bands.push({ x: inset, y: inset + h - step, width: w, height: step, alpha });
+    }
+    if (side > 0) {
+      bands.push({ x: inset, y: inset + step, width: Math.min(step, w), height: side, alpha });
+      if (w > step) {
+        bands.push({ x: inset + w - step, y: inset + step, width: step, height: side, alpha });
+      }
+    }
+  }
+  return bands;
+}

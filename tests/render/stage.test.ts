@@ -39,6 +39,13 @@ function fakes() {
           calls.push({ layer: "hud", size: g.size, pane: pane.width });
         },
       },
+      // Milestone 7's Task 2. It caches the pane rather than the fit, so it has
+      // no geometry to report and pushes the size the others report instead.
+      overlay: {
+        resize(pane: { width: number; height: number }) {
+          calls.push({ layer: "overlay", size: 20, pane: pane.width });
+        },
+      },
       snapshot: () => snapshot,
       pane: () => ({ width: 800, height: 600 }),
     },
@@ -55,7 +62,11 @@ describe("connectResize", () => {
 
     stage.onResize(GEO);
 
-    expect(calls.map((c) => c.layer).sort()).toEqual(["actors", "hud", "tiles"]);
+    // The overlay joined this list in milestone 7's Task 2. It is here rather
+    // than optional because this file's whole subject is a hook nobody
+    // assigned, and a vignette that misses a resize is one drawn for the pane
+    // the page opened at.
+    expect(calls.map((c) => c.layer).sort()).toEqual(["actors", "hud", "overlay", "tiles"]);
     for (const call of calls) expect(call.size).toBe(20);
   });
 
@@ -92,6 +103,7 @@ describe("connectResize", () => {
       tiles: { resize: (_g, snap) => void seen.push(snap) },
       actors: { resize: () => {} },
       hud: { resize: () => {} },
+      overlay: { resize: () => {} },
       snapshot: () => latest,
       pane: () => ({ width: 800, height: 600 }),
     });

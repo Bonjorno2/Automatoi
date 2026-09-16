@@ -1,5 +1,15 @@
 import { TERRAIN } from "../../src/render/palette";
-import { GRAIN, fieldRim, groundShade, tileHash, tileNoise } from "../../src/render/texture";
+import {
+  GRAIN,
+  SHADOW,
+  VIGNETTE,
+  fieldRim,
+  groundShade,
+  shadowRings,
+  tileHash,
+  tileNoise,
+  vignetteBands,
+} from "../../src/render/texture";
 import type { Terrain } from "../../src/sim/types";
 
 const channels = (c: number): [number, number, number] => [
@@ -159,5 +169,86 @@ describe("the field's edge", () => {
       east: false,
       west: false,
     });
+  });
+});
+
+describe("shadows", () => {
+  it("stacks from largest and faintest to smallest and darkest", () => {
+    const rings = shadowRings(20, 0.66);
+    expect(rings).toHaveLength(SHADOW.rings);
+    for (let i = 1; i < rings.length; i++) {
+      expect(rings[i]!.rx).toBeLessThan(rings[i - 1]!.rx);
+      expect(rings[i]!.alpha).toBeGreaterThan(rings[i - 1]!.alpha);
+    }
+    // Drawn in this order, so the dark middle lands on top of the faint edge.
+    expect(rings.at(-1)!.alpha).toBe(SHADOW.alpha);
+  });
+
+  it("is flatter than it is wide, because it lies on the ground", () => {
+    for (const ring of shadowRings(20, 0.66)) expect(ring.ry).toBeLessThan(ring.rx);
+  });
+
+  it("scales with the tile, so it survives a resize", () => {
+    const small = shadowRings(10, 0.66);
+    const big = shadowRings(20, 0.66);
+    small.forEach((ring, i) => expect(big[i]!.rx).toBeCloseTo(ring.rx * 2, 6));
+  });
+
+  it("is a crate's width for a crate and a bot's for a bot", () => {
+    expect(shadowRings(20, 0.78)[0]!.rx).toBeGreaterThan(shadowRings(20, 0.66)[0]!.rx);
+  });
+
+  it("never reaches outside its own tile", () => {
+    // A shadow wider than a tile puts a dark band under the machine beside it.
+    const size = 20;
+    for (const width of [0.66, 0.78, 0.86]) {
+      for (const ring of shadowRings(size, width)) {
+        expect(ring.rx).toBeLessThanOrEqual(size / 2);
+      }
+    }
+  });
+});
+
+describe("the vignette", () => {
+  const pane = { width: 800, height: 600 };
+
+  it("fades from the edge inward and never brightens", () => {
+    const bands = vignetteBands(pane);
+    expect(bands.length).toBeGreaterThan(0);
+    expect(bands[0]!.alpha).toBeCloseTo(VIGNETTE.strength, 6);
+    let previous = Infinity;
+    for (const band of bands) {
+      expect(band.alpha).toBeLessThanOrEqual(previous + 1e-9);
+      previous = band.alpha;
+    }
+    expect(bands.at(-1)!.alpha).toBeLessThan(VIGNETTE.strength * 0.05);
+  });
+
+  it("stays inside the pane it frames", () => {
+    for (const band of vignetteBands(pane)) {
+      expect(band.x).toBeGreaterThanOrEqual(0);
+      expect(band.y).toBeGreaterThanOrEqual(0);
+      expect(band.x + band.width).toBeLessThanOrEqual(pane.width + 1e-9);
+      expect(band.y + band.height).toBeLessThanOrEqual(pane.height + 1e-9);
+    }
+  });
+
+  it("leaves the middle of the pane alone", () => {
+    // Unnoticeable when looked at directly is the whole brief. Nothing may be
+    // drawn over the centre, where the player is looking.
+    const cx = pane.width / 2;
+    const cy = pane.height / 2;
+    for (const band of vignetteBands(pane)) {
+      const covers =
+        cx > band.x && cx < band.x + band.width && cy > band.y && cy < band.y + band.height;
+      expect(covers).toBe(false);
+    }
+  });
+
+  it("draws nothing for a pane with no area", () => {
+    // The page really does lay out a zero-height pane for a frame or two during
+    // startup, which is the same hazard `fit` guards against.
+    expect(vignetteBands({ width: 0, height: 600 })).toEqual([]);
+    expect(vignetteBands({ width: 800, height: 0 })).toEqual([]);
   });
 });

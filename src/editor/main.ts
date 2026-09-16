@@ -3,7 +3,7 @@ import { ScriptStore } from "./script-store.ts";
 import { createConsolePanel } from "./console-panel.ts";
 import { createSnippetBook } from "./snippet-book.ts";
 import { GameSession } from "./session.ts";
-import { connectResize, createStage } from "../render/stage.ts";
+import { connectResize, createOverlay, createStage } from "../render/stage.ts";
 import { createTileLayer } from "../render/tiles.ts";
 import { createActorLayer } from "../render/actors.ts";
 import { createMarkLayer, heldMarks } from "../render/marks.ts";
@@ -51,6 +51,10 @@ const tiles = createTileLayer(stage.staticLayer, stage.tickLayer, stage.geometry
 const actors = createActorLayer(stage.frameLayer, stage.geometry);
 const marks = createMarkLayer(stage.frameLayer);
 const inspector = createInspector(worldEl, stage.frameLayer, grid, stage.geometry);
+const overlay = createOverlay(stage.overlayLayer, {
+  width: stage.app.screen.width,
+  height: stage.app.screen.height,
+});
 const hud = createHud(stage.app.stage, { width: stage.app.screen.width, height: stage.app.screen.height });
 const sidePanel = createSidePanel(document.querySelector<HTMLElement>("#panel")!, pick);
 
@@ -60,6 +64,7 @@ connectResize(stage, {
   tiles,
   actors,
   hud,
+  overlay,
   snapshot: () => snap,
   pane: () => ({ width: stage.app.screen.width, height: stage.app.screen.height }),
 });
@@ -352,6 +357,8 @@ if (import.meta.env.DEV) {
     editor,
     scripts,
     frame,
+    // Task 9 asks whether the vignette was doing anything, which needs it off.
+    overlay,
     perf: () => ({ pass: mean(passMs), draw: mean(drawMs), frame: mean(frameMs) }),
   });
 }
