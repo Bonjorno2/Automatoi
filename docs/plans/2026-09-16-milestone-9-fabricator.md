@@ -390,6 +390,15 @@ warm-up the harness enforces rather than each test inventing, would give it one.
 **Whether the colony actually scales is therefore still an open question**, not a
 settled one. It was briefly recorded as settled and it was not.
 
+> **Both of these are now closed, and the record above is left as written.** The
+> harness was built — `tests/bench/harness.ts`, run with `npm run bench` — and
+> the boot cost this finding described turns out to be **1752 simulated ticks**
+> under the demand clock against 7 at the benchmark's rate. Asked again with it,
+> a second bot is worth **2.67x** and the work splits 54 commands to 53. The
+> colony scales. See `docs/plans/2026-09-16-benchmark-harness.md`, which also
+> takes that 2.67x apart: only 1.85x of it is the second pair of hands, and the
+> rest is the bot starting where its work is.
+
 **Finding 3 is small and blocks a real pattern**: a script can start a helper and
 can never synchronise with it. The radio exists; the fabricator cannot fit one.
 
