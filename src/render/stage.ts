@@ -1,5 +1,6 @@
 import { Application, Container } from "pixi.js";
 import { fit, type Geometry, type Size } from "./geometry.ts";
+import type { WorldSnapshot } from "../sim/types.ts";
 
 /**
  * The PixiJS application and its layers.
@@ -23,6 +24,49 @@ export interface Stage {
   /** Called after `geometry` changes, so layers can rebuild against it. */
   onResize: (g: Geometry) => void;
   destroy(): void;
+}
+
+/**
+ * The layers that cache a fit, and what each needs to rebuild against one.
+ *
+ * Structural rather than the concrete layer types, so this can be tested with
+ * plain objects: Pixi cannot be constructed in the test environment, and a
+ * resize fan-out that could only be checked by looking at the screen is how the
+ * bug below survived a whole milestone.
+ */
+export interface GeometryConsumers {
+  tiles: { resize(geometry: Geometry, snapshot: WorldSnapshot): void };
+  actors: { resize(geometry: Geometry): void };
+  hud: { resize(geometry: Geometry, pane: Size): void };
+  /** The current snapshot, read when the resize happens rather than before. */
+  snapshot(): WorldSnapshot;
+  /** The renderer's pixel size, read for the same reason. */
+  pane(): Size;
+}
+
+/**
+ * Connect the layers that cache a fit to the stage's resize hook.
+ *
+ * `onResize` existed from milestone 4 and **nothing ever assigned it**, which
+ * made `ActorLayer.resize` and `Hud.resize` dead code and left a real bug in the
+ * page: after a window resize the terrain redrew at the new tile size while bots
+ * and machines stayed at the old one, drawn at the wrong scale in the wrong
+ * place. The tile layer caches its fit too, and its crop pool is positioned in
+ * pixels, so it has the same problem.
+ *
+ * Both callbacks read their inputs when the resize fires. The renderer has
+ * already been resized by then, and the world has moved on since the page was
+ * built; capturing either at wiring time is how this gets quietly re-broken.
+ */
+export function connectResize(
+  stage: { onResize: (geometry: Geometry) => void },
+  consumers: GeometryConsumers,
+): void {
+  stage.onResize = (geometry) => {
+    consumers.tiles.resize(geometry, consumers.snapshot());
+    consumers.actors.resize(geometry);
+    consumers.hud.resize(geometry, consumers.pane());
+  };
 }
 
 const BACKGROUND = 0x12140f;

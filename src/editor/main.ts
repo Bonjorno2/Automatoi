@@ -3,7 +3,7 @@ import { ScriptStore } from "./script-store.ts";
 import { createConsolePanel } from "./console-panel.ts";
 import { createSnippetBook } from "./snippet-book.ts";
 import { GameSession } from "./session.ts";
-import { createStage } from "../render/stage.ts";
+import { connectResize, createStage } from "../render/stage.ts";
 import { createTileLayer } from "../render/tiles.ts";
 import { createActorLayer } from "../render/actors.ts";
 import { createMarkLayer, heldMarks } from "../render/marks.ts";
@@ -47,6 +47,16 @@ const marks = createMarkLayer(stage.frameLayer);
 const inspector = createInspector(worldEl, stage.frameLayer, grid, stage.geometry);
 const hud = createHud(stage.app.stage, { width: stage.app.screen.width, height: stage.app.screen.height });
 const sidePanel = createSidePanel(document.querySelector<HTMLElement>("#panel")!, pick);
+
+// Three of the layers cache the fit they were built with. Without this the
+// terrain redraws at a new tile size and the bots stay at the old one.
+connectResize(stage, {
+  tiles,
+  actors,
+  hud,
+  snapshot: () => snap,
+  pane: () => ({ width: stage.app.screen.width, height: stage.app.screen.height }),
+});
 
 /**
  * Picking a build option arms the canvas; it does not place anything.
