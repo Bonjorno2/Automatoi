@@ -13,18 +13,61 @@ import {
 import type { HostRequest, MirrorState, ResearchStatus } from "./protocol.ts";
 import { readMirror } from "./mirror.ts";
 
+/*
+ * The numbers in the JSDoc below are written as `%name%` and substituted by
+ * `scripts/generate-dts.ts` from `config.ts` and `protocol.ts`. Hover text that
+ * quotes a tick cost is hover text that goes stale the first time the cost is
+ * tuned, and the design says outright that these are tuned in playtests. An
+ * unknown placeholder fails the generator rather than shipping as literal `%`.
+ */
+
 export interface BotApi {
+  /**
+   * Step one tile. Costs %ticks.move% ticks.
+   *
+   * Answers `false` rather than throwing when the way is blocked — the world's
+   * edge, a machine, another bot — so a loop can turn around instead of dying.
+   *
+   * ```js
+   * if (!bot.move("east")) bot.move("south");
+   * ```
+   */
   move(dir: Direction): boolean;
+  /**
+   * Do nothing for `ticks` ticks, and cost exactly that many.
+   *
+   * The way to poll without spinning: a `while` loop with no world call in it
+   * burns the per-tick CPU budget and gets the bot hung.
+   */
   wait(ticks: number): void;
+  /** Where this bot is standing. Costs no ticks, like every read. */
   pos(): { x: number; y: number };
-  /** Keyed by item, so a beginner writes `bot.inventory().wheat ?? 0`. */
+  /**
+   * What this bot is carrying, keyed by item, so a beginner writes
+   * `bot.inventory().wheat ?? 0`. Costs no ticks.
+   *
+   * A chassis holds %BOT_CAPACITY% items **in total**, not %BOT_CAPACITY% of
+   * each. At that point `harvest()` starts answering `false`.
+   */
   inventory(): Record<string, number | undefined>;
+  /** Write a line to this bot's console panel. Costs no ticks and never blocks. */
   log(message: string): void;
   /**
    * Machine verbs. Unlike the module namespaces below these live on `bot`
    * directly: a crate is a machine standing on a tile, not a chassis module,
    * so there is no hardware namespace to hang them on. They fail with the
    * sim's own message when no crate is adjacent.
+   *
+   * Both cost %ticks.deposit% tick and answer with **how many actually moved**,
+   * which can be fewer than asked and can be 0: a deposit is capped by the
+   * machine's room for that item (%MACHINE_CAPACITY% of each, %CONVEYOR_CAPACITY%
+   * on a belt) and a withdraw by the room left on the chassis. A partial
+   * transfer is the answer rather than a refusal, so check the number.
+   *
+   * ```js
+   * const moved = bot.deposit("north", "wheat", bot.inventory().wheat ?? 0);
+   * if (moved === 0) bot.log("crate is full");
+   * ```
    */
   deposit(dir: Direction, item: Item, count: number): number;
   withdraw(dir: Direction, item: Item, count: number): number;
@@ -43,10 +86,85 @@ export interface BotApi {
    *
    * Do not "fix" this by dropping the `?` or by returning undefined.
    */
-  harvester?: { harvest(): boolean };
-  planter?: { plant(item: Item): boolean };
-  scanner?: { scan(radius: number): ScanTile[] };
-  radio?: { send(channel: string, payload: unknown): number; receive(channel?: string): Message };
+  harvester?: {
+    /**
+     * Take the mature crop under the bot. Costs %ticks.harvest% ticks.
+     *
+     * Answers `false` and never throws: `false` for bare ground, for a crop
+     * still growing, and — since milestone 10's playtest — for a full chassis.
+     * A wheat tile ripens %growth.wheat% ticks after it is planted.
+     *
+     * ```js
+     * while (true) {
+     *   bot.harvester.harvest();
+     *   bot.move("east");
+     * }
+     * ```
+     */
+    harvest(): boolean;
+  };
+  planter?: {
+    /**
+     * Sow one seed from this bot's own inventory into the soil under it. Costs
+     * %ticks.plant% ticks.
+     *
+     * Answers `false` without spending anything when the item is not a seed,
+     * when the tile is grass or already planted, or when the bot is not
+     * carrying one — so harvest before you plant.
+     *
+     * ```js
+     * if (bot.harvester.harvest()) bot.planter.plant("wheat");
+     * ```
+     */
+    plant(item: Item): boolean;
+  };
+  scanner?: {
+    /**
+     * Read the square of tiles within `radius` of the bot — `(2r+1)²` of them,
+     * each with its terrain, crop, bot id and machine. Costs %ticks.scan% tick
+     * however wide it is.
+     *
+     * **Radius 6 is the largest that fits.** A result crosses back through a
+     * %RES_BYTES%-byte channel, and at radius 7 it does not fit: the call
+     * throws `result too large to return — ask for less at once`, which a
+     * planner should catch and retry narrower. Measured, in milestone 10's
+     * playtest, after a radius-8 scan killed a bot outright.
+     *
+     * ```js
+     * for (const tile of bot.scanner.scan(2)) {
+     *   if (tile.crop) bot.log("crop at " + tile.x + "," + tile.y);
+     * }
+     * ```
+     */
+    scan(radius: number): ScanTile[];
+  };
+  radio?: {
+    /**
+     * Broadcast on a channel to every other bot that has a radio, and answer
+     * with how many heard it. Costs %ticks.send% tick.
+     *
+     * Zero back means nobody was listening — the payload is gone, not queued
+     * for a bot that has not been built yet.
+     */
+    send(channel: string, payload: unknown): number;
+    /**
+     * Take the next message, optionally only from one channel. Costs
+     * %ticks.receive% tick when one is already queued and **blocks this bot
+     * indefinitely** when none is.
+     *
+     * Blocking is per bot: one bot parked here never stalls another. There is
+     * no way to ask without blocking, so the bot that waits should be the one
+     * with nothing else to do.
+     *
+     * ```js
+     * while (true) {
+     *   const order = bot.radio.receive("haul");
+     *   bot.log("bot " + order.from + " wants " + JSON.stringify(order.payload));
+     * }
+     * ```
+     */
+    receive(channel?: string): Message;
+  };
   /**
    * The builder arm: the first verbs that change the world's layout rather than
    * moving through it.
@@ -63,7 +181,9 @@ export interface BotApi {
    *
    * Both throw the sim's own reason when they refuse — "tile occupied",
    * "conveyor not researched", "crate is not empty" — so a script that might
-   * build over something should be ready to catch one.
+   * build over something should be ready to catch one. Each costs
+   * %ticks.place% ticks, which is what makes a long belt run a real expense in
+   * a script's own budget rather than a free stamp.
    */
   builder?: {
     place(machine: MachineKind, dir: Direction, facing?: Direction): boolean;
@@ -72,9 +192,25 @@ export interface BotApi {
 }
 
 export interface ColonyApi {
+  /**
+   * Every bot in the colony, this one included, as read-only views: position,
+   * inventory, fitted modules, and whether a command is in flight. Costs no
+   * ticks.
+   *
+   * `busy` means "has a command running", which is true of a bot working and
+   * equally true of a bot deadlocked against another — it is not a liveness
+   * check.
+   */
   bots(): Array<MirrorState & { id: number }>;
+  /** The world's tick count. Costs no ticks, and is the same number for every bot. */
   time(): number;
   research: {
+    /**
+     * Ask the Research Console for something. Costs no ticks; the console pays
+     * for it in harvested goods, and a queued item arrives whenever the goods do.
+     *
+     * Write-only on its own — `status()` is how a script learns it landed.
+     */
     queue(name: ResearchName): void;
     /**
      * What has finished, what is queued, and how far the head of the queue has

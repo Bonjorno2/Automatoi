@@ -1,4 +1,12 @@
-import { clearRuntimeErrors, markRuntimeError, mountEditor } from "./editor.ts";
+import {
+  apiComplaints,
+  apiLib,
+  clearRuntimeErrors,
+  markRuntimeError,
+  mountEditor,
+  setApiSurface,
+} from "./editor.ts";
+import { ownedGates } from "./api-surface.ts";
 import { LIBRARY, ScriptStore } from "./script-store.ts";
 import { createConsolePanel } from "./console-panel.ts";
 import { createSnippetBook } from "./snippet-book.ts";
@@ -607,6 +615,7 @@ function draw(): void {
       : undefined,
   });
   sidePanel.update(snap, selectedBotId);
+  syncApiSurface();
   // The research is the only gate: the button appears when the buffer becomes
   // real, and the prelude stays empty until then.
   libraryButton.hidden = !snap.research.unlocked.includes("library");
@@ -617,6 +626,38 @@ function draw(): void {
   // and it is the only place that says Escape is the way out.
   placingEl.textContent = armedMessage(inspector.placing);
   placingEl.hidden = inspector.placing === null;
+}
+
+/**
+ * Keep autocomplete in step with the hardware the player actually owns.
+ *
+ * The design says namespaces are the tutorial and that autocomplete on `bot.`
+ * lists what you have. It did not: the whole `.d.ts` went in at boot, so a new
+ * save offered `bot.builder` and `colony.fabricator` to a chassis carrying a
+ * harvester. Fitting a scanner now makes `bot.scanner` appear as you watch.
+ *
+ * Driven from `draw` rather than from an event, for the same reason every other
+ * panel here is: the things it depends on — a module fitted, a research landing,
+ * a different bot selected — arrive through three different paths, and a
+ * snapshot read every frame cannot miss one. The cost of being wrong is a lying
+ * completion list, so this is the one place to prefer polling.
+ *
+ * Idempotent by the key, and idempotent again inside `setApiSurface`.
+ */
+let apiKey = "";
+
+function syncApiSurface(): void {
+  // The library is every bot's prelude, so it sees the union of the fleet's
+  // hardware. Gating it to one chassis would squiggle a helper in the file it is
+  // written in while it compiles perfectly in the bot that runs it.
+  const chassis = scripts.editingLibrary
+    ? snap.bots
+    : snap.bots.filter((b) => b.id === selectedBotId);
+  const owned = ownedGates(chassis.flatMap((b) => b.modules), snap.research.unlocked);
+  const key = [...owned].sort().join(",");
+  if (key === apiKey) return;
+  apiKey = key;
+  setApiSurface(owned);
 }
 
 function loop(): void {
@@ -637,6 +678,16 @@ if (import.meta.env.DEV) {
     // Task 9 asks whether the vignette was doing anything, which needs it off.
     overlay,
     perf: () => ({ pass: mean(passMs), draw: mean(drawMs), frame: mean(frameMs) }),
+    // Milestone 10: what the editor thinks this bot can do, and what it objects
+    // to. `api().has("scanner")` before and after fitting one is the check.
+    api: () => {
+      const lib = apiLib();
+      return {
+        gates: apiKey,
+        has: (name: string) => lib.includes(`${name}?: {`),
+        complaints: () => apiComplaints(editor),
+      };
+    },
   });
 }
 

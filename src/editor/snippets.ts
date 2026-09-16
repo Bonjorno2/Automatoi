@@ -11,6 +11,8 @@
  * it rather than becoming it. If this file starts growing toward a module
  * system, stop.
  */
+import { BOT_CAPACITY } from "../sim/config.ts";
+
 export interface Snippet {
   title: string;
   /** One line on what it is for, and what it teaches. */
@@ -70,8 +72,12 @@ while (true) {
   },
   {
     title: "Don't overfill",
-    blurb: "A bot carries 10. harvest() throws once it is full, so stop before that.",
-    code: `while ((bot.inventory().wheat ?? 0) < 10) {
+    // The number is imported rather than typed, and the sentence changed with
+    // milestone 10: a full harvest used to throw and now answers false, so a
+    // chip promising an exception was teaching a control flow that no longer
+    // exists. The `.d.ts` hover says the same thing, from the same constant.
+    blurb: `A bot carries ${BOT_CAPACITY} in total. harvest() just answers false once it is full, so stop and go somewhere.`,
+    code: `while ((bot.inventory().wheat ?? 0) < ${BOT_CAPACITY}) {
   bot.harvester.harvest();
   bot.move("east");
 }
@@ -81,7 +87,7 @@ bot.log("full at " + bot.pos().x + "," + bot.pos().y);`,
     title: "Sweep the whole field",
     blurb: "Serpentine: run a row, drop down, run the next one back the other way. Stops when full.",
     code: `let goingEast = true;
-while ((bot.inventory().wheat ?? 0) < 10) {
+while ((bot.inventory().wheat ?? 0) < ${BOT_CAPACITY}) {
   bot.harvester.harvest();
   if (!bot.move(goingEast ? "east" : "west")) {
     bot.move("south");

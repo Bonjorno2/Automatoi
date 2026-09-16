@@ -2,6 +2,7 @@ import * as monaco from "monaco-editor";
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
 import playerApi from "./generated/player-api.d.ts?raw";
+import { composeApi, parseApiSurface } from "./api-surface.ts";
 import { OPENING_SCRIPT } from "./opening-script.ts";
 
 /**
@@ -29,6 +30,43 @@ export { OPENING_SCRIPT } from "./opening-script.ts";
 
 /** Markers we own, kept apart from the language service's own diagnostics. */
 const OWNER = "automatori";
+
+/** The one URI the API is loaded under. Re-adding it replaces it, in place. */
+const API_LIB = "ts:player-api.d.ts";
+
+const surface = parseApiSurface(playerApi);
+
+/**
+ * Show the player exactly the API they have earned.
+ *
+ * Called every time the selection or the world changes, which is why it is
+ * cheap by construction: `addExtraLib` under an existing URI replaces that lib
+ * and bumps its version, and returns without doing anything at all when the
+ * text is unchanged. So an unchanged surface costs one string compare and never
+ * disturbs the TypeScript worker.
+ */
+export function setApiSurface(owned: ReadonlySet<string>): void {
+  monaco.languages.typescript.javascriptDefaults.addExtraLib(composeApi(surface, owned), API_LIB);
+}
+
+/**
+ * What the editor currently believes the API is, and what it is complaining
+ * about. Both exist for the same reason `perf()` does: the questions this
+ * milestone has to answer — "does `bot.scanner` exist before it is fitted" —
+ * are asked of the TypeScript worker, and nothing on the page shows its answer.
+ */
+export function apiLib(): string {
+  return monaco.languages.typescript.javascriptDefaults.getExtraLibs()[API_LIB]?.content ?? "";
+}
+
+export function apiComplaints(editor: monaco.editor.IStandaloneCodeEditor): string[] {
+  const model = editor.getModel();
+  if (!model) return [];
+  return monaco.editor
+    .getModelMarkers({ resource: model.uri })
+    .filter((m) => m.owner !== OWNER)
+    .map((m) => `${m.startLineNumber}: ${m.message}`);
+}
 
 /**
  * Put a marker on the line a running script threw from, or clear ours when
@@ -79,7 +117,10 @@ export function mountEditor(container: HTMLElement, initial = OPENING_SCRIPT): m
   // objects to `bot.move("up")`, which is half the value of shipping types.
   js.setDiagnosticsOptions({ noSemanticValidation: false, noSyntaxValidation: false });
 
-  js.addExtraLib(playerApi, "ts:player-api.d.ts");
+  // Opened on the core alone. The page calls `setApiSurface` with the selected
+  // bot's hardware before the first frame draws, and a surface that started
+  // complete would flash every locked namespace into the completion list first.
+  setApiSurface(new Set());
 
   return monaco.editor.create(container, {
     value: initial,
