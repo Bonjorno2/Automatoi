@@ -9,9 +9,8 @@ import {
 import { ownedGates } from "./api-surface.ts";
 import { LIBRARY, ScriptStore } from "./script-store.ts";
 import { createConsolePanel } from "./console-panel.ts";
-import { createSnippetBook } from "./snippet-book.ts";
+import { createCodebook } from "./codebook.ts";
 import { createSuggester } from "./suggestions.ts";
-import { createSuggestionPanel } from "./suggestion-panel.ts";
 import { GameSession } from "./session.ts";
 import { connectResize, createOverlay, createStage } from "../render/stage.ts";
 import { createTileLayer } from "../render/tiles.ts";
@@ -384,16 +383,19 @@ const panel = createConsolePanel(document.querySelector("#log")!, statusEl);
 const pauseButton = document.querySelector<HTMLButtonElement>("#pause")!;
 
 /**
- * What the game has to say about how the last few runs went.
+ * What the game has to say about how things are going, and the book it says it
+ * out of.
  *
- * Fed only from `run`, which is the player pressing Run or Ctrl+S. A bot the
- * fabricator started is deliberately not recorded: its source is not in any
+ * Runs are recorded only from `run`, which is the player pressing Run or Ctrl+S.
+ * A bot the fabricator started is deliberately not recorded: its source is in no
  * buffer, so a chip offered about it would be inserted into some other bot's
- * script.
+ * script. World events are not filtered that way — a spawned bot pressed against
+ * a wall is still the player's problem, and the chip that fixes it goes in the
+ * script that spawned it.
  */
 const suggester = createSuggester();
-const suggestions = createSuggestionPanel(
-  document.querySelector<HTMLElement>("#suggest")!,
+const codebook = createCodebook(
+  document.querySelector<HTMLElement>("#codebook")!,
   editor,
   (id) => suggester.retire(id),
 );
@@ -430,6 +432,7 @@ async function run(): Promise<void> {
   const source = editor.getValue();
   scripts.stash(source);
   panel.start(botId);
+  suggester.started(botId, source);
   clearRuntimeErrors(editor);
 
   await session.runScript(botId, source, {
@@ -451,9 +454,7 @@ async function run(): Promise<void> {
   // A script that never ends never gets here; that is the normal case.
 }
 
-const book = createSnippetBook(editor);
-document.body.append(book.element);
-document.querySelector("#book-toggle")!.addEventListener("click", () => book.toggle());
+document.querySelector("#book-toggle")!.addEventListener("click", () => codebook.toggle());
 libraryButton.addEventListener("click", () => editLibrary());
 
 document.querySelector("#run")!.addEventListener("click", () => void run());
@@ -631,6 +632,10 @@ function draw(): void {
   const events = session.world.drainEvents();
   marks.update(events, heldMarks(snap), now, stage.geometry);
   effects.update(events, snap, now, stage.geometry);
+  // A third reader of the same drain, for the same reason there are two: calling
+  // `drainEvents` again would hand this an empty list and the bump nobody
+  // counted would be the bump that mattered.
+  suggester.saw(events);
   inspector.update(snap, stage.geometry);
   hud.update(snap, {
     paused: session.clock.paused,
@@ -641,10 +646,13 @@ function draw(): void {
   });
   sidePanel.update(snap, selectedBotId);
   syncApiSurface();
-  // Nothing to offer the library: it has no runs of its own, and a chip
-  // inserted there would be advice about a bot, written into every bot.
-  suggestions.show(
+  suggester.world(snap);
+  // Nothing is *suggested* while the library is on screen: a chip inserted there
+  // would be advice about one bot, written into every bot. The book itself stays
+  // — it is a book, and the library is exactly where a player reaches for one.
+  codebook.update(
     selectedBotId === null || scripts.editingLibrary ? null : suggester.suggest(selectedBotId),
+    suggester.offered(),
   );
   // The research is the only gate: the button appears when the buffer becomes
   // real, and the prelude stays empty until then.

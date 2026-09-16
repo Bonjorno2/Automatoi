@@ -265,34 +265,6 @@
         border-color: #c89a90;
         color: #fff;
       }
-      /* The suggested chip. Sized for a 22rem column rather than for the book's
-         26rem panel: no title row — the heading above it already says what it
-         is — and the accent borrowed from the build menu, because both are
-         offers rather than readouts. */
-      #suggest .chip-suggest {
-        margin-top: 0;
-        border: 1px solid var(--accent-dim);
-        background: #24211a;
-      }
-      #suggest .chip-suggest:hover { background: #2f2a1d; border-color: var(--accent); }
-      #suggest .chip-blurb { margin: 0 0 var(--sp-1); color: var(--accent); }
-      #suggest .chip pre { font-size: 10px; }
-      .chip-take {
-        display: block;
-        margin-top: var(--sp-1);
-        color: var(--text-dim);
-        font-style: normal;
-        font-size: 10px;
-      }
-      /* Quieter than the offer it refuses, and always the same one click. */
-      .suggest-dismiss {
-        margin-top: var(--sp-1);
-        padding: 0.15rem 0.4rem;
-        font-size: 10px;
-        color: var(--text-dim);
-        background: transparent;
-        border-color: var(--line);
-      }
       #log {
         margin: 0;
         padding: var(--sp-2);
@@ -308,46 +280,67 @@
       #log li { padding: 0.1rem 0; border-bottom: 1px solid #1c1f21; }
       #log li:last-child { border-bottom: 0; }
       .hint { color: var(--text-dim); font-size: var(--fs-sm); margin: 0; }
-      #book {
-        position: fixed;
-        top: 2.5rem;
-        left: 2rem;
-        width: 26rem;
-        max-height: 80vh;
-        overflow-y: auto;
-        padding: 0.9rem;
-        background: #252526;
-        border: 1px solid #454545;
-        border-radius: 6px;
-        box-shadow: 0 10px 30px rgb(0 0 0 / 0.5);
-        z-index: 10;
-      }
-      #book h2 { margin: 0 0 0.2rem; font-size: 13px; }
+      /*
+        The codebook. It lives in the column rather than floating over the
+        canvas, because the chip the game offers is a chip of this book and the
+        offer must not be a thing that appears and vanishes — the player has to
+        be able to come back to it. A floating panel cannot be both.
+      */
+      #codebook { max-height: 60vh; overflow-y: auto; }
       .chip {
         display: block;
         width: 100%;
         text-align: left;
-        margin-top: 0.6rem;
-        padding: 0.5rem 0.6rem;
-        background: #2d2d2d;
+        margin-top: var(--sp-1);
+        padding: 0.4rem 0.5rem;
+        background: var(--bg-raised);
+        border: 1px solid var(--line);
       }
+      .chip:hover { background: #2a2e32; border-color: var(--line-bright); }
       .chip strong { color: #dcdcaa; }
       .chip-need {
         color: #c586c0;
         font-style: normal;
-        font-size: 11px;
-        margin-left: 0.5rem;
+        font-size: 10px;
+        margin-left: var(--sp-1);
       }
-      .chip-blurb { display: block; color: #999; font-size: 11px; margin: 0.15rem 0 0.35rem; }
+      .chip-blurb { display: block; color: var(--text-dim); font-size: 10px; margin: 0.15rem 0 0.3rem; }
       .chip pre {
         margin: 0;
-        padding: 0.4rem 0.5rem;
-        background: #1e1e1e;
+        padding: 0.3rem 0.4rem;
+        background: var(--bg-sunk);
         border-radius: 3px;
         color: #9cdcfe;
-        font-size: 11px;
+        font-size: 10px;
         white-space: pre-wrap;
         overflow-x: auto;
+      }
+      /* One line, for a chip the player has already been shown once. */
+      .chip-compact { padding: 0.25rem 0.5rem; font-size: var(--fs-sm); }
+      /* What the game is offering right now: the accent the build menu uses for
+         its offers, because that is what this is. */
+      .chip-suggest {
+        border-color: var(--accent-dim);
+        background: #24211a;
+      }
+      .chip-suggest:hover { background: #2f2a1d; border-color: var(--accent); }
+      .book-why { margin: var(--sp-1) 0 0; color: var(--accent); font-size: var(--fs-sm); }
+      .book-label {
+        margin: var(--sp-2) 0 0;
+        font-size: 10px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--text-dim);
+      }
+      .book-hint { margin-top: var(--sp-1); font-size: 10px; }
+      /* Quieter than the offer it refuses, and always the same one click. */
+      .suggest-dismiss {
+        margin-top: var(--sp-1);
+        padding: 0.15rem 0.4rem;
+        font-size: 10px;
+        color: var(--text-dim);
+        background: transparent;
+        border-color: var(--line);
       }
     </style>
   </head>
@@ -376,10 +369,10 @@
       <p class="hint">Ctrl+S restarts this bot's script.</p>
       <div id="panel"></div>
       <!-- Above the console and below the panel: the console is what the bot
-           said, and this is what the game has to say about it. Hidden until
-           there is something, so an empty heading never sits there looking
-           like a feature that is broken. -->
-      <section class="group" id="suggest" hidden></section>
+           said, and this is what the game has to say about it. One section, not
+           two — the chip the game offers is a chip of this book, and this is
+           where the player comes back for it. -->
+      <section class="group" id="codebook"></section>
       <ul id="log"></ul>
       <p id="status">starting…</p>
       <p id="placing" hidden></p>

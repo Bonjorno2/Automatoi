@@ -1,8 +1,10 @@
 import type { ScriptStatus } from "../bridge/colony.ts";
+import type { WorldEvent } from "../sim/events.ts";
+import type { ResearchName, WorldSnapshot } from "../sim/types.ts";
 import { SNIPPETS } from "./snippets.ts";
 
 /**
- * When the game has something worth saying, and which chip says it.
+ * When the codebook has something worth saying, and which of its chips says it.
  *
  * The design's first ten minutes: *"Press Run. The bot harvests and steps east,
  * then stops because the script ended. Insight one: wrap it in a loop."* Nothing
@@ -10,18 +12,17 @@ import { SNIPPETS } from "./snippets.ts";
  * player who does not press Run again, watch the same two ticks, and have no
  * reason to believe anything different is available.
  *
- * The same design says **"No tutorial popups"**, and that rule is what shapes
- * everything here:
+ * The same design says **"No tutorial popups"**, and that rule shapes all of it:
  *
  * - A suggestion is **earned by something the player did**, never by a timer and
  *   never on arrival. Every rule reads history, so a player who never gets stuck
  *   never sees one.
- * - It points at a chip the **snippet book already has**. This is the book
- *   surfaced at the right moment, not a second corpus of advice that can drift
- *   from it — which is also why a rule names a chip by title and a test fails if
- *   that title stops existing.
- * - It **retires for good** once taken or dismissed. A suggestion that comes back
- *   after being refused is a popup with extra steps.
+ * - It is **a chip of the codebook, raised**. Not a parallel corpus of advice
+ *   that can drift from the book — the same chip, in the same place the player
+ *   will come back to for it later. A rule names a chip by title and a test
+ *   fails the build if that title stops existing.
+ * - It **retires for good** once taken or dismissed, and the chip stays in the
+ *   book. Refusing advice is not the same as losing it.
  *
  * No DOM and no Monaco here: what counts as a moment worth speaking at is a rule
  * about the game, and it deserves tests that do not need a browser.
@@ -30,8 +31,8 @@ import { SNIPPETS } from "./snippets.ts";
 /** How a run the player started ended, as the rules need to see it. */
 export interface RunRecord {
   status: ScriptStatus;
-  /** Whether the source that ran actually loops. See `hasLoop`. */
-  looped: boolean;
+  /** What actually ran. Rules read it; none of them stores a verdict about it. */
+  source: string;
 }
 
 export interface Suggestion {
@@ -45,27 +46,92 @@ export interface Suggestion {
 }
 
 /**
- * Enough history for the rules to read, per bot.
+ * Enough of one bot's past for the rules to read.
  *
- * A list rather than a counter because the rules that come next — bumping the
- * same wall, filling up and harvesting anyway — want different slices of the
- * same past, and a counter per rule is how that becomes six fields nobody can
- * name.
+ * `bumps` and `fulls` count within the current run rather than for all time: the
+ * question every rule is really asking is "is this script, the one on screen
+ * now, getting nowhere", and a total carried across a rewrite answers a
+ * different question with the same number.
  */
 interface History {
   runs: RunRecord[];
+  /**
+   * The script running right now, which is not in `runs` and never will be.
+   *
+   * Found by driving the page: `stay-on-the-field` asks whether the script
+   * loops, `runs` only gains an entry when a script *settles*, and a
+   * `while (true)` never settles. So the one rule about a script that runs
+   * forever could only read scripts that had stopped, and it never fired once.
+   */
+  current: string | null;
+  bumps: number;
+  fulls: number;
 }
 
-/** Runs kept per bot. Two is what today's rule reads; the rest is headroom. */
+/** What the colony as a whole offers the rules. Not per bot, because none of it is. */
+interface Colony {
+  /** Research that has landed. Cleared by nothing: a rule retires itself instead. */
+  landed: Set<ResearchName>;
+  /** A crate is standing somewhere in the world, so there is a place to put things. */
+  hasCrate: boolean;
+}
+
+/** Runs kept per bot. Two is what the loop rule reads; the rest is headroom. */
 const MAX_RUNS = 4;
+
+/**
+ * Bumps in one run before the game mentions it, and fulls before it does.
+ *
+ * Both are guesses and are named as guesses, per the house rule about numbers
+ * nobody has measured. The shape of the guess: one bump is a bot turning around,
+ * which is a script working. Eight is a bot pressed against the same wall for
+ * sixteen ticks, which is the thing milestone 3's playtest found players watched
+ * without understanding. Three fulls is a bot that has harvested nothing for a
+ * while and looks busy doing it.
+ */
+const BUMPS_BEFORE_SPEAKING = 8;
+const FULLS_BEFORE_SPEAKING = 3;
+
+/**
+ * The chip that teaches each piece of hardware, the moment it arrives.
+ *
+ * A partial map on purpose: a research with no chip to show — the mill, the oven,
+ * the chassis, the library, the fabricator — raises nothing, because the honest
+ * answer is that the book has nothing to say about it yet. Adding a chip is what
+ * adds the suggestion, which is the coupling this file wants.
+ */
+const CHIP_FOR_RESEARCH: Partial<Record<ResearchName, string>> = {
+  planter: "Harvest, then replant",
+  scanner: "Look before you move",
+  crate: "Empty into a crate",
+  radio: "Take orders by radio",
+  builder: "Lay a line of belts",
+};
+
+/** What a script has to mention for the game to stop explaining that hardware. */
+const USES: Partial<Record<ResearchName, string>> = {
+  planter: "bot.planter",
+  scanner: "bot.scanner",
+  crate: "bot.deposit",
+  radio: "bot.radio",
+  builder: "bot.builder",
+};
 
 interface Rule {
   id: string;
   chip: string;
   why: string;
-  fires(history: History): boolean;
+  fires(history: History, colony: Colony): boolean;
 }
 
+/**
+ * In priority order, because only one thing gets said at a time.
+ *
+ * Order by how stuck the player is, not by how clever the advice is. They rarely
+ * collide — a script that never ends cannot raise the loop rule, and a bot
+ * pressed against a wall is not filling up — but when they do, the rule about
+ * what is happening right now beats the rule about what just became available.
+ */
 const RULES: readonly Rule[] = [
   {
     id: "wrap-it-in-a-loop",
@@ -88,9 +154,84 @@ const RULES: readonly Rule[] = [
      * rather than counting.
      */
     fires: (h) =>
-      h.runs.length >= 2 && h.runs.slice(-2).every((r) => r.status === "done" && !r.looped),
+      h.runs.length >= 2 &&
+      h.runs.slice(-2).every((r) => r.status === "done" && !hasLoop(r.source)),
   },
+  {
+    id: "stay-on-the-field",
+    chip: "Stay on the field",
+    why: "This bot keeps walking into something. move() answers false — turn around instead.",
+    /**
+     * The naive loop's own failure, and the sharpest thing milestone 3's playtest
+     * found: `while (true) { harvest(); move("east"); }` walks off the field and
+     * pushes into the edge forever, with the bot looking busy the whole time.
+     *
+     * Only for a script that loops. A loopless script cannot bump eight times —
+     * it has two commands in it — so requiring the loop costs nothing here and
+     * keeps this rule from ever being the answer to "your script ended".
+     */
+    fires: (h) => h.bumps >= BUMPS_BEFORE_SPEAKING && looping(h),
+  },
+  {
+    id: "somewhere-to-put-it",
+    chip: "Empty into a crate",
+    why: "This bot is full, so harvest() does nothing. There is a crate to empty into.",
+    // Ahead of "Don't overfill" whenever a crate exists, because it is the better
+    // answer: stopping when full is cycle one's fix and depositing is cycle two's,
+    // and by the time there is a crate on the map the player has bought their way
+    // out of the first one.
+    fires: (h, c) => h.fulls >= FULLS_BEFORE_SPEAKING && c.hasCrate,
+  },
+  {
+    id: "dont-overfill",
+    chip: "Don't overfill",
+    why: "This bot is full, so harvest() does nothing. Stop before that and go somewhere.",
+    fires: (h, c) => h.fulls >= FULLS_BEFORE_SPEAKING && !c.hasCrate,
+  },
+  ...hardwareRules(),
 ];
+
+/**
+ * One rule per piece of hardware that has a chip, generated rather than listed.
+ *
+ * Generated so that each carries its **own** id: dismissing "the scanner
+ * arrived" must not also dismiss "the planter arrived", and one rule whose id
+ * varied with what fired it would be a dismissal that hits whatever came next.
+ */
+function hardwareRules(): Rule[] {
+  return Object.entries(CHIP_FOR_RESEARCH).map(([name, chip]) => {
+    const research = name as ResearchName;
+    const uses = USES[research];
+    return {
+      id: `new-hardware:${research}`,
+      chip,
+      why: `The ${research} has arrived. This is what it does.`,
+      /**
+       * Until the player writes it themselves.
+       *
+       * The same self-retiring shape as the loop rule, and for the same reason:
+       * a suggestion that has to be dismissed by hand is a suggestion that
+       * outstays its welcome by exactly as long as the player ignores it. A
+       * script that says `bot.scanner` has answered the question.
+       */
+      fires: (h: History, c: Colony) =>
+        c.landed.has(research) &&
+        !(uses !== undefined && allSources(h).some((s) => mentions(s, uses))),
+    };
+  });
+}
+
+/** The script the player most recently set going, running or finished. */
+const newest = (h: History): string | undefined => h.current ?? h.runs.at(-1)?.source;
+
+/** Everything this bot has been asked to run, including what is running now. */
+const allSources = (h: History): string[] =>
+  h.current === null ? h.runs.map((r) => r.source) : [...h.runs.map((r) => r.source), h.current];
+
+const looping = (h: History): boolean => {
+  const source = newest(h);
+  return source !== undefined && hasLoop(source);
+};
 
 /**
  * True when the source actually loops.
@@ -102,6 +243,11 @@ const RULES: readonly Rule[] = [
  */
 export function hasLoop(source: string): boolean {
   return /\b(?:while|for|do)\b/.test(stripNonCode(source));
+}
+
+/** True when the source really calls this, rather than mentioning it in a comment. */
+export function mentions(source: string, needle: string): boolean {
+  return stripNonCode(source).includes(needle);
 }
 
 /**
@@ -147,40 +293,74 @@ function stripNonCode(source: string): string {
 }
 
 export interface Suggester {
+  /** A run is starting: this script's failures are its own, and this is its source. */
+  started(botId: number, source: string): void;
   /** Record how a run the player started ended. */
   ran(botId: number, source: string, status: ScriptStatus): void;
+  /** One frame's events, from the same drain the marks and effects read. */
+  saw(events: readonly WorldEvent[]): void;
+  /** What the world looks like now, for the rules that ask about the colony. */
+  world(snapshot: WorldSnapshot): void;
   /** The one thing worth saying to this bot's author right now, if anything. */
   suggest(botId: number): Suggestion | null;
   /** Retire a suggestion for the rest of the session: taken, or refused. */
   retire(id: string): void;
+  /**
+   * Chips the game has raised at some point, whether or not they were taken.
+   *
+   * The codebook pins these above the rest: what the game has taught you is the
+   * part of the book you are most likely to come back for.
+   */
+  offered(): ReadonlySet<string>;
 }
 
 export function createSuggester(): Suggester {
   const histories = new Map<number, History>();
   const retired = new Set<string>();
+  const seen = new Set<string>();
+  const colony: Colony = { landed: new Set(), hasCrate: false };
 
   const historyFor = (botId: number): History => {
     let h = histories.get(botId);
     if (!h) {
-      h = { runs: [] };
+      h = { runs: [], current: null, bumps: 0, fulls: 0 };
       histories.set(botId, h);
     }
     return h;
   };
 
   return {
+    started(botId, source) {
+      const h = historyFor(botId);
+      h.current = source;
+      h.bumps = 0;
+      h.fulls = 0;
+    },
+
     ran(botId, source, status) {
       const h = historyFor(botId);
-      h.runs.push({ status, looped: hasLoop(source) });
+      h.current = null;
+      h.runs.push({ status, source });
       if (h.runs.length > MAX_RUNS) h.runs.shift();
+    },
+
+    saw(events) {
+      for (const e of events) {
+        if (e.kind === "bump") historyFor(e.botId).bumps++;
+        else if (e.kind === "full") historyFor(e.botId).fulls++;
+        else if (e.kind === "research") colony.landed.add(e.name);
+      }
+    },
+
+    world(snapshot) {
+      colony.hasCrate = snapshot.machines.some((m) => m.kind === "crate");
     },
 
     suggest(botId) {
       const h = historyFor(botId);
-      // First match wins, so RULES is in priority order. With one rule that is
-      // not yet a decision; with four it is, and the list is where it lives.
       for (const rule of RULES) {
-        if (retired.has(rule.id) || !rule.fires(h)) continue;
+        if (retired.has(rule.id) || !rule.fires(h, colony)) continue;
+        seen.add(rule.chip);
         return { id: rule.id, chip: rule.chip, why: rule.why, code: codeFor(rule.chip) };
       }
       return null;
@@ -188,6 +368,10 @@ export function createSuggester(): Suggester {
 
     retire(id) {
       retired.add(id);
+    },
+
+    offered() {
+      return seen;
     },
   };
 }
