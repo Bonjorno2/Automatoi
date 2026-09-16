@@ -310,3 +310,29 @@ describe("occupiedRect", () => {
     expect(occupiedRect(empty)).toEqual({ x: 0, y: 0, width: 32, height: 32 });
   });
 });
+
+/**
+ * Milestone 8's Task 2, which measured milestone 6's finding 5 and built nothing.
+ *
+ * The finding asked for a minimum size for a belt's arrow, the way `MIN_ID_SIZE`
+ * is one for a bot's number. Task 1 made that unnecessary: framing the field
+ * rather than the grid is worth about 2.1x in tile size, which puts the arrow
+ * above the six pixels milestone 6 measured and accepted at every pane width the
+ * three-column layout is usable at. The numbers are in Task 2's commit.
+ *
+ * This is what remains of that task: the guard that the opening view is still
+ * materially larger than the fit. If `occupiedRect` or `frameView` ever collapses
+ * back toward the whole grid, the arrow shrinks with it and the finding is open
+ * again — silently, because nothing else in the tree measures a belt in pixels.
+ */
+describe("the opening view stays worth having", () => {
+  it("is at least twice the fit at every pane the layout is usable at", () => {
+    const rect = occupiedRect(new World({ seed: 1 }).snapshot());
+    for (const width of [200, 240, 286, 328, 400, 500, 650, 800]) {
+      const pane = { width, height: 800 };
+      const framed = viewGeometry(frameView(rect, GRID, pane), GRID, pane).size;
+      const fitted = viewGeometry(fitView(GRID, pane), GRID, pane).size;
+      expect(framed / fitted, `pane ${width}`).toBeGreaterThanOrEqual(2);
+    }
+  });
+});
