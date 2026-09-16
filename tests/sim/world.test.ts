@@ -1,4 +1,5 @@
-import { World } from "../../src/sim/world";
+import { CLOCKWISE, COUNTER_CLOCKWISE, World } from "../../src/sim/world";
+import type { Direction } from "../../src/sim/types";
 import { WHEAT_GROWTH_TICKS } from "../../src/sim/config";
 
 describe("World generation", () => {
@@ -58,5 +59,45 @@ describe("World generation", () => {
     const w = new World({ seed: 1 });
     expect(w.tileAt({ x: -1, y: 0 })).toBeUndefined();
     expect(w.tileAt({ x: 32, y: 0 })).toBeUndefined();
+  });
+});
+
+/**
+ * Milestone 6's finding 4: `R` turned one way, so north to west was three
+ * presses. The second table is derived from the first rather than written out,
+ * and this is what makes that safe.
+ */
+describe("the two quarter turns", () => {
+  const DIRS: Direction[] = ["north", "east", "south", "west"];
+
+  it("are inverses, for every direction", () => {
+    for (const dir of DIRS) {
+      expect(COUNTER_CLOCKWISE[CLOCKWISE[dir]], dir).toBe(dir);
+      expect(CLOCKWISE[COUNTER_CLOCKWISE[dir]], dir).toBe(dir);
+    }
+  });
+
+  it("return to where they started after four turns, either way", () => {
+    for (const dir of DIRS) {
+      let cw = dir;
+      let ccw = dir;
+      for (let i = 0; i < 4; i++) {
+        cw = CLOCKWISE[cw];
+        ccw = COUNTER_CLOCKWISE[ccw];
+      }
+      expect(cw, dir).toBe(dir);
+      expect(ccw, dir).toBe(dir);
+    }
+  });
+
+  it("goes north to west in one turn rather than three", () => {
+    // The finding itself, stated as the case that prompted it.
+    expect(COUNTER_CLOCKWISE.north).toBe("west");
+  });
+
+  it("covers all four directions rather than collapsing", () => {
+    // A derived table built from the wrong half of each pair would be a valid
+    // Record that mapped several directions to one.
+    expect(new Set(Object.values(COUNTER_CLOCKWISE)).size).toBe(4);
   });
 });

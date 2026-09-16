@@ -97,7 +97,17 @@ function describeInventory(inv: Record<string, number | undefined>): string {
   return parts.length ? parts.join(", ") : "nothing";
 }
 
-function describeBotActivity(bot: WorldSnapshot["bots"][number]): string {
+/**
+ * What a bot is doing, as a sentence.
+ *
+ * Exported for the fleet list, which asks the same question the tooltip does.
+ * Fact 2 of the milestone 8 plan: this is the only place in `src/` that turns a
+ * `blockedOn` into words, and a second copy would be two sentences about one bot
+ * on one screen at the same moment — the failure `MACHINE_LABEL` exists to
+ * prevent, one level up. `marks.ts` reads `blockedOn` too, but produces a mark
+ * kind rather than a sentence, so it is not a second opinion about wording.
+ */
+export function describeBotActivity(bot: WorldSnapshot["bots"][number]): string {
   if (bot.blockedOn === "bot") return "blocked by another bot";
   if (bot.blockedOn === "radio") return "waiting for a message";
   if (!bot.action) return "idle";
@@ -130,8 +140,15 @@ export interface Placement {
   reason(tile: Vec): string | null;
   /** Called only for a tile whose `reason` is null. */
   apply(tile: Vec): void;
-  /** Turn it a quarter. Does nothing for a kind with no front. */
-  rotate(): void;
+  /**
+   * Turn it a quarter, the way asked. Does nothing for a kind with no front.
+   *
+   * Takes a direction rather than offering two methods: milestone 6's finding 4
+   * is that `R` turned one way, so north to west was three presses, and a
+   * `rotateBack` would be a second place for the ghost and the placed machine to
+   * disagree about what a quarter turn is.
+   */
+  rotate(turn: "cw" | "ccw"): void;
 }
 
 /** The parts of a placement its text is made of. */
@@ -418,8 +435,11 @@ export function createInspector(
     // focus* — so picking "Conveyor" from the build menu left that button
     // focused and `R` did nothing until the player clicked elsewhere. Rotating
     // a belt right after choosing it is the single most likely next action.
+    // Shift+R turns the other way, milestone 6's finding 4. The banner still
+    // says "R to turn" and not "R/Shift+R": it is one line, and the second half
+    // is discoverable by holding a key that already does something.
     else if (e.key.toLowerCase() === "r" && keyTarget(e.target) !== "typing") {
-      inspector.placing.rotate();
+      inspector.placing.rotate(e.shiftKey ? "ccw" : "cw");
     }
   });
 

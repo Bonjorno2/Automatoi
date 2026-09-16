@@ -1,4 +1,12 @@
-import { cargoFraction, fieldLines, researchLines, stockLines } from "../../src/render/hud";
+import {
+  cargoFraction,
+  fieldLines,
+  fleetRows,
+  researchLines,
+  stockLines,
+} from "../../src/render/hud";
+import { describeBotActivity } from "../../src/render/inspector";
+import { botColor } from "../../src/render/palette";
 import { World } from "../../src/sim/world";
 import { BOT_CAPACITY, RESEARCH_COST, WHEAT_GROWTH_TICKS } from "../../src/sim/config";
 import type { Vec } from "../../src/sim/types";
@@ -185,5 +193,69 @@ describe("stockLines", () => {
     const w = new World({ seed: 1 });
     w.research.spareModules = { planter: 0 };
     expect(stockLines(w.snapshot())).toEqual([]);
+  });
+});
+
+/**
+ * Milestone 8's Task 5, closing milestone 4's finding 6 in full.
+ *
+ * The cheap half — a colour and a number per bot — shipped in milestone 6. This
+ * is the rest: a fleet a player can read without hovering it one bot at a time,
+ * which the design calls the Overseer and which had been deferred four times.
+ */
+describe("fleetRows", () => {
+  it("gives one row per bot, in the world's own order", () => {
+    const w = new World({ seed: 1 });
+    w.research.spareChassis = 2;
+    w.deployBot({ x: 20, y: 20 });
+    w.deployBot({ x: 21, y: 20 });
+    expect(fleetRows(w.snapshot(), null).map((r) => r.id)).toEqual(
+      w.snapshot().bots.map((b) => b.id),
+    );
+  });
+
+  it("colours a row the way the canvas colours the bot", () => {
+    // The list and the map must agree by construction. `botColor` is indexed by
+    // position in the bot list, not by id, so the rows have to be too.
+    const w = new World({ seed: 1 });
+    w.research.spareChassis = 1;
+    w.deployBot({ x: 20, y: 20 });
+    const rows = fleetRows(w.snapshot(), null);
+    expect(rows.map((r) => r.color)).toEqual([botColor(0, false), botColor(1, false)]);
+  });
+
+  it("says what each bot is doing, in the inspector's own words", () => {
+    // Fact 2 of the plan: one definition of what a bot is doing, called rather
+    // than restated, or the panel and the tooltip disagree on the same screen.
+    const w = new World({ seed: 1 });
+    expect(fleetRows(w.snapshot(), null)[0]!.activity).toBe("idle");
+
+    w.issue(1, { kind: "move", dir: "east" });
+    const moving = fleetRows(w.snapshot(), null)[0]!;
+    expect(moving.activity).toBe(describeBotActivity(w.snapshot().bots[0]!));
+    expect(moving.activity).toContain("move east");
+  });
+
+  it("reports a blocked bot as blocked rather than as idle", () => {
+    const w = new World({ seed: 1 });
+    w.getBot(1).modules.add("radio");
+    w.issue(1, { kind: "receive" });
+    ticks(w, 3);
+    expect(fleetRows(w.snapshot(), null)[0]!.activity).toBe("waiting for a message");
+  });
+
+  it("says empty rather than going blank for a bot carrying nothing", () => {
+    const w = new World({ seed: 1 });
+    expect(fleetRows(w.snapshot(), null)[0]!.carrying).toBe("empty");
+    w.getBot(1).inventory = { wheat: 3, bread: 1 };
+    expect(fleetRows(w.snapshot(), null)[0]!.carrying).toBe("3 wheat, 1 bread");
+  });
+
+  it("marks the selected bot, and only that one", () => {
+    const w = new World({ seed: 1 });
+    w.research.spareChassis = 1;
+    const second = w.deployBot({ x: 20, y: 20 });
+    expect(fleetRows(w.snapshot(), second.id).map((r) => r.selected)).toEqual([false, true]);
+    expect(fleetRows(w.snapshot(), null).every((r) => !r.selected)).toBe(true);
   });
 });

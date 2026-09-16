@@ -10,7 +10,7 @@ import { createAnimatedLayer } from "../render/animated.ts";
 import { createMarkLayer, heldMarks } from "../render/marks.ts";
 import { createEffectLayer } from "../render/effects.ts";
 import { armedMessage, createInspector, type Placement } from "../render/inspector.ts";
-import { CLOCKWISE } from "../sim/world.ts";
+import { CLOCKWISE, COUNTER_CLOCKWISE } from "../sim/world.ts";
 import { FACES } from "../sim/config.ts";
 import { createHud, createSidePanel } from "../render/hud.ts";
 import {
@@ -97,7 +97,15 @@ const overlay = createOverlay(stage.overlayLayer, {
   height: stage.app.screen.height,
 });
 const hud = createHud(stage.app.stage, { width: stage.app.screen.width, height: stage.app.screen.height });
-const sidePanel = createSidePanel(document.querySelector<HTMLElement>("#panel")!, pick);
+const sidePanel = createSidePanel(
+  document.querySelector<HTMLElement>("#panel")!,
+  pick,
+  // The design's click-to-script, routed through the inspector's own selection
+  // path rather than setting `selectedBotId`: selecting a bot also swaps the
+  // editor's contents and focuses its console panel, and a second way in would
+  // show one bot's script while the panel highlighted another.
+  (botId) => inspector.onSelect(botId),
+);
 
 function paneSize(): Size {
   return { width: stage.app.screen.width, height: stage.app.screen.height };
@@ -266,8 +274,9 @@ function armFor(option: Exclude<BuildOption, { kind: "module" }>): Placement {
       facing: FACES[option.machine] ? "north" : null,
       reason: (tile) => world.canPlace(option.machine, tile),
       apply: (tile) => void world.placeMachine(option.machine, tile, placing.facing ?? "north"),
-      rotate: () => {
-        if (placing.facing) placing.facing = CLOCKWISE[placing.facing];
+      rotate: (turn) => {
+        const table = turn === "ccw" ? COUNTER_CLOCKWISE : CLOCKWISE;
+        if (placing.facing) placing.facing = table[placing.facing];
       },
     };
     return placing;

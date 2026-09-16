@@ -202,6 +202,38 @@
       .research-row:not(.active) .research-text { color: var(--text-dim); }
       /* The build menu: things you own and have not placed. Styled as offers
          rather than as status, because clicking one is the whole point. */
+      /* The fleet list: milestone 4's finding 6, in full at last. A row is a
+         button because it selects a bot, and it carries the same colour swatch
+         the canvas draws that bot with so the two cannot be told apart. */
+      .fleet { margin: 0 0 var(--sp-1); padding: 0; list-style: none; }
+      .fleet li { margin-top: 0.2rem; }
+      .fleet button.fleet-row {
+        display: flex;
+        align-items: baseline;
+        gap: 0.4rem;
+        width: 100%;
+        text-align: left;
+        font-size: var(--fs-sm);
+        color: var(--text);
+        background: transparent;
+        border: 1px solid transparent;
+      }
+      .fleet button.fleet-row:hover { background: #24261c; border-color: #3a3d2d; }
+      .fleet button.fleet-row.selected { background: #2a2d20; border-color: var(--accent-dim); }
+      .fleet-swatch {
+        flex: none;
+        width: 0.6rem;
+        height: 0.6rem;
+        border-radius: 2px;
+        border: 1px solid #141409;
+      }
+      .fleet-name { flex: none; }
+      .fleet-what {
+        color: var(--text-dim);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
       .build { margin: 0; padding: 0; list-style: none; }
       .build li { margin-top: 0.2rem; }
       .build button {

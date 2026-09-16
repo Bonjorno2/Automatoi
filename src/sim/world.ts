@@ -84,6 +84,19 @@ export const CLOCKWISE: Record<Direction, Direction> = {
   west: "north",
 };
 
+/**
+ * The other quarter turn, milestone 6's finding 4: north to west was three
+ * presses because clockwise was the only direction there was.
+ *
+ * **Derived rather than written out.** Four more hand-typed rows would be four
+ * more chances to get one wrong, and a table that disagreed with `CLOCKWISE`
+ * would send a belt somewhere the ghost did not promise. A test asserts the two
+ * are inverses, which is cheaper than reading them.
+ */
+export const COUNTER_CLOCKWISE: Record<Direction, Direction> = Object.fromEntries(
+  Object.entries(CLOCKWISE).map(([from, to]) => [to, from]),
+) as Record<Direction, Direction>;
+
 const add = (a: Vec, b: Vec): Vec => ({ x: a.x + b.x, y: a.y + b.y });
 const sub = (a: Vec, b: Vec): Vec => ({ x: a.x - b.x, y: a.y - b.y });
 

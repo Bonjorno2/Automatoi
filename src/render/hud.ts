@@ -3,6 +3,8 @@ import { BOT_CAPACITY, CROP_GROWTH, RESEARCH_COST } from "../sim/config.ts";
 import { total } from "../sim/inventory.ts";
 import type { BotSnapshot, Item, ResearchName, WorldSnapshot } from "../sim/types.ts";
 import { buildOptions, type BuildOption } from "../editor/build-menu.ts";
+import { describeBotActivity } from "./inspector.ts";
+import { botColor } from "./palette.ts";
 import type { Geometry, Size } from "./geometry.ts";
 
 /**
@@ -84,6 +86,53 @@ export function fieldLines(snapshot: WorldSnapshot): string[] {
     const head = `${item} — ${n > 0 ? `${n} ready` : "none ready"}`;
     return coming > 0 ? `${head}, ${coming} growing` : head;
   });
+}
+
+/** One bot, as the panel shows it. */
+export interface FleetRow {
+  id: number;
+  /** The body colour the canvas draws it with, so the list and the map agree. */
+  color: number;
+  /** What it is doing, in the inspector's own words. */
+  activity: string;
+  carrying: string;
+  /** Whether this is the bot the editor is showing. */
+  selected: boolean;
+}
+
+/**
+ * Every bot, as a list.
+ *
+ * Milestone 4's finding 6, re-recorded in milestones 5, 6 and 7 and deferred
+ * each time. The cheap half — a colour and a number per bot — shipped in
+ * milestone 6; this is the rest of it, and the design calls it the Overseer.
+ *
+ * **Free and unresearched**, which departs from the design's "debug tools are
+ * hardware too". Every fact here is already obtainable by hovering each bot in
+ * turn, so what this removes is the hovering, and gating tedium relief behind
+ * bread is not what "research gates hardware" is for. What stays hardware is the
+ * Blackbox, which is information the world does not otherwise show.
+ *
+ * **In the world's own bot order**, which is what `botColor` is indexed by — so
+ * the list and the canvas agree by construction rather than by coincidence. The
+ * activity is `describeBotActivity`, called rather than restated, per Fact 2.
+ */
+export function fleetRows(snapshot: WorldSnapshot, selectedBotId: number | null): FleetRow[] {
+  return snapshot.bots.map((bot, index) => ({
+    id: bot.id,
+    color: botColor(index, bot.action !== null),
+    activity: describeBotActivity(bot),
+    carrying: describeCargo(bot),
+    selected: bot.id === selectedBotId,
+  }));
+}
+
+/** What a bot is carrying, or that it is carrying nothing rather than blank. */
+function describeCargo(bot: BotSnapshot): string {
+  const parts = Object.entries(bot.inventory)
+    .filter(([, n]) => (n ?? 0) > 0)
+    .map(([item, n]) => `${n} ${item}`);
+  return parts.length ? parts.join(", ") : "empty";
 }
 
 /**
@@ -191,14 +240,19 @@ export interface SidePanel {
   setActive(label: string | null): void;
 }
 
-export function createSidePanel(root: HTMLElement, onPick: (option: BuildOption) => void): SidePanel {
+export function createSidePanel(
+  root: HTMLElement,
+  onPick: (option: BuildOption) => void,
+  onSelectBot: (botId: number) => void,
+): SidePanel {
   let activeLabel: string | null = null;
   // Headings, added by milestone 7's Task 8. Nothing here is a control and
   // nothing moved: the four groups were always in this order and were simply
   // unlabelled, which made the panel one undifferentiated column of small text.
   root.innerHTML = `
     <section class="group">
-      <h2 class="group-title">bot</h2>
+      <h2 class="group-title">fleet</h2>
+      <ul class="fleet"></ul>
       <div class="cargo">
         <span class="cargo-label">cargo</span>
         <span class="bar"><i></i></span>
@@ -221,6 +275,7 @@ export function createSidePanel(root: HTMLElement, onPick: (option: BuildOption)
   const fill = root.querySelector<HTMLElement>(".bar i")!;
   const count = root.querySelector<HTMLElement>(".cargo-count")!;
   const label = root.querySelector<HTMLElement>(".cargo-label")!;
+  const fleet = root.querySelector<HTMLElement>(".fleet")!;
   const field = root.querySelector<HTMLElement>(".field")!;
   const research = root.querySelector<HTMLElement>(".research")!;
   const build = root.querySelector<HTMLElement>(".build")!;
@@ -234,6 +289,7 @@ export function createSidePanel(root: HTMLElement, onPick: (option: BuildOption)
       fill.classList.toggle("full", carried >= BOT_CAPACITY);
       count.textContent = `${carried}/${BOT_CAPACITY}`;
 
+      renderFleet(fleet, fleetRows(snapshot, selectedBotId), onSelectBot);
       fillList(field, fieldLines(snapshot), null);
       renderResearch(research, researchRows(snapshot));
       renderBuild(build, snapshot, onPick, activeLabel);
@@ -256,6 +312,48 @@ export function createSidePanel(root: HTMLElement, onPick: (option: BuildOption)
  * panel is redrawn every frame, and replacing DOM sixty times a second under a
  * player's pointer is how a click gets eaten.
  */
+/**
+ * The fleet list.
+ *
+ * Rebuilt only when its contents change, for the reason `renderBuild` is: a
+ * player is aiming at these rows while a ghost follows their cursor, and
+ * replacing the DOM under a pointer every frame cancels their own click.
+ *
+ * The click goes through the caller's selection callback rather than setting a
+ * variable, because selecting a bot also swaps the editor's contents — routing
+ * around that would show one bot's script while the panel highlighted another.
+ */
+function renderFleet(
+  root: HTMLElement,
+  rows: FleetRow[],
+  onSelectBot: (botId: number) => void,
+): void {
+  const key = rows.map((r) => `${r.id}:${r.color}:${r.activity}:${r.carrying}:${r.selected}`).join("|");
+  if (root.dataset.key === key) return;
+  root.dataset.key = key;
+
+  root.textContent = "";
+  for (const row of rows) {
+    const li = document.createElement("li");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = row.selected ? "fleet-row selected" : "fleet-row";
+    const swatch = document.createElement("i");
+    swatch.className = "fleet-swatch";
+    swatch.style.background = `#${row.color.toString(16).padStart(6, "0")}`;
+    const name = document.createElement("span");
+    name.className = "fleet-name";
+    name.textContent = `bot ${row.id}`;
+    const what = document.createElement("span");
+    what.className = "fleet-what";
+    what.textContent = `${row.activity} · ${row.carrying}`;
+    button.append(swatch, name, what);
+    button.addEventListener("click", () => onSelectBot(row.id));
+    li.append(button);
+    root.append(li);
+  }
+}
+
 function renderResearch(root: HTMLElement, rows: ResearchRow[]): void {
   const key = rows.map((r) => `${r.name}:${r.progress}/${r.cost}`).join("|");
   if (root.dataset.key === key) return;
