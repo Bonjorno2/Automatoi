@@ -101,6 +101,23 @@ const MACHINE_STYLE: Record<MachineKind, MachineStyle> = {
     },
     overlay: conversionArc,
   },
+  fabricator: {
+    // A frame with a gap in it, because what it makes walks out. Squarer and
+    // colder than the mill and the oven either side of it in the chain.
+    body(g, size) {
+      const s = size * 0.86;
+      g.roundRect(-s / 2, -s / 2, s, s, size * 0.06).fill(MACHINE.fabricator.body);
+      g.rect(-s * 0.34, -s * 0.34, s * 0.68, s * 0.68).stroke({
+        width: Math.max(1, size * 0.07),
+        color: MACHINE.fabricator.trim,
+      });
+      // The chassis on the bench.
+      g.roundRect(-s * 0.17, -s * 0.17, s * 0.34, s * 0.34, s * 0.08).fill(MACHINE.fabricator.trim);
+    },
+    // Nothing: it has no recipe and holds nothing. A machine whose whole output
+    // is a bot that walks away has nothing to draw between spawns.
+    overlay() {},
+  },
   conveyor: {
     // A plate filling its tile, because a belt is floor rather than furniture:
     // a line of them should read as one continuous run, not as a row of boxes.

@@ -116,11 +116,33 @@ export class Colony {
           return { ok: true, value: null };
         case "research-status":
           return { ok: true, value: this.researchStatus() };
+        case "spawn":
+          return this.doSpawn(request.source);
       }
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
   }
+
+  /**
+   * Build a bot and, if this colony runs workers, start its script.
+   *
+   * The sim half and the worker half are split because a plain `Colony` has no
+   * workers at all — it is the headless half the sim tests use — and it can
+   * still legitimately answer "a bot was built". `ScriptColony` overrides the
+   * hook to actually run the thing.
+   */
+  protected doSpawn(source: string): CommandResult {
+    const why = this.world.canSpawn();
+    if (why) return { ok: false, error: why };
+    const bot = this.world.spawnBot();
+    this.startSpawned(bot.id, source);
+    // The id, so the spawning script can radio it or read it out of colony.bots().
+    return { ok: true, value: bot.id };
+  }
+
+  /** What to do with a freshly built bot. Nothing, without workers. */
+  protected startSpawned(_botId: number, _source: string): void {}
 
   /** Hand back results the sim has finished with. */
   protected deliver(): void {
@@ -220,6 +242,24 @@ export interface ScriptColonyOptions extends ColonyOptions {
    * depends on. The page passes a `RealtimeClock`.
    */
   clock?: Clock;
+  /**
+   * The colony's shared library, compiled into scope ahead of every script.
+   *
+   * A getter rather than a string on some callers, because the page edits it
+   * while bots are running and a snapshot taken at construction would go stale
+   * the first time the player saved. Headless callers pass a plain string.
+   */
+  library?: string | (() => string);
+  /**
+   * How to watch a bot that another bot's script built.
+   *
+   * Without this a spawned bot's logs and its dying error go nowhere: the page
+   * wires `onLog` and `onSettle` when *it* starts a script, and nothing wires
+   * them when a script does. Milestone 9's playtest found exactly that — a child
+   * whose script threw on its first line, with the parent reporting success and
+   * the fleet list saying "idle".
+   */
+  onSpawned?: (botId: number) => RunOptions;
 }
 
 /**
@@ -248,6 +288,9 @@ export class ScriptColony extends Colony {
   private readonly workers = new Map<number, WorkerHandle>();
   private readonly settlers = new Map<number, (o: Settled) => void>();
   private readonly spawnWorker: SpawnWorker;
+  /** Read afresh per run, so the page can edit the library while bots run. */
+  private readonly library: () => string;
+  private readonly onSpawned?: (botId: number) => RunOptions;
   readonly clock: Clock;
   private pendingRuns = 0;
   private looping = false;
@@ -255,6 +298,9 @@ export class ScriptColony extends Colony {
   constructor(opts: ScriptColonyOptions) {
     super(opts);
     this.spawnWorker = opts.spawnWorker;
+    const library = opts.library ?? "";
+    this.library = typeof library === "function" ? library : () => library;
+    this.onSpawned = opts.onSpawned;
     this.clock = opts.clock ?? new DemandClock();
   }
 
@@ -284,7 +330,7 @@ export class ScriptColony extends Colony {
     const channel = this.channels.get(botId);
     if (channel) channel.lastActive = Date.now();
 
-    const worker = this.spawnWorker({ sab, botId, source });
+    const worker = this.spawnWorker({ sab, botId, source, library: this.library() });
     this.workers.set(botId, worker);
 
     worker.onMessage((raw) => {
@@ -379,6 +425,17 @@ export class ScriptColony extends Colony {
     this.settlers.get(botId)?.({ status: "stopped" });
     await worker.terminate();
     this.resetChannel(botId);
+  }
+
+  /**
+   * A bot built by another bot's script, running from the moment it exists.
+   *
+   * Not awaited: `run` resolves when the script *settles*, which for the
+   * `while (true)` loop a spawned bot usually gets is never. Awaiting here would
+   * hang the spawning script on the lifetime of its child.
+   */
+  protected override startSpawned(botId: number, source: string): void {
+    void this.run(botId, source, this.onSpawned?.(botId) ?? {});
   }
 
   async stopAll(): Promise<void> {

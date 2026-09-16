@@ -1,5 +1,5 @@
 import { clearRuntimeErrors, markRuntimeError, mountEditor } from "./editor.ts";
-import { ScriptStore } from "./script-store.ts";
+import { LIBRARY, ScriptStore } from "./script-store.ts";
 import { createConsolePanel } from "./console-panel.ts";
 import { createSnippetBook } from "./snippet-book.ts";
 import { GameSession } from "./session.ts";
@@ -25,7 +25,7 @@ import {
 import { keyTarget } from "../render/keys.ts";
 import type { Size } from "../render/geometry.ts";
 import type { BuildOption } from "./build-menu.ts";
-import type { ModuleName } from "../sim/types.ts";
+import type { Direction, ModuleName } from "../sim/types.ts";
 
 /**
  * Cross-origin isolation is checked before anything else. Without it
@@ -40,6 +40,9 @@ const statusEl = document.querySelector<HTMLElement>("#status")!;
 // player asked for ("fitted planter to bot 1"), and overwriting those every
 // frame with a mode banner would lose them.
 const placingEl = document.querySelector<HTMLElement>("#placing")!;
+// Hidden until the research lands, because a buffer nobody can use is a button
+// that only raises questions.
+const libraryButton = document.querySelector<HTMLButtonElement>("#library")!;
 if (!isolated) {
   statusEl.textContent = "NOT ISOLATED — SharedArrayBuffer unavailable";
   throw new Error("cross-origin isolation required");
@@ -261,6 +264,22 @@ function pick(option: BuildOption): void {
  * outcome cannot be three different opinions. Remove is a branch here rather
  * than an interaction of its own, per Decision 9 of the milestone 7 plan.
  */
+/**
+ * The facing the player last chose, kept across re-arming.
+ *
+ * Milestone 8's finding 1: the ghost started facing north every time, so laying
+ * the natural shape — a line rightward — put down six dead ends before anybody
+ * thought about `R`. The banner said "facing north" the whole time and was not
+ * read, because the thing the hand is doing is drag a line to the right and the
+ * thing the screen is saying is a compass bearing.
+ *
+ * Deliberately *not* inferred from the direction of the second click, which was
+ * the other candidate: guessing means the first belt of every line is still
+ * wrong, and a wrong guess that corrects itself is worse than a default that
+ * stays put.
+ */
+let lastFacing: Direction = "north";
+
 function armFor(option: Exclude<BuildOption, { kind: "module" }>): Placement {
   const world = session.world;
 
@@ -271,12 +290,14 @@ function armFor(option: Exclude<BuildOption, { kind: "module" }>): Placement {
       mode: "place",
       // Only a kind with a front carries one, so `R` does nothing to a crate
       // rather than silently turning something with no direction.
-      facing: FACES[option.machine] ? "north" : null,
+      facing: FACES[option.machine] ? lastFacing : null,
       reason: (tile) => world.canPlace(option.machine, tile),
       apply: (tile) => void world.placeMachine(option.machine, tile, placing.facing ?? "north"),
       rotate: (turn) => {
         const table = turn === "ccw" ? COUNTER_CLOCKWISE : CLOCKWISE;
-        if (placing.facing) placing.facing = table[placing.facing];
+        if (!placing.facing) return;
+        placing.facing = table[placing.facing];
+        lastFacing = placing.facing;
       },
     };
     return placing;
@@ -366,6 +387,13 @@ const generations = new Map<number, number>();
 
 async function run(): Promise<void> {
   const botId = selectedBotId;
+  if (scripts.editingLibrary) {
+    // The library is not a script and has nobody to run it. Saving is enough:
+    // every bot picks it up the next time its own script starts.
+    scripts.stash(editor.getValue());
+    statusEl.textContent = "library saved — bots pick it up when they next start";
+    return;
+  }
   if (botId === null) {
     statusEl.textContent = "select a bot to run its script";
     return;
@@ -393,6 +421,7 @@ async function run(): Promise<void> {
 const book = createSnippetBook(editor);
 document.body.append(book.element);
 document.querySelector("#book-toggle")!.addEventListener("click", () => book.toggle());
+libraryButton.addEventListener("click", () => editLibrary());
 
 document.querySelector("#run")!.addEventListener("click", () => void run());
 document.querySelector("#stop")!.addEventListener("click", () => {
@@ -430,10 +459,38 @@ window.addEventListener("keydown", (e) => {
  * bot 1 until there was a second bot to address.
  */
 const scripts = new ScriptStore(session.firstBotId);
+// Every worker starts with whatever is in the library buffer right now — but
+// only once it has been researched, so a beginner's error lines are untouched by
+// a feature they have not bought (and cannot yet see).
+session.library = () =>
+  session.world.research.unlocked.has("library") ? scripts.library() : "";
+
+/**
+ * A bot built by a script gets the same console panel a bot started from the
+ * editor gets.
+ *
+ * Milestone 9's playtest: a spawned bot whose script threw on its first line
+ * reported nothing anywhere — the parent said it had succeeded, because it had,
+ * and the fleet list said "idle", because the sim had no other word for a bot
+ * whose script is dead. The error existed and had nowhere to go.
+ *
+ * No generation check, unlike `run` below: nothing can restart a spawned bot's
+ * script, so there is no previous run whose callbacks could arrive late and
+ * label this one stopped.
+ */
+session.onSpawned = (botId) => {
+  panel.start(botId);
+  return {
+    onLog: (m) => panel.log(botId, m),
+    onSettle: (outcome) => panel.settle(botId, outcome),
+  };
+};
 let selectedBotId: number | null = session.firstBotId;
 
 inspector.onSelect = (botId) => {
-  if (botId === selectedBotId) return;
+  // Not `botId === selectedBotId` alone: while the library is on screen the
+  // selected bot has not changed, and clicking it has to bring its script back.
+  if (botId === selectedBotId && !scripts.editingLibrary) return;
   const next = scripts.select(botId, editor.getValue());
   selectedBotId = botId;
   if (next !== null) {
@@ -441,7 +498,37 @@ inspector.onSelect = (botId) => {
     clearRuntimeErrors(editor);
     panel.focus(botId!);
   }
+  showLibraryState();
 };
+
+/**
+ * Point the editor at the shared library.
+ *
+ * Its own target rather than a pretend bot: it has no position, no inventory and
+ * no worker, and `Run` means nothing here. `selectedBotId` is left alone so that
+ * going back is a click on the bot the player was already on.
+ */
+function editLibrary(): void {
+  if (scripts.editingLibrary) {
+    // A toggle, because the button is the only way back for a player who has no
+    // second bot to click on the map.
+    const back = scripts.select(selectedBotId, editor.getValue());
+    if (back !== null) editor.setValue(back);
+  } else {
+    editor.setValue(scripts.select(LIBRARY, editor.getValue()) ?? "");
+  }
+  clearRuntimeErrors(editor);
+  showLibraryState();
+}
+
+function showLibraryState(): void {
+  const on = scripts.editingLibrary;
+  libraryButton.classList.toggle("build-active", on);
+  libraryButton.textContent = on ? "Close library" : "Library";
+  statusEl.textContent = on
+    ? "editing the shared library — every bot sees it when its script next starts"
+    : statusEl.textContent;
+}
 
 /**
  * Rolling means over two seconds of frames, shown only with `?perf`.
@@ -520,6 +607,9 @@ function draw(): void {
       : undefined,
   });
   sidePanel.update(snap, selectedBotId);
+  // The research is the only gate: the button appears when the buffer becomes
+  // real, and the prelude stays empty until then.
+  libraryButton.hidden = !snap.research.unlocked.includes("library");
   sidePanel.setActive(inspector.placing?.option ?? null);
   // Milestone 5's finding 2: armed and inspecting were two modes with no
   // difference the player could see without hovering a tile and reading the

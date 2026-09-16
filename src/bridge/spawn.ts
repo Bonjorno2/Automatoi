@@ -15,6 +15,13 @@ export interface WorkerInit {
   sab: SharedArrayBuffer;
   botId: number;
   source: string;
+  /**
+   * The colony's shared library, compiled into scope ahead of `source`.
+   *
+   * Empty until the player researches it, which is what keeps a beginner's
+   * error lines untouched by a feature they have not bought.
+   */
+  library: string;
 }
 
 export interface WorkerHandle {

@@ -261,6 +261,7 @@ export class World {
         modules: [...b.modules],
         busy: b.action !== null,
         blockedOn: b.blockedOn,
+        stalled: b.stalled,
         action: b.action
           ? {
               kind: b.action.command.kind,
@@ -476,6 +477,35 @@ export class World {
     bot.action = null;
     bot.blockedOn = null;
     bot.result = outcome;
+    this.scoreProgress(bot, outcome);
+  }
+
+  /**
+   * Did that command achieve anything?
+   *
+   * Milestone 8's finding 3: a bot walled in by belts read "idle", exactly like
+   * one whose script had ended, because `blockedOn` models bot-on-bot and radio
+   * and not walking into a machine.
+   *
+   * **A count rather than a third `blockedOn` value**, per Decision 5 of the
+   * milestone 9 plan. Those two are *waiting* — the command has not resolved and
+   * the script is suspended. Bumping a machine is not waiting: the move
+   * resolves, answers false, and the script runs on. One field holding both
+   * would mean "blocked" stopped having a single meaning.
+   *
+   * What counts as nothing is the command's own answer, not a list of command
+   * kinds kept in step by hand: a `move` that returned false, a `deposit` or
+   * `withdraw` that transferred zero, a `harvest` with nothing to take. A `wait`
+   * answers `undefined` and therefore resets, which is right — waiting on
+   * purpose is not being stuck.
+   *
+   * A failed outcome is left alone. That is an error, the script stops, and the
+   * design gives errors their own signal.
+   */
+  private scoreProgress(bot: Bot, outcome: Outcome): void {
+    if (outcome === RETRY || !outcome.ok) return;
+    const nothing = outcome.value === false || outcome.value === 0;
+    bot.stalled = nothing ? bot.stalled + 1 : 0;
   }
 
   private execute(bot: Bot, cmd: Command): Outcome {
@@ -787,6 +817,58 @@ export class World {
     this.jammed.delete(machine.id);
   }
 
+  /**
+   * Why a script cannot start another bot right now, or null if it can.
+   *
+   * The same shape as `canPlace` and `canRemove`, and for the same reason: the
+   * bridge asks it, the sim answers, and there is no second copy of the rule.
+   *
+   * `spawn` is deliberately not "create a bot anywhere". It needs a fabricator
+   * standing on the map, a chassis from research stock — the same one the build
+   * menu's Deploy spends — and a free tile beside the machine. Without the
+   * machine it would be a menu item spelled as code; with it, a factory that
+   * builds bots is a thing that has a place and can be belted to.
+   */
+  canSpawn(): string | null {
+    if (!this.research.unlocked.has("fabricator")) return "fabricator not researched";
+    const fabricator = this.fabricator();
+    if (!fabricator) return "no fabricator built";
+    if (this.research.spareChassis < 1) return "no spare chassis";
+    if (!this.freeTileBeside(fabricator.pos)) return "no room beside the fabricator";
+    return null;
+  }
+
+  /** Build a bot at the fabricator, spending a chassis. */
+  spawnBot(): Bot {
+    const why = this.canSpawn();
+    if (why) throw new Error(why);
+    const pos = this.freeTileBeside(this.fabricator()!.pos)!;
+    this.research.spareChassis--;
+    // A harvester, like every other new bot: the fabricator makes chassis, not
+    // modules, and the build menu's Fit is still how a module gets onto one.
+    return this.addBot(pos, ["harvester"]);
+  }
+
+  private fabricator(): Machine | undefined {
+    for (const m of this.machines.values()) if (m.kind === "fabricator") return m;
+    return undefined;
+  }
+
+  /**
+   * Somewhere beside a machine that a bot could stand, in a fixed order.
+   *
+   * `DIR`'s own order rather than anything cleverer, so two identical worlds put
+   * their new bot on the same tile — determinism is a property the whole test
+   * suite rests on.
+   */
+  private freeTileBeside(pos: Vec): Vec | null {
+    for (const dir of Object.keys(DIR) as Direction[]) {
+      const p = add(pos, DIR[dir]);
+      if (this.tileBlocked(p) === null) return p;
+    }
+    return null;
+  }
+
   /** The same question for a spare chassis. */
   canDeploy(pos: Vec): string | null {
     if (this.research.spareChassis < 1) return "no spare chassis";
@@ -888,7 +970,12 @@ export class World {
       case "mill":
       case "oven":
       case "conveyor":
+      case "fabricator":
         return; // unlocks placeMachine(kind), nothing to stock
+      case "library":
+        // Unlocks a source buffer, which lives in the editor rather than in the
+        // world. The sim's only part in it is saying whether it exists.
+        return;
       default: {
         // Exhaustive rather than a silent fallthrough: mill and oven landed in
         // milestone 5 without a case here and granted nothing by accident
@@ -911,6 +998,7 @@ export class World {
       result: null,
       inbox: [],
       blockedOn: null,
+      stalled: 0,
     };
     this.bots.set(bot.id, bot);
     return bot;

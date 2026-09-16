@@ -259,3 +259,32 @@ describe("fleetRows", () => {
     expect(fleetRows(w.snapshot(), null).every((r) => !r.selected)).toBe(true);
   });
 });
+
+describe("the fleet list tells stuck from idle", () => {
+  it("says stuck for a bot whose commands keep getting nowhere", () => {
+    // Milestone 8's finding 3, which landed on the panel milestone 8 built: a
+    // bot walled in by belts said "idle", the same word as a bot whose script
+    // had ended.
+    const w = new World({ seed: 1 });
+    w.research.unlocked.add("conveyor");
+    const bot = w.getBot(1);
+    bot.pos = { x: 20, y: 20 };
+    for (const d of [{ x: 0, y: -1 }, { x: 0, y: 1 }, { x: 1, y: 0 }, { x: -1, y: 0 }]) {
+      w.placeMachine("conveyor", { x: 20 + d.x, y: 20 + d.y }, "north");
+    }
+
+    expect(fleetRows(w.snapshot(), null)[0]!.activity).toBe("idle");
+    for (let i = 0; i < 3; i++) run(w, 1, { kind: "move", dir: "north" });
+    expect(fleetRows(w.snapshot(), null)[0]!.activity).toBe("stuck — 3 commands got nowhere");
+  });
+
+  it("still says idle for a bot that has simply stopped", () => {
+    // One blocked move is ordinary: the design's first lesson is a script that
+    // walks east until it cannot, and that ends every sweep with one refusal.
+    const w = new World({ seed: 1 });
+    w.research.unlocked.add("conveyor");
+    w.placeMachine("conveyor", { x: w.getBot(1).pos.x + 1, y: w.getBot(1).pos.y }, "north");
+    run(w, 1, { kind: "move", dir: "east" });
+    expect(fleetRows(w.snapshot(), null)[0]!.activity).toBe("idle");
+  });
+});

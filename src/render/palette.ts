@@ -85,6 +85,9 @@ export const MACHINE: Record<MachineKind, { body: number; trim: number }> = {
   // Darker than anything else on the field, because a belt is floor: it has to
   // read as something the eye passes over on the way to what it feeds.
   conveyor: { body: 0x3e4038, trim: 0x8e9484 },
+  // Cool and metallic, and the only machine that is not warm: it makes bots
+  // rather than food, and it should not read as one more step in the chain.
+  fabricator: { body: 0x4a5a6a, trim: 0xa8c0d8 },
 };
 
 /** One row per chassis module, for the pips along a bot's edge. */

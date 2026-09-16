@@ -16,6 +16,7 @@ const MACHINE_LABEL: Record<MachineKind, string> = {
   mill: "Mill",
   oven: "Oven",
   conveyor: "Conveyor",
+  fabricator: "Fabricator",
 };
 
 /**
@@ -98,6 +99,15 @@ function describeInventory(inv: Record<string, number | undefined>): string {
 }
 
 /**
+ * How many wasted commands before a bot is called stuck.
+ *
+ * Not one: a single blocked move is ordinary — a script that walks east until it
+ * cannot is the design's own first lesson, and it ends every sweep with exactly
+ * one refusal. Three is a bot that has tried and tried again.
+ */
+const STALLED_AFTER = 3;
+
+/**
  * What a bot is doing, as a sentence.
  *
  * Exported for the fleet list, which asks the same question the tooltip does.
@@ -110,6 +120,11 @@ function describeInventory(inv: Record<string, number | undefined>): string {
 export function describeBotActivity(bot: WorldSnapshot["bots"][number]): string {
   if (bot.blockedOn === "bot") return "blocked by another bot";
   if (bot.blockedOn === "radio") return "waiting for a message";
+  // Above `idle`, and above the action, because a bot repeating a move that
+  // does nothing is *doing* something in the sense that matters least. Milestone
+  // 8's finding 3: walled in by belts, this read "idle" — the same word as a bot
+  // whose script had ended.
+  if (bot.stalled >= STALLED_AFTER) return `stuck — ${bot.stalled} commands got nowhere`;
   if (!bot.action) return "idle";
   const dir = bot.action.dir ? ` ${bot.action.dir}` : "";
   return `${bot.action.kind}${dir} — ${bot.action.remaining} of ${bot.action.total} ticks left`;
@@ -274,6 +289,38 @@ export function armedMessage(placing: ArmedText | null): string {
 }
 
 /**
+ * What colour the ghost is, which is the strongest channel it has.
+ *
+ * Milestone 8's finding 2. Milestone 7 let the player's hands destroy a
+ * machine's contents and rested the argument on the cost being under the cursor
+ * first — and it was, as the third line of a six-line tooltip, under two lines
+ * identical to the harmless case, with the banner and the ghost saying nothing.
+ * Every channel a hand is actually watching was silent and the one that spoke
+ * was text in the middle of a tooltip.
+ *
+ * So removal has three colours rather than two, and the third is the one the
+ * decision was always about. The distinction is already computed — it is
+ * `removalCost(...) !== null` — so this adds a colour and no new question.
+ *
+ * Amber rather than a second red: red means "this will not work", it has meant
+ * that since milestone 5, and a destructive click that *will* work is a
+ * different fact. It is `COLOR.starved`'s family, which is the palette's
+ * existing word for "look at this".
+ *
+ * Pure, so which colour appears when is a test rather than a screenshot — the
+ * same move `describePlacement` made for the wording.
+ */
+export function ghostColour(
+  mode: "place" | "remove",
+  reason: string | null,
+  costly: boolean,
+): number {
+  if (reason !== null) return 0xe0584a;
+  if (mode === "remove" && costly) return COLOR.starved;
+  return 0x6fbf5a;
+}
+
+/**
  * The remove ghost's mark, inset from the tile's edge so the ghost's own border
  * stays readable around it.
  *
@@ -342,8 +389,13 @@ export function createInspector(
 
       if (placing) {
         // A filled ghost, because the question is "what goes here", not "what
-        // is here". Green means the click will work; red carries the reason.
-        const colour = reason === null ? 0x6fbf5a : 0xe0584a;
+        // is here". Green means the click will work; red carries the reason;
+        // amber means it will work and cost something.
+        const colour = ghostColour(
+          placing.mode,
+          reason,
+          removalCost(snapshot, hovered) !== null,
+        );
         outline
           .rect(p.x + 1, p.y + 1, geo.size - 2, geo.size - 2)
           .fill({ color: colour, alpha: 0.35 })

@@ -11,6 +11,7 @@ function bot(over: Partial<BotSnapshot> = {}): BotSnapshot {
     modules: ["harvester"],
     busy: false,
     blockedOn: null,
+    stalled: 0,
     action: null,
     ...over,
   };

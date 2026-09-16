@@ -26,6 +26,7 @@ const PLACEABLE: { research: MachineKind; label: string }[] = [
   { research: "mill", label: "Mill" },
   { research: "oven", label: "Oven" },
   { research: "conveyor", label: "Conveyor" },
+  { research: "fabricator", label: "Fabricator" },
 ];
 
 export function buildOptions(snapshot: WorldSnapshot): BuildOption[] {

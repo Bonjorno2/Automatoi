@@ -2,8 +2,10 @@ import {
   armedMessage,
   describePlacement,
   describeTile,
+  ghostColour,
   removalCost,
 } from "../../src/render/inspector";
+import { COLOR } from "../../src/render/palette";
 import { World } from "../../src/sim/world";
 import { CONVEYOR_TICKS, MACHINE_CAPACITY, WHEAT_GROWTH_TICKS } from "../../src/sim/config";
 import type { Direction } from "../../src/sim/types";
@@ -432,5 +434,39 @@ describe("armedMessage", () => {
 
   it("is nothing at all when nothing is held", () => {
     expect(armedMessage(null)).toBe("");
+  });
+});
+
+/**
+ * Milestone 8's finding 2: the cost of a destructive click was carried entirely
+ * by the third line of a six-line tooltip, while the ghost and the banner said
+ * nothing. This moves it to the strongest channel the ghost has.
+ */
+describe("ghostColour", () => {
+  const RED = 0xe0584a;
+  const GREEN = 0x6fbf5a;
+
+  it("is red whenever the click will not work, in either mode", () => {
+    expect(ghostColour("place", "tile occupied", false)).toBe(RED);
+    expect(ghostColour("remove", "the Research Console cannot be removed", true)).toBe(RED);
+  });
+
+  it("is green for a placement, whatever is under it", () => {
+    // Placing over a ripe crop costs something too, and says so in words. The
+    // colour is reserved for the mode that deletes a machine's contents, which
+    // is the irreversible one.
+    expect(ghostColour("place", null, false)).toBe(GREEN);
+    expect(ghostColour("place", null, true)).toBe(GREEN);
+  });
+
+  it("is green for a removal that costs nothing", () => {
+    expect(ghostColour("remove", null, false)).toBe(GREEN);
+  });
+
+  it("is a third colour for a removal that destroys something", () => {
+    const costly = ghostColour("remove", null, true);
+    expect(costly).not.toBe(GREEN);
+    expect(costly).not.toBe(RED);
+    expect(costly).toBe(COLOR.starved);
   });
 });
