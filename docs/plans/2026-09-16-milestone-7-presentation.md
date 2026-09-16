@@ -273,16 +273,187 @@ git commit -m "docs: milestone 7 playtest findings"
 
 ---
 
+## Findings from Task 9
+
+Recorded, not fixed. Driven on 2026-09-16 against seed 1. The same caveat every
+milestone since 3 has carried carries forward, and it bites harder here than
+anywhere: these are mechanical findings from driving the real page, and this is
+the milestone whose entire subject is how something *looks*. Two of the plan's
+own questions — whether the wind is annoying after ten minutes, and whether the
+page now makes someone want to watch it — cannot be answered this way at all.
+They need a human who did not write it.
+
+### 1. The camera changed what "the narrow pane" means, and half of it is still true
+
+Every previous renderer assumption has been caught by the narrow-window case, so
+this was the first thing checked. The answer is now in two parts.
+
+A narrow window no longer shrinks the world as you resize into it: the camera
+keeps the zoom you had, and you simply see less. That is right, and it is new.
+
+But the page still *opens* at the fit, so a player whose window is 900 wide
+still starts at **8 pixels per tile**, and at 8 pixels the machine detail is
+gone — a belt's arrow is 2.4 pixels, a tread chevron about 1.3, and a cargo pip
+is 0.9 of a radius. Milestone 6's finding 5 asked for a minimum size and this
+milestone's answer is "zoom in", which the plan called legitimate *only if the
+camera is discoverable*. It is: the masthead says "wheel zooms · space-drag pans
+· Home resets", and that line is on screen before anything else.
+
+So finding 5 is answered rather than fixed, and the honest form of the answer is
+that the first thirty seconds of a small window still show an illegible field.
+
+### 2. The camera's keys stop working the moment a control has focus
+
+Measured: zoom to 20-pixel tiles, click `Run`, press `Home` — nothing happens.
+Click the canvas or the page background first and the same key fits the grid.
+The guard is `e.target === document.body`, which `inspector.ts` already used for
+`R` and `Escape`, so this is a convention being inherited rather than invented.
+
+It is worse for `Space` than for `Home`, because `Space` is how a browser
+activates a focused button. A player who clicks `Run` and then holds space to
+pan is not failing to pan; they are pressing `Run` again. Nothing on screen
+explains why, and "click the canvas first" is not a thing anyone will guess.
+
+### 3. The belt tread is far slower than the belt, at every speed
+
+Decision 4 predicted half of this and the numbers are worse than the half it
+predicted. The tread scrolls at 0.9 tiles per second on the wall clock. Cargo
+moves one tile every `CONVEYOR_TICKS` ticks at 20 Hz, which is **5 tiles per
+second at 1x** and 20 at 4x.
+
+So the chevrons crawl while the pips jump whole tiles past them — a factor of
+5.5 at normal speed, not only at 4x. The decision's conclusion survives, because
+a mismatch that large cannot be read as a rate by anybody. What it does risk is
+the opposite reading: a belt whose tread is visibly slow looks like a slow belt,
+and milestone 6's finding 8 already records that players will be staring at
+belts wondering why the mill is waiting.
+
+### 4. A loaded cage can be escaped, and only a script can do it
+
+Decision 10 named this hole and Task 9 was told to try it. It is exactly as
+named, and the exit is real: three belts and the Research Console around a bot,
+every belt carrying wheat, and the remove ghost refuses all four — "conveyor is
+not empty" three times and "the Research Console cannot be removed" once. The
+bot then withdraws the cargo out of a wall into itself, the belt reports
+removable, the player's hands lift it, and the bot walks out.
+
+The whole route was driven end to end and it works. The problem is who can find
+it. `withdraw` is a script command with no presence in the UI, and the tooltip
+that refuses says *"conveyor is not empty"* — which names the obstacle and not
+the remedy. So milestone 6's finding 1 is narrowed rather than closed: a player
+can always dismantle an empty cage with the mouse, and a loaded one still needs
+a line of code. The tooltip is one sentence away from being the fix.
+
+### 5. The vignette is doing something, and it took switching it off to know
+
+The plan asked. With it off the grass reads flat and the pane's corners come
+forward; with it on they recede and the field is the brightest thing on screen.
+At the strength this shipped with it is genuinely unnoticeable when looked at
+directly, which is the brief — and the first value tried, 0.4 over a 0.4 reach,
+read as a dark frame drawn around the canvas.
+
+### 6. Zooming in magnifies the grain into blocks
+
+The ground grain is one shade per tile, chosen by a hash. That is what makes it
+free per frame, and it means a tile is a flat square of colour at every zoom. At
+the fit it reads as ground. At 72-pixel tiles it reads as 72-pixel squares, and
+the field looks tiled in a way it did not before the camera existed.
+
+Nothing is wrong and nothing is lost — it is the honest consequence of a per-tile
+value. A second, finer hash inside each tile would answer it, and would cost
+build time rather than frame time, which is the same bargain Task 1 made.
+
+### 7. The frame budget was never in danger
+
+Recorded so nobody optimises any of this without a number. The heaviest scene
+the game can currently produce — 169 crops swaying, 65 loaded belts scrolling,
+a mill and an oven working, and a harvest loop throwing particles, all at 4x —
+costs **2.278 ms** of a 16.6 ms budget, against the plan's 8 ms gate.
+
+Task 1's identical scene went from 0.230 ms to 1.050 ms, and nearly all of that
+0.8 ms is the wind's per-crop rotation. Belts, particles, shadows and the
+vignette together are the other 1.2 ms, and only at 65 belts.
+
+---
+
 ## Done criteria for milestone 7
 
 - `npm test` and `npm run typecheck` clean.
+  > **Met.** 512 tests, typecheck clean. Five test edits across the milestone,
+  > each named in the commit that made it: three in Task 0 (a length assertion
+  > that became a filter, and the `mode` field two helpers now require), and in
+  > Task 2 `stage.test.ts`'s exact consumer list gaining "overlay". Two more
+  > tests were written, failed, and turned out to be asserting the wrong
+  > property — the grain's luma ordering in Task 1 and the particles' exactness
+  > under frame splits in Task 6. Both are corrected in place with the wrong
+  > version described, because the reason they were wrong is the finding.
 - **A player can take a machine back off the map with the mouse, and milestone 6's finding 1 is closed** — the cage a playtest built can be dismantled by the player who built it, without a script and without a research.
+  > **Narrowed, not closed, and the criterion overstated what Task 0 could
+  > deliver.** An *empty* cage comes apart with the mouse, which is the common
+  > case and the one the playtest actually hit. A cage whose belts are carrying
+  > something does not: removal still refuses a non-empty machine, deliberately,
+  > because relaxing that is how items start vanishing. The exit exists and was
+  > driven end to end in finding 4, and it needs a line of script. The claim
+  > should have read "an empty machine", and it is re-recorded for whichever
+  > milestone puts the remedy in the tooltip.
 - The measured frame total is recorded, before and after, and is under 8 ms.
+  > **Met.** 0.230 ms before, 1.050 ms after on the identical scene, 2.278 ms on
+  > the heaviest scene the game can currently produce. Finding 7 has the
+  > breakdown. All three taken with the same instrument, which does not include
+  > the GPU present — see Task 1's commit for why.
 - Crops sway, belts run, working machines look worked, and none of it carries information that is not also carried statically.
+  > **Met, and the static half was checked rather than asserted.** Idle machines
+  > are pixel-identical across frames and working ones are not; the belt tread
+  > moves the brightest pixel on an empty belt by 1.6 luma, so the arrow it is
+  > drawn over still carries the facing. Finding 3 is the one place where an
+  > animation could be *mis*read, and it is a rate nobody claimed.
 - A camera zooms and pans, the inspector still names the right tile at every zoom, and `Home` reproduces the old view exactly.
+  > **Met, with one word of the criterion wrong.** `Home` reproduces the old
+  > view exactly; *zooming all the way out* reproduces its tile size but not its
+  > position, because zooming out about a corner leaves the grid in that corner.
+  > That is why `Home` exists rather than being a synonym for zooming out, and
+  > it is a test. The inspector was checked on the page at the fit, zoomed in,
+  > after panning, and zoomed back out. Finding 2 is a real defect against this
+  > criterion's spirit: the key works and cannot always be pressed.
 - Nothing in `src/sim/` changed except Task 0's `canRemove` and, possibly, one new event kind for Task 6.
+  > **Met, exactly.** `canRemove`/`removeMachine`/`takeMachine` in Task 0, and
+  > one `harvest` event in Task 6. Task 6 wanted three effects and only that one
+  > needed an event: a placement is a machine id the renderer has not seen, and
+  > a transfer is already in the snapshot as a bot's `action`.
 - No new dependency, and no asset loaded from disk.
+  > **Met.** `package.json` is untouched.
 
 ## What this deliberately does not do
 
 **Day/night**, per Decision 8. **Sub-tile item positions on belts**, which milestone 6 Decision 5 settled and which a polish pass has no standing to reopen. **Sprites or a texture atlas** — the moment art comes from files, the game needs an art pipeline, an artist and a licence story, and none of those are a rendering problem. **Sound**, which is a whole milestone and probably a better one than this.
+
+## What milestone 8 inherits
+
+Three small things and one real one, in the order they cost a player something.
+
+**Finding 2 is a defect, not a judgement**, and it is the only thing in this
+list that stops a feature working. The camera's keys die whenever a control has
+focus, and `Space` does something actively wrong there — it presses the button
+again. It was left unfixed only because Task 9's rule is to record rather than
+repair, and because the guard it inherits is shared with `R` and `Escape` in
+`inspector.ts`, so the fix belongs to all three at once rather than to the
+newest caller.
+
+**Finding 4 is one sentence of tooltip.** A cage of loaded belts is escapable and
+the refusal says "conveyor is not empty", which names the obstacle and not the
+remedy. Saying what to do instead would close milestone 6's finding 1 properly
+rather than narrowing it, and it is the cheapest thing in this document.
+
+**Finding 1** leaves the opening view of a small window illegible until the
+player uses a camera they have been told about but not yet needed. A first-run
+zoom that fits the *field* rather than the grid would answer it.
+
+**Finding 6** — grain that magnifies into blocks — is the one to leave alone
+until somebody complains. It is the honest cost of a per-tile value, and the fix
+is a second hash at sub-tile resolution, which is Task 1's bargain again and
+should be made against a screenshot rather than against a paragraph.
+
+And the thing this milestone did not touch: the design's **Overseer fleet
+view**, deferred in milestones 4, 5 and 6 and deferred again here. This
+milestone gave the player a camera, which makes watching a fleet *possible* and
+makes not having a fleet view more obvious, not less.
