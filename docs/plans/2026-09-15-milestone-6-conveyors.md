@@ -300,20 +300,161 @@ git commit -m "docs: milestone 6 playtest findings"
 
 ---
 
+## Findings from Task 10
+
+Recorded, not fixed. Driven on 2026-09-16 against seed 1. The same caveat
+milestones 3, 4 and 5 carried carries forward: these are mechanical findings
+from driving the real page, and the two numbers the design actually scores a
+build on still need human playtesters.
+
+Nothing here was fixed in place. Milestone 5's exception — a defect rather than
+a judgement gets fixed with a test — did not fire this time: finding 1 is the
+worst thing in this list and it is a *design* consequence with a UI-shaped
+answer, not a flag that lies.
+
+### 1. A bot can be sealed in, and nothing in the game can free it
+
+Decision 2 said belts block bots, that a player could therefore fence themselves
+in, and that this was the most likely thing in the plan to be wrong. It is worse
+than the decision allowed for.
+
+Four belts around a bot and every direction bumps — verified, all four moves
+returning false with a bump mark each. That part is fine and legible. What is
+not fine is the way out. **Removal is script-only.** The build menu offers
+nothing but things to place; `bot.builder.remove` is the single way a machine
+ever leaves the world, and it needs the builder arm researched at ten bread and
+fitted to a bot that can still reach the console.
+
+So a player who rings their only bot in before researching the builder has a
+world that cannot be recovered: the bot cannot move, so it cannot harvest, so
+the console cannot be fed, so the builder can never be researched. That is a
+soft-lock, and the design document's "no crash is fatal" is a promise it breaks.
+
+The cheapest honest answer is a remove mode in the build menu, which is a hands
+phase the milestone simply did not build. It belongs at the front of milestone 7.
+
+### 2. Laying a belt over ripe wheat destroys it, and only a number says so
+
+Ten belts laid across the field in a straight line ate **seven mature wheat**,
+silently. The only trace is the field counter from Task 1 dropping from 119 to
+112, and a player who is watching their cursor rather than the panel sees
+nothing at all.
+
+This is Task 6's own decision being wrong in one specific case. The armed
+tooltip deliberately says nothing extra over ground it could simply build on —
+"a crop report nobody asked for, while they are aiming at something, is noise" —
+and that reasoning holds for bare soil and fails completely for a ripe crop
+about to be deleted. The ghost should say what it is about to cost.
+
+It compounds with milestone 5's finding 3: the field is finite, belts spend it
+faster, and now routing one also eats it.
+
+### 3. A belt that cannot deliver looks exactly like one that is briefly full
+
+The wrong-facing corner, which is the mistake this plan predicted a player would
+make and which I then made myself while laying an L by hand in Task 6: four
+wheat rode the line, reached the belt whose facing was never turned, and stopped
+there for two hundred ticks.
+
+Diagnosis is possible — the mill beyond it correctly reports `starved`, and
+hovering the stuck belt says "facing east" when the mill is north. But the belt
+itself has no state for this. Every other machine in the game can say it is
+starved or jammed; a belt that is holding four items it can never hand on draws
+exactly like a belt that is briefly holding four items it is about to hand on.
+
+### 4. R turns one way
+
+Rotating from north to west is three presses, because `CLOCKWISE` is the only
+direction there is. Shift+R, or the right-click that is already bound to cancel,
+are the two conventions this could borrow from.
+
+### 5. The arrow and the pips disappear in a narrow window
+
+Measured rather than eyeballed: at the 20-pixel tiles a 1600x900 browser gives,
+a belt's arrow is 6 pixels long and a cargo pip is 2.2 across, which reads. In a
+narrow window the pane renders 7-pixel tiles, and the arrow is 2 pixels.
+
+Bot ids already have `MIN_ID_SIZE` for exactly this reason — measured in Task 2,
+where a digit on a 4.6-pixel chassis was a smudge that cost contrast and said
+nothing. Belts have no equivalent threshold, and the thing that disappears is
+the only thing a player can get wrong about them.
+
+### 6. Belts cost nothing to run, and this is recorded so nobody optimises it
+
+65 belts, all carrying cargo: the step costs **0.028 ms per tick** and drawing
+them costs **0.015 ms per frame**, against milestone 4's measured 16.6 ms budget.
+
+The two-phase copy in `advanceConveyors` — every machine's inventory copied
+before each step — is the obvious thing for a future reader to want to optimise.
+It is 0.17% of a frame at this scale. Measure again before touching it, the way
+milestone 4 retired the crop-growth optimisation by measuring rather than
+implementing it.
+
+### 7. status() removed a guess, and the guess is still in the tree
+
+`colony.research.status()` is what the reference belt script uses to know the
+chassis arrived, and writing that script without it would have meant waiting on
+a number worked out on paper. Which is exactly what
+`tests/bridge/first-research.test.ts` still does: `bot.wait(15)`, unchanged
+since milestone 2, with milestone 3's finding 4 as its excuse. Nothing forces it
+to be updated now that the excuse is gone.
+
+### 8. The belt route is 2.29x the hand-haul, and the bot becomes the mill's servant
+
+Recorded as a success and as the next milestone's problem. Task 9's measurement:
+1181 ticks against milestone 5's 2700, for the same six bread.
+
+What is left after the belts is harvesting and the mill's own rate. The bot
+sweeps a row, walks to one tile, and then stands there waiting on a four-item
+belt that drains slower than it can fill it. The hauling is gone and the waiting
+is new, which is cycle 4 — "copy-paste a factory block manually" — asking to
+exist rather than a fault in this one.
+
+---
+
 ## Done criteria for milestone 6
 
 - `npm test` and `npm run typecheck` clean, with the named edits to `tests/render/palette.test.ts` and no others.
+  > **Met.** 424 tests, typecheck clean. Verified the same way milestone 5
+  > verified its correction: every removed line in `tests/` diffed against the
+  > milestone 5 merge. Seven removals, and all seven are accounted for — five
+  > are import lines that gained a symbol, two are the named `Object.keys`
+  > assertions on `MACHINE` and `MODULE`.
 - A belt carries an item one tile per step, and a five-tile line takes five steps whichever end it was built from.
 - A belt takes flour from a mill and never takes its wheat, and never takes anything from a crate or the console.
 - Wheat loaded onto a belt becomes bread in the console with no bot walking between the machines.
 - `bot.builder.place` and `bot.builder.remove` work from a player script, and refuse through the same `canPlace` the ghost uses.
 - `colony.research.status()` answers without costing a tick.
 - A headless test shows a belt route beating milestone 5's hand-hauled baseline by a pinned margin.
+  > **Met.** 1181 ticks against 2700, a 2.29x speed-up, pinned two ways: under
+  > 60% of the baseline, and under a ceiling of 1600.
 - Milestone 5's findings 2, 3 and 6 are closed. Finding 5 is explicitly **not**, per Decision 7, and finding 4 — a machine holds 16 and a bot carries 10 — is left alone as measured-and-accepted.
+  > **Two of three, and the third needs its claim narrowed.** Finding 2
+  > (placement stays armed and hides the inspector) is closed. Finding 3 (the
+  > field runs out unsignposted) is closed as *unsignposted* — the panel now
+  > counts what is standing, ready and growing — while the cliff itself is
+  > untouched and intended.
+  >
+  > **Finding 6 is not closed.** Two bots are now told apart by colour and by a
+  > number, which is the cheap half; the design's Overseer fleet view — watching
+  > a fleet rather than identifying one of it — does not exist, and this
+  > milestone gave the player belts to watch as well. The criterion should have
+  > said "the cheap half of finding 6", and it is re-recorded for whichever
+  > milestone builds the fleet view.
+- **Not a criterion, and it should have been:** a player can place machines and
+  has no way to remove one. Finding 1 above makes that a soft-lock rather than
+  an inconvenience, and a plan that introduced walls should have required a way
+  through them.
 
 ## What milestone 7 will build on this
 
-Two threads, and they meet.
+**First, the soft-lock.** A remove mode in the build menu, before anything else
+in this section. Finding 1 is not a polish item: a player who rings their only
+bot in with belts has a world that cannot be recovered, and the design document
+promises that no failure is fatal. It is a hands phase this milestone should
+have built and did not.
+
+Then two threads, and they meet.
 
 The design's cycle 4 is blueprints: a player-authored `stamp(layout, at)` built on the `place()` this milestone ships, and the fabricator's `spawn(script)` so a stamped factory can come with the bot that runs it. That needs `import` between scripts, which the design deliberately holds back until one file per bot is genuinely miserable — and a fleet laying belt routes is where that starts.
 
