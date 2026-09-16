@@ -1,4 +1,4 @@
-import { Container, Graphics } from "pixi.js";
+import { Container, Graphics, Text } from "pixi.js";
 import { MACHINE_CAPACITY, RESEARCH_COST } from "../sim/config.ts";
 import { total } from "../sim/inventory.ts";
 import { DIR } from "../sim/world.ts";
@@ -10,7 +10,7 @@ import type {
   WorldSnapshot,
 } from "../sim/types.ts";
 import { toCentre, type Geometry } from "./geometry.ts";
-import { COLOR, MACHINE, MODULE } from "./palette.ts";
+import { COLOR, MACHINE, MIN_ID_SIZE, MODULE, botColor } from "./palette.ts";
 import { actorPos } from "./actor-pos.ts";
 
 /**
@@ -110,6 +110,8 @@ interface BotSprite {
   root: Container;
   body: Graphics;
   ring: Graphics;
+  /** The bot's own number, drawn on the chassis where the tile is big enough. */
+  label: Text;
   /** What the body was last drawn for, so an unchanged bot skips the rebuild. */
   key: string;
   /** Held between moves: an idle bot keeps facing where it last went. */
@@ -134,14 +136,20 @@ export function createActorLayer(frameLayer: Container, geometry: Geometry): Act
   const botContainer = new Container();
   frameLayer.addChild(machineContainer, botContainer);
 
-  function drawBot(sprite: BotSprite, bot: BotSnapshot, active: boolean): void {
+  function drawBot(sprite: BotSprite, bot: BotSnapshot, active: boolean, index: number): void {
     const size = geo.size;
     const s = size * 0.66;
     const g = sprite.body;
     g.clear();
     g.roundRect(-s / 2, -s / 2, s, s, s * 0.26)
-      .fill(active ? COLOR.bot : COLOR.botIdle)
+      .fill(botColor(index, active))
       .stroke({ width: Math.max(1, size * 0.06), color: COLOR.botOutline });
+
+    // The number, where there is room for one. Colour says which bot at every
+    // size; the digit is what a large enough window adds to it.
+    sprite.label.text = String(bot.id);
+    sprite.label.visible = size >= MIN_ID_SIZE;
+    sprite.label.style.fontSize = Math.round(s * 0.62);
 
     // Facing notch. A square with no front is a box; a square with a front is
     // a thing that is going somewhere.
@@ -161,24 +169,33 @@ export function createActorLayer(frameLayer: Container, geometry: Geometry): Act
 
   function syncBots(snap: WorldSnapshot, alpha: number, selected: number | null): void {
     const seen = new Set<number>();
-    for (const bot of snap.bots) {
+    // The index is the bot's place in the world's own list, which is what its
+    // colour is drawn from — see BOT_BODY for why not the id.
+    snap.bots.forEach((bot, index) => {
       seen.add(bot.id);
       let sprite = bots.get(bot.id);
       if (!sprite) {
         const root = new Container();
         const ring = new Graphics();
         const body = new Graphics();
-        root.addChild(ring, body);
+        const label = new Text({
+          text: "",
+          style: { fill: COLOR.botOutline, fontFamily: "ui-monospace, Menlo, monospace" },
+        });
+        label.anchor.set(0.5);
+        // A touch above centre: the module pips live along the bottom edge.
+        label.position.set(0, -geo.size * 0.06);
+        root.addChild(ring, body, label);
         botContainer.addChild(root);
-        sprite = { root, body, ring, key: "", facing: "east" };
+        sprite = { root, body, ring, label, key: "", facing: "east" };
         bots.set(bot.id, sprite);
       }
 
       if (bot.action?.dir) sprite.facing = bot.action.dir;
       const active = bot.action !== null;
-      const key = `${geo.size}|${active}|${sprite.facing}|${bot.modules.join(",")}`;
+      const key = `${geo.size}|${active}|${sprite.facing}|${bot.modules.join(",")}|${index}|${bot.id}`;
       if (key !== sprite.key) {
-        drawBot(sprite, bot, active);
+        drawBot(sprite, bot, active, index);
         sprite.key = key;
       }
 
@@ -197,7 +214,7 @@ export function createActorLayer(frameLayer: Container, geometry: Geometry): Act
 
       const p = toCentre(geo, actorPos(bot, alpha));
       sprite.root.position.set(p.x, p.y);
-    }
+    });
     for (const [id, sprite] of bots) {
       if (seen.has(id)) continue;
       sprite.root.destroy({ children: true });

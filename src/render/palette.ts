@@ -71,9 +71,59 @@ export const MODULE: Record<ModuleName, number> = {
   radio: 0xc07fd0,
 };
 
+/**
+ * One body colour per bot, in the order they were deployed.
+ *
+ * Milestone 4's finding 6, re-recorded as milestone 5's: two bots on the canvas
+ * were distinguishable only by the selection ring, which answers "which one am
+ * I editing" and not "which one is that". This is the cheap half of the answer.
+ * The design's Overseer fleet view is the rest of it.
+ *
+ * **Indexed by position in the world's bot list, not by bot id.** Ids are shared
+ * with machines: place three crates before deploying and the second bot is id 6,
+ * which collides with bot 1 under any modulo of the id. The price is that
+ * colours would shift if a bot were ever removed, which nothing can do today.
+ *
+ * The first entry is the bot gold from milestone 4, so the bot a player has been
+ * watching for two milestones does not change colour under them.
+ */
+export const BOT_BODY: readonly number[] = [
+  0xe0c060, // gold
+  0x58c8b0, // teal
+  0xc888e0, // violet
+  0xe08a58, // amber
+  0x7fb0f0, // ice
+];
+
+/** What an idle body is mixed toward, and how far. */
+const IDLE_SHADE = 0x0a0c08;
+const IDLE_MIX = 0.42;
+
+/**
+ * A bot's body colour: which bot it is, and whether it is doing anything.
+ *
+ * Brightness carried busy-or-idle before this table existed and still does. What
+ * changed is that dimming now happens per bot rather than to one shared grey, so
+ * an idle teal bot is still visibly the teal one.
+ */
+export function botColor(index: number, active: boolean): number {
+  const n = BOT_BODY.length;
+  const base = BOT_BODY[((index % n) + n) % n]!;
+  return active ? base : lerpColor(base, IDLE_SHADE, IDLE_MIX);
+}
+
+/**
+ * Below this tile size the id is not drawn at all.
+ *
+ * Measured rather than guessed, the same way the crop `young` colour was: the
+ * pane renders at 7 pixels per tile when the browser window is narrow and 20 at
+ * a 1600x900 one. A bot body is two thirds of a tile, so at 7 a digit is a
+ * smudge that costs contrast and says nothing. Colour works at every size; the
+ * number is what larger windows buy.
+ */
+export const MIN_ID_SIZE = 14;
+
 export const COLOR = {
-  bot: 0xe0c060,
-  botIdle: 0x8d8055,
   botOutline: 0x141409,
   /** The arc a machine draws while it is working on something. */
   progress: 0x9be06a,

@@ -1,10 +1,12 @@
 import {
+  BOT_BODY,
   CROP,
   CROP_HEIGHT,
   ITEM_COLOR,
   MACHINE,
   MODULE,
   TERRAIN,
+  botColor,
   cropColor,
   cropStage,
 } from "../../src/render/palette";
@@ -64,6 +66,45 @@ describe("the palette covers every sim union", () => {
     // Pips are read by colour alone; two modules sharing one is unreadable.
     expect(new Set(values).size).toBe(values.length);
     expect(Object.keys(MODULE).sort()).toEqual(["harvester", "planter", "radio", "scanner"]);
+  });
+});
+
+/** Perceived brightness, for asserting one colour is darker than another. */
+const luma = (c: number): number =>
+  0.299 * ((c >> 16) & 0xff) + 0.587 * ((c >> 8) & 0xff) + 0.114 * (c & 0xff);
+
+describe("botColor", () => {
+  it("gives every entry a usable colour, and no two the same", () => {
+    // Bots are told apart by colour alone at the tile sizes this game renders
+    // at, so two sharing one is two bots the player cannot distinguish.
+    for (const c of BOT_BODY) expect(isColor(c)).toBe(true);
+    expect(new Set(BOT_BODY).size).toBe(BOT_BODY.length);
+  });
+
+  it("gives the first bot the gold it has had since milestone 4", () => {
+    // A player who has watched one bot for two milestones should not find it
+    // recoloured by the arrival of a second.
+    expect(botColor(0, true)).toBe(0xe0c060);
+  });
+
+  it("gives two bots two colours, and a third a third", () => {
+    const colours = [botColor(0, true), botColor(1, true), botColor(2, true)];
+    expect(new Set(colours).size).toBe(3);
+  });
+
+  it("dims an idle bot without changing which bot it is", () => {
+    // Brightness carried busy-or-idle before this table existed and still does;
+    // what changed is that it now says it about a specific bot.
+    for (let i = 0; i < BOT_BODY.length; i++) {
+      expect(luma(botColor(i, false))).toBeLessThan(luma(botColor(i, true)));
+    }
+    // Two idle bots are still two bots.
+    expect(botColor(0, false)).not.toBe(botColor(1, false));
+  });
+
+  it("wraps rather than running out for a fleet larger than the table", () => {
+    expect(botColor(BOT_BODY.length, true)).toBe(botColor(0, true));
+    expect(isColor(botColor(99, true))).toBe(true);
   });
 });
 
