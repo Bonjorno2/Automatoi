@@ -1,4 +1,4 @@
-import { TREAD, treadOffset } from "../../src/render/animated";
+import { TREAD, WORKING, consolePulse, ovenGlow, spinStep, treadOffset } from "../../src/render/animated";
 
 describe("the belt tread", () => {
   const size = 20;
@@ -54,5 +54,63 @@ describe("the belt tread", () => {
   it("is dimmer when the belt is empty than when it is carrying", () => {
     // Decoration on top of the cargo pips, not a replacement for them.
     expect(TREAD.alpha.empty).toBeLessThan(TREAD.alpha.loaded);
+  });
+});
+
+describe("machines that look like they are working", () => {
+  it("advances the grind in proportion to the frame it was given", () => {
+    expect(spinStep(32)).toBeCloseTo(spinStep(16) * 2, 9);
+  });
+
+  it("clamps a long frame, so a backgrounded tab does not spin a hundred turns", () => {
+    // The spin accumulates rather than being read off the wall clock, so that
+    // stopping and restarting does not jump. That is what makes a ten-second
+    // gap dangerous here and harmless for the tread.
+    expect(spinStep(10_000)).toBe(spinStep(WORKING.maxStepMs));
+  });
+
+  it("never runs backwards or on a frame that took no time", () => {
+    for (const dt of [0, -16, Number.NaN, -0]) expect(spinStep(dt)).toBe(0);
+  });
+
+  it("keeps the oven lit rather than blinking it off", () => {
+    // A flicker that reaches zero reads as a fault light. The floor is what
+    // makes it a fire.
+    let low = Infinity;
+    let high = 0;
+    for (let t = 0; t < 20_000; t += 7) {
+      const a = ovenGlow(t);
+      low = Math.min(low, a);
+      high = Math.max(high, a);
+    }
+    expect(low).toBeGreaterThanOrEqual(WORKING.ovenAlpha.min - 1e-9);
+    expect(high).toBeLessThanOrEqual(WORKING.ovenAlpha.max + 1e-9);
+    expect(low).toBeLessThan(high);
+  });
+
+  it("flickers faster than the console pulses", () => {
+    // They are different signals and must not be mistaken for each other: a
+    // fire is jittery and a thing worth noticing is slow.
+    expect(Math.max(...WORKING.ovenPeriods)).toBeLessThan(WORKING.consolePeriod);
+  });
+
+  it("holds the console's pulse inside its band", () => {
+    for (let t = 0; t < 20_000; t += 13) {
+      expect(consolePulse(t)).toBeGreaterThanOrEqual(WORKING.consoleAlpha.min - 1e-9);
+      expect(consolePulse(t)).toBeLessThanOrEqual(WORKING.consoleAlpha.max + 1e-9);
+    }
+  });
+
+  it("is the same value twice for the same instant", () => {
+    for (const t of [0, 333, 5000]) {
+      expect(ovenGlow(t)).toBe(ovenGlow(t));
+      expect(consolePulse(t)).toBe(consolePulse(t));
+    }
+  });
+
+  it("gives a finite answer for a nonsense instant", () => {
+    // A NaN alpha does not throw in Pixi; the sprite just stops being drawn.
+    expect(Number.isFinite(ovenGlow(Number.NaN))).toBe(true);
+    expect(Number.isFinite(consolePulse(Number.NaN))).toBe(true);
   });
 });

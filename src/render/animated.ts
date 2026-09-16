@@ -1,8 +1,8 @@
 import { Container, Graphics } from "pixi.js";
 import { DIR } from "../sim/world.ts";
 import { total } from "../sim/inventory.ts";
-import type { MachineSnapshot, WorldSnapshot } from "../sim/types.ts";
-import { toPixel, type Geometry } from "./geometry.ts";
+import type { MachineKind, MachineSnapshot, WorldSnapshot } from "../sim/types.ts";
+import { toCentre, toPixel, type Geometry } from "./geometry.ts";
 import { MACHINE } from "./palette.ts";
 
 /**
@@ -58,6 +58,63 @@ export function treadOffset(nowMs: number, size: number): number {
   return ((travelled % spacing) + spacing) % spacing;
 }
 
+/**
+ * What a machine that is doing something looks like.
+ *
+ * All three of these are one write per frame against a `Graphics` drawn once —
+ * `rotation` for the mill, `alpha` for the other two — which is Decision 2 kept
+ * rather than bent. Only the belt tread genuinely redraws.
+ *
+ * All three are also **strictly decoration**, per Decision 3. The progress arc
+ * `actors.ts` draws is what actually says a machine is working, and it is still
+ * there; a screenshot loses a flicker and loses no fact. The identity of each
+ * machine — the mill's stones, the oven's mouth, the console's screen — stays in
+ * `MachineStyle.body` where it is drawn once and cannot go missing.
+ */
+export const WORKING = {
+  /** Turns per second of the mill's grind. */
+  millTurns: 0.42,
+  /**
+   * Largest frame gap that still advances the grind.
+   *
+   * The spin accumulates rather than being read off the wall clock, so that
+   * stopping and restarting does not jump. Accumulating means a backgrounded
+   * tab returning after ten seconds would otherwise spin the stones a hundred
+   * times in one frame.
+   */
+  maxStepMs: 100,
+  /** The oven's flicker: two fast periods that never line up, and a floor. */
+  ovenPeriods: [170, 290] as const,
+  ovenAlpha: { min: 0.22, max: 0.62 },
+  /** The console's pulse while research is queued. Slow: it is a thing to notice, not a warning. */
+  consolePeriod: 1900,
+  consoleAlpha: { min: 0.05, max: 0.4 },
+} as const;
+
+/** How far the mill's stones turn in one frame. Clamped, and never backwards. */
+export function spinStep(dtMs: number): number {
+  if (!Number.isFinite(dtMs) || dtMs <= 0) return 0;
+  const dt = Math.min(dtMs, WORKING.maxStepMs);
+  return (dt / 1000) * WORKING.millTurns * Math.PI * 2;
+}
+
+/** The oven's glow, in [ovenAlpha.min, ovenAlpha.max]. Never dark: a lit oven stays lit. */
+export function ovenGlow(nowMs: number): number {
+  if (!Number.isFinite(nowMs)) return WORKING.ovenAlpha.min;
+  const [p, q] = WORKING.ovenPeriods;
+  const wave = 0.6 * Math.sin((nowMs / p) * Math.PI * 2) + 0.4 * Math.sin((nowMs / q) * Math.PI * 2);
+  const { min, max } = WORKING.ovenAlpha;
+  return min + ((wave + 1) / 2) * (max - min);
+}
+
+/** The console's pulse, in [consoleAlpha.min, consoleAlpha.max]. */
+export function consolePulse(nowMs: number): number {
+  if (!Number.isFinite(nowMs)) return WORKING.consoleAlpha.min;
+  const wave = Math.sin((nowMs / WORKING.consolePeriod) * Math.PI * 2);
+  const { min, max } = WORKING.consoleAlpha;
+  return min + ((wave + 1) / 2) * (max - min);
+}
+
 interface BeltSprite {
   root: Container;
   tread: Graphics;
@@ -66,9 +123,50 @@ interface BeltSprite {
   loaded: boolean;
 }
 
+/** A machine whose busy-ness is drawn as movement. */
+interface WorkSprite {
+  g: Graphics;
+  /** Accumulated radians, for the mill. Held so a stop and start does not jump. */
+  spin: number;
+}
+
+/**
+ * The moving part of each machine that has one, drawn once into its own
+ * `Graphics` at the tile's centre.
+ *
+ * A machine kind absent from this table has nothing that moves.
+ */
+const WORK_PART: Partial<Record<MachineKind, (g: Graphics, size: number) => void>> = {
+  mill: (g, size) => {
+    // Spokes over the stones that `body` already drew, rather than the stones
+    // themselves. The plan said "the mill's stones rotate"; moving them here
+    // would put the thing that says *this is a mill* in a layer that is only
+    // drawn while it happens to be working.
+    const s = size * 0.84;
+    const r = s * 0.2;
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * Math.PI * 2;
+      g.moveTo(0, 0).lineTo(Math.cos(a) * r, Math.sin(a) * r);
+    }
+    g.stroke({ width: Math.max(1, size * 0.045), color: MACHINE.mill.body, cap: "round" });
+  },
+  oven: (g, size) => {
+    // Over the mouth `body` drew, in the same place and a little larger.
+    const s = size * 0.84;
+    g.roundRect(-s * 0.26, -s * 0.05, s * 0.52, s * 0.3, s * 0.06).fill(MACHINE.oven.trim);
+  },
+  console: (g, size) => {
+    const s = size * 0.86;
+    g.rect(-s * 0.28, -s * 0.3, s * 0.56, s * 0.34).fill(MACHINE.console.trim);
+  },
+};
+
 export function createAnimatedLayer(layer: Container, geometry: Geometry): AnimatedLayer {
   let geo = geometry;
   const belts = new Map<number, BeltSprite>();
+  const working = new Map<number, WorkSprite>();
+  /** Previous frame's instant, for the mill's accumulated spin. */
+  let lastNow: number | null = null;
 
   function build(machine: MachineSnapshot): BeltSprite {
     const root = new Container();
@@ -124,12 +222,63 @@ export function createAnimatedLayer(layer: Container, geometry: Geometry): Anima
     sprite.loaded = loaded;
   }
 
+  /**
+   * Whether this machine is doing something, and how hard it is to say so.
+   *
+   * The console is the exception: it has no `progress` of its own, and what a
+   * player looks at it to decide is whether research is running. Everything else
+   * reads `progress`, which the snapshot already carries.
+   */
+  function busy(machine: MachineSnapshot, snapshot: WorldSnapshot): boolean {
+    if (machine.kind === "console") return snapshot.research.queue.length > 0;
+    return machine.progress > 0;
+  }
+
+  function syncWorking(snapshot: WorldSnapshot, nowMs: number, dtMs: number): Set<number> {
+    const seen = new Set<number>();
+    for (const machine of snapshot.machines) {
+      const part = WORK_PART[machine.kind];
+      if (!part) continue;
+      seen.add(machine.id);
+
+      let sprite = working.get(machine.id);
+      if (!sprite) {
+        const g = new Graphics();
+        part(g, geo.size);
+        const c = toCentre(geo, machine.pos);
+        g.position.set(c.x, c.y);
+        layer.addChild(g);
+        sprite = { g, spin: 0 };
+        working.set(machine.id, sprite);
+      }
+
+      const on = busy(machine, snapshot);
+      // Stops dead, per the plan: a machine that looks busy while idle is a lie,
+      // and the arc beside it would be saying the opposite.
+      sprite.g.visible = on;
+      if (!on) continue;
+
+      if (machine.kind === "mill") {
+        sprite.spin += spinStep(dtMs);
+        sprite.g.rotation = sprite.spin;
+      } else if (machine.kind === "oven") {
+        sprite.g.alpha = ovenGlow(nowMs);
+      } else {
+        sprite.g.alpha = consolePulse(nowMs);
+      }
+    }
+    return seen;
+  }
+
   return {
     update(snapshot, nowMs) {
-      const seen = new Set<number>();
+      const dtMs = lastNow === null ? 0 : nowMs - lastNow;
+      lastNow = nowMs;
+
+      const seenBelts = new Set<number>();
       for (const machine of snapshot.machines) {
         if (machine.kind !== "conveyor") continue;
-        seen.add(machine.id);
+        seenBelts.add(machine.id);
         let sprite = belts.get(machine.id);
         if (!sprite) {
           sprite = build(machine);
@@ -138,9 +287,16 @@ export function createAnimatedLayer(layer: Container, geometry: Geometry): Anima
         drawTread(sprite, machine, nowMs);
       }
       for (const [id, sprite] of belts) {
-        if (seen.has(id)) continue;
+        if (seenBelts.has(id)) continue;
         sprite.root.destroy({ children: true });
         belts.delete(id);
+      }
+
+      const seenWorking = syncWorking(snapshot, nowMs, dtMs);
+      for (const [id, sprite] of working) {
+        if (seenWorking.has(id)) continue;
+        sprite.g.destroy();
+        working.delete(id);
       }
     },
     resize(next) {
@@ -148,7 +304,9 @@ export function createAnimatedLayer(layer: Container, geometry: Geometry): Anima
       // Every sprite is positioned and drawn in pixels, so a new fit invalidates
       // all of it. The same reasoning, and the same cheapness, as `actors.ts`.
       for (const [, sprite] of belts) sprite.root.destroy({ children: true });
+      for (const [, sprite] of working) sprite.g.destroy();
       belts.clear();
+      working.clear();
     },
   };
 }
