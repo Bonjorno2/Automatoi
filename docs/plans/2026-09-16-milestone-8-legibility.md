@@ -248,21 +248,180 @@ git commit -m "docs: milestone 8 playtest findings"
 
 ---
 
+## Findings from Task 7
+
+Recorded, not fixed. Driven on 2026-09-16 against seed 1. The same caveat every
+milestone since 3 has carried carries forward: these are mechanical findings
+from driving the real page, and the design's two scoring numbers — time to first
+loop unaided, and time to the second-bot research before boredom — still need
+human playtesters. Two of this milestone's own questions are in that category
+and are answered below only as far as measurement can reach them.
+
+Nothing here was fixed in place. None of it is a feature that does not work.
+
+### 1. The default facing is north, and a line laid left-to-right is nine dead ends
+
+The single most informative thing in this session, and it was an accident. Arming
+the conveyor and laying the natural shape — six tiles rightward, turn, four tiles
+down — produced **nine belts, every one of them facing the wrong way**, because
+the ghost starts facing north and the first click happens before anybody thinks
+about `R`.
+
+The banner said `placing Conveyor (facing north)` the whole time. The ghost drew
+a north arrow the whole time. Neither is a lie and neither was read, because the
+thing the hand is doing is "drag a line to the right" and the thing the screen is
+saying is a compass bearing.
+
+Task 3's flag caught all of it the moment cargo arrived — and that is the second
+half of the finding. **Nine belts, nine jam marks.** Decision 2 was careful that a
+backed-up line must not light up end to end, and it does not; but a line that is
+*wrong* end to end lights up end to end, correctly, and the screen looks exactly
+like the thing the decision was avoiding. The information is right and the
+presentation does not distinguish "nine problems" from "one problem, nine tiles".
+
+A first facing that defaulted to the last one used, or to the direction of the
+previous click, would make the common case free. Neither was built, because this
+is a finding and not a fix.
+
+### 2. The removal cost is words, and the ghost says nothing
+
+Milestone 7's finding-4 fix let the player's hands destroy a machine's contents
+and rested the whole argument on the cost being under the cursor first. It is —
+and it is the third line of six, under two lines that are **identical** to the
+harmless case:
+
+    Remove                          Remove
+      click to remove                 click to remove
+      destroys 16 wheat             Conveyor
+    Storage Crate                     facing west
+      holding 16 wheat                holding nothing
+    soil                            soil
+
+The banner is the same sentence in both cases. The ghost is the same colour in
+both cases, because its colour comes from `reason === null` and both are legal.
+So every channel a player is actually looking at while dragging a cursor — the
+shape under the hand, the colour, the banner — is silent, and the one channel
+that speaks is a line of text in the middle of a tooltip.
+
+Whether that is enough is the judgement milestone 7 explicitly could not test and
+this session cannot either: I knew what the line said before I read it. What can
+be said is that the guard is carried entirely by the weakest channel available.
+A ghost that changed colour when the click would destroy something would move it
+to the strongest one, and costs nothing that is not already computed.
+
+### 3. A caged bot reads as idle, because the sim has no word for bumping
+
+Task 5's manual check asked whether the panel alone tells you which of two bots
+is stuck. It does not. A bot walled in by four belts shows
+`move north — 1 of 2 ticks left` while each doomed move is in flight and `idle`
+between them, which is exactly what a bot whose script has ended shows.
+
+The fleet list is faithful: `blockedOn` is only ever `"bot"` or `"radio"`, and
+walking into a machine sets neither. Milestone 4's `bump` event fires and paints
+a fading mark, so the *canvas* says something for about 420 ms and the *panel*
+says nothing, ever. This is the one finding here that is a gap in the sim rather
+than in the presentation, and it is the design's own "Failure is content" table
+promising a world-side signal for a state the world does not model.
+
+### 4. The fleet list is a header and one row for the whole opening
+
+Measured rather than judged: the panel now opens with a `fleet` group containing
+exactly one row, `bot 1 idle · empty`, stating three facts the canvas states
+better — there is one bot, it is gold, it is doing nothing. It earns its place at
+two bots and is furniture at one.
+
+That is not an argument against building it, and the deferral history is the
+reason: it was put off four times precisely because at one bot it is never quite
+worth it, and the milestone where it is worth it is always the next one. But a
+first-run player meets it at its least useful, and a group that appeared at the
+second bot would meet them at its most.
+
+### 5. Clicking an occupied tile does nothing, and that is still right
+
+Ten clicks produced nine belts: the tenth was the Research Console's tile, the
+ghost was red, and the click did nothing at all — no mark, no status line, no
+cancelled placement. Milestone 5 decided that deliberately, so that misclicking
+the edge of a crate does not cost a player their whole placement, and laying a
+line straight into the console is exactly the case that vindicates it. Recorded
+because it looked like a bug for about five seconds while counting.
+
+### 6. The opening view is 40 pixels per tile in a full window
+
+Task 1's number at the size this was driven at, for the record, against
+milestone 7's measured 8 at a narrow one. The field fills the pane, the wheat
+reads as wheat, and nothing needs the wheel. The narrow-window case is Task 2's
+table.
+
+---
+
 ## Done criteria for milestone 8
 
 - `npm test` and `npm run typecheck` clean, with the two named test edits and no others.
+  > **Met.** 560 tests, typecheck clean, up from 538. Both planned edits were
+  > made and nothing else in `tests/` lost an assertion — the `conveyor.test.ts`
+  > title that denied Task 3's rule, and the `first-research.test.ts` script
+  > body.
 - **Milestone 6's findings 2, 3, 4, 5 and 7 are closed, and milestone 7's finding 1 is closed.** Finding 5 may be closed by measurement rather than by code, per Decision 3, and if so the measurement is in the commit.
+  > **Met, all six.** Finding 5 closed by measurement with no threshold added,
+  > exactly as Decision 3 reserved: the framed opening view is ~2.1x the fit, the
+  > arrow clears the six pixels milestone 6 measured and accepted at every pane
+  > width of 240 or more, and what shipped is a regression guard rather than a
+  > constant. Task 2's commit has the table.
 - **Milestone 4's finding 6 is closed in full**, not in half: a player can watch a fleet without hovering it one bot at a time, and can click a bot in that list to edit its script.
+  > **Met, and immediately qualified by finding 3.** The list exists, it is in
+  > the world's bot order, its colours are `botColor`'s own, and a click selects
+  > the bot and swaps the editor. What it cannot do is say a bot is stuck
+  > against a wall, because the sim has no such state — so "watch a fleet" is
+  > true for what the sim models and false for the case a player most needs it.
+  > Recorded rather than fixed, and it is the first thing milestone 9 takes.
 - A belt facing nothing is jammed; a belt facing a full machine is not; and the difference is a test.
+  > **Met**, and the "full machine" test is worth its own note: the first version
+  > used a mill, which eats three wheat the moment it is filled and therefore
+  > made room, so the case under test never happened. A crate holds still.
 - Arming a placement over ripe wheat says the wheat will be destroyed, and arming over bare ground still says nothing extra.
+  > **Met**, driven through the real build menu. The consequence is pinned beside
+  > the warning — `placeMachine` clearing the crop is now a test — so the two
+  > cannot part company.
 - Shift+R turns the other way, and `CLOCKWISE` and `COUNTER_CLOCKWISE` are proved inverses rather than both written out.
+  > **Met.** And finding 1 says the more interesting thing about rotation: the
+  > problem is less which way `R` turns than that the first belt of every line
+  > goes down facing north.
 - The game opens on the field, `Home` still shows the whole grid, and the opening tile size is recorded against milestone 7's measured 8 pixels.
+  > **Met.** 8 to 19 in the 900-wide window finding 1 measured, 40 in a full one,
+  > and `Home` was pressed on the page rather than assumed: 19 back to 8, which
+  > is the plain fit to the pixel.
 - No test waits a hand-computed number for a research it could ask about.
+  > **Met.** 172 ticks became 166 — the guess was six ticks long, which is what a
+  > guess is.
 - `config.ts` is untouched, per Decision 7. **This is a criterion and not a note:** every remaining finding that would move it is balance work, and a legibility milestone that quietly retuned the game would make its own playtest unreadable.
+  > **Met, verified rather than asserted:** `git diff` across the whole milestone
+  > touches no line of `src/sim/config.ts`.
 
 ## What this deliberately does not do
 
 **Cycle 4** — blueprints, the fabricator, `import` — per Decision 1. **Milestone 6's finding 8**, the bot becoming the mill's servant, which is balance and belongs with cycle 4. **Milestone 7's finding 3**, the tread scrolling slower than the cargo, which its own Decision 4 argued through and which claims no rate. **Milestone 7's finding 6**, grain that magnifies into blocks, which is to be left alone until somebody complains and fixed against a screenshot rather than a paragraph. **Day/night**, still. **A confirmation dialog on removal**, unless Task 7 finds the cost line is not enough — and if it does, the answer is a confirmation on a machine holding a lot, not a retreat to the rule that bricked a world.
+
+## What milestone 9 inherits
+
+**Finding 3 first, and it is sim work rather than panel work.** A bot that walks
+into a machine reads as idle, in the panel this milestone built specifically so a
+player could tell one bot from another at a glance. `blockedOn` models two ways
+of being stuck and there are three. It is the design's own "Failure is content"
+table promising a world-side signal for a state the world does not have.
+
+**Finding 1 is the cheapest thing here**: a ghost whose first facing is the last
+one used would make the common case free, and nine dead-end belts in a row is
+what the current default costs.
+
+**Finding 2 is one colour.** The remove ghost is the same colour whether the
+click is free or costs sixteen wheat, and the cost is carried entirely by a line
+of text in the middle of a tooltip. Moving it to the ghost costs nothing that is
+not already computed.
+
+**Finding 4** — the fleet group is furniture at one bot — is the one to leave
+alone unless it annoys somebody. Hiding it until the second bot is easy and
+would mean the panel changes shape underneath a new player, which is its own
+cost.
 
 ## What milestone 9 will build on this
 
