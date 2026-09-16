@@ -225,6 +225,12 @@ Finding 1 is the exception milestone 5 established: a defect rather than a
 judgement gets fixed with a test and gets said out loud. It was a feature that
 did not work, and it was one this milestone created.
 
+**Finding 2 is a correction of itself.** It was first written up with a cause
+that turned out to be invented, and the whole of it — the wrong version, how it
+was caught, and what was actually happening — is kept rather than quietly
+replaced, because a plausible explanation that survived a commit is the more
+useful half.
+
 ### 1. A spawned bot's script could die and nobody was told
 
 **Fixed — see below.** Decision 3's trap was walked into on purpose, as Task 7
@@ -260,32 +266,47 @@ Milestone 8's `stalled` counts commands that achieved nothing, and a script that
 never ran a command has a count of zero. A dead bot and a finished bot are the
 same bot to the panel.
 
-### 2. A second bot is worth nothing, and the console is why
+### 2. A headless colony cannot measure a second bot, and the clock is why
 
-The milestone's own measurement, and it did not come out the way the milestone
-wanted. One bot: **500 ticks for 40 wheat.** Two bots, one half of the field
-each, running the same function from the shared library: **505.** A second run
-gave 517 and 500. Within the harness's noise, a second pair of hands is worth
-nothing at all.
+**This finding replaces one that was wrong, and the correction is the useful
+part.** The first version of it read "a second bot is worth nothing, and the
+console is why", with numbers: 500 ticks against 505 for the same forty wheat.
+The numbers were real. The explanation was invented, and checking it is what
+found the actual cause.
 
-The fabricator is not the problem. Both bots deliver into one Research Console,
-which accepts one item per tick and holds sixteen, so a colony's throughput past
-one bot is bounded by a machine rather than by hands. That is milestone 6's
-finding 8 — "the bot becomes the mill's servant" — restated one level up, and it
-is now the oldest unaddressed thing in this project.
+The claim was that both bots deliver into one Research Console, which takes an
+item per tick, so throughput past one bot is bounded by a machine. That is
+arithmetically nonsense and one measurement would have shown it: a bot delivers
+about ten wheat every hundred and twenty ticks, which is under a tenth of what
+the console will accept. The console was never near saturation.
 
-It also means the fabricator sells a capability the colony cannot use. Cycle 5 is
-planner scripts that read demand and expand; a planner that adds bots to a colony
-whose sink is one machine will expand into a wall.
+What is actually happening: **a spawned bot is an OS worker thread and costs real
+milliseconds to start, while the demand clock advances a simulated tick per pass
+as fast as the event loop turns.** Simulated time and wall time are different
+clocks, and only one of them waits for a thread. Instrumented, the child's first
+log arrives hundreds of simulated ticks after `spawn` returns — by which time the
+parent has cleared its entire half of the field.
 
-Three earlier versions of that benchmark measured something else, and each is
-recorded in the test file rather than deleted, because the mistakes are the
-useful part. Timing a research measured the console's drain rate. Letting the
-parent decide when the colony had finished stopped the clock with the child still
-working. And a target larger than half the field made two bots look three times
-worse, because the parent then spun over its own picked-clean box while the
-single bot simply walked to the fresh side — a fault in the reference script, not
-in spawning.
+Measured directly, splitting the harvest by half: in the window after *both* bots
+are demonstrably working, the staffed colony picked **north 0, south 41**. The
+parent had nothing left. Every version of that benchmark — four of them — was
+comparing one working bot against one working bot.
+
+**On the page this does not arise.** The realtime clock ticks at 20Hz, so a
+worker that boots in fifty milliseconds is one tick late rather than five
+hundred, and the page playtest showed exactly that: spawn a harvest loop and the
+fleet list grows a second row already carrying wheat.
+
+So the fabricator's value is neither proved nor disproved here, and the test now
+says so instead of asserting a speed-up that is not there. What it does assert is
+the part that is real and worth a regression test: the spawned bot clears a half
+of the field its parent never touches, from a function written once in the
+library.
+
+The lesson is bigger than this milestone. **Every headless measurement in this
+project shares a clock that outruns anything with real-world latency**, and the
+belt and chain benchmarks are only safe because nothing in them starts a thread.
+The next one that does will be wrong in the same way and just as quietly.
 
 ### 3. A parent cannot wait for its child
 
@@ -344,9 +365,13 @@ toolbar afterwards.
 - `spawn` refuses through the sim's own reasons, not the bridge's.
   > **Met.** `canSpawn` is the fourth predicate in the family `canPlace` started.
 - A headless test shows a script building a factory and staffing it, with the tick count recorded against milestone 6's baseline.
-  > **Met, and the number is bad.** 500 ticks against 505 for the same forty
-  > wheat: the second bot is worth nothing. Finding 2 has the cause, and the test
-  > asserts what is true rather than the speed-up that is not there.
+  > **Half met, and the other half is not measurable here.** The test shows a
+  > script building a factory and staffing it: the spawned bot clears a half of
+  > the field its parent never touches, from a function written once. The tick
+  > count against a baseline is **not** meaningful, because the demand clock
+  > outruns a worker thread's startup and every version of the comparison timed
+  > one working bot against one working bot. Finding 2 has the measurements and
+  > the correction.
 - `stamp` is **not** in the engine, per Decision 1, and appears only as a snippet.
   > **Met.** It is a chip in the book that says to put it in the Library.
 - `config.ts` gains research costs and nothing else, per Decision 6.
@@ -355,13 +380,15 @@ toolbar afterwards.
 
 ## What milestone 10 inherits
 
-**Finding 2 is the whole of it, and it is balance rather than features.** The
-colony's only sink takes one item per tick, so a second bot adds nothing and a
-tenth would add nothing either. Cycle 5 is planner scripts that expand a factory
-— and a planner that adds bots to this colony expands into a wall. Every
-remaining item on the design's list is downstream of fixing that: a second
-console, a faster one, or the non-food material that would give the chain
-somewhere else to go.
+**Finding 2 leaves a hole in the toolkit rather than in the game.** There is no
+way to measure what a second bot is worth, because the only harness this project
+has runs a clock that outruns thread startup. Before cycle 5 — planner scripts
+that read demand and expand — there should be a way to ask "did that make the
+colony faster", and today there is not. A realtime-clocked headless colony, or a
+warm-up the harness enforces rather than each test inventing, would give it one.
+
+**Whether the colony actually scales is therefore still an open question**, not a
+settled one. It was briefly recorded as settled and it was not.
 
 **Finding 3 is small and blocks a real pattern**: a script can start a helper and
 can never synchronise with it. The radio exists; the fabricator cannot fit one.
