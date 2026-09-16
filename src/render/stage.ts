@@ -1,5 +1,6 @@
-import { Application, Container } from "pixi.js";
+import { Application, Container, Graphics } from "pixi.js";
 import { fit, type Geometry, type Size } from "./geometry.ts";
+import { VIGNETTE, vignetteBands } from "./texture.ts";
 import type { WorldSnapshot } from "../sim/types.ts";
 
 /**
@@ -19,8 +20,27 @@ export interface Stage {
   readonly tickLayer: Container;
   /** Rebuilt every frame: bots, machines, marks. */
   readonly frameLayer: Container;
+  /**
+   * Screen space, above the world and below the HUD: the vignette.
+   *
+   * Not a fourth "how often is it rebuilt" layer but a different *coordinate
+   * system*, which is why it is named for where it is rather than for when.
+   * Per Decision 7 of the milestone 7 plan, it frames the pane and not the grid,
+   * so Task 7's camera must leave it exactly where it is.
+   */
+  readonly overlayLayer: Container;
   /** Current fit of the grid into the pane. Replaced on resize. */
   geometry: Geometry;
+  /**
+   * How a pane size becomes a geometry. `fit` until a camera replaces it.
+   *
+   * Milestone 7's Task 7: per Decision 5 a camera is a resize that happens for
+   * a different reason, so it belongs here rather than in a transform on a
+   * container. This hook is the whole of the seam.
+   */
+  geometryFor: (pane: Size) => Geometry;
+  /** Recompute the geometry from the current pane and fan it out. */
+  refresh(): void;
   /** Called after `geometry` changes, so layers can rebuild against it. */
   onResize: (g: Geometry) => void;
   destroy(): void;
@@ -38,6 +58,14 @@ export interface GeometryConsumers {
   tiles: { resize(geometry: Geometry, snapshot: WorldSnapshot): void };
   actors: { resize(geometry: Geometry): void };
   hud: { resize(geometry: Geometry, pane: Size): void };
+  /**
+   * The vignette, which caches the pane rather than the fit.
+   *
+   * Required rather than optional even though it ignores the geometry. This is
+   * the file whose whole existence is a hook nobody assigned, and an optional
+   * consumer is a hook nobody assigned with a type that says that is fine.
+   */
+  overlay: { resize(pane: Size): void };
   /** The current snapshot, read when the resize happens rather than before. */
   snapshot(): WorldSnapshot;
   /** The renderer's pixel size, read for the same reason. */
@@ -63,10 +91,52 @@ export function connectResize(
   consumers: GeometryConsumers,
 ): void {
   stage.onResize = (geometry) => {
+    const pane = consumers.pane();
     consumers.tiles.resize(geometry, consumers.snapshot());
     consumers.actors.resize(geometry);
-    consumers.hud.resize(geometry, consumers.pane());
+    consumers.hud.resize(geometry, pane);
+    consumers.overlay.resize(pane);
   };
+}
+
+/**
+ * The vignette: unnoticeable when looked at directly, obvious when switched off.
+ *
+ * Drawn once into one `Graphics` and rebuilt only when the pane changes, which
+ * is the same schedule the terrain is on and for the same reason — nothing about
+ * it depends on the world.
+ */
+export interface Overlay {
+  resize(pane: Size): void;
+  /** Whether the vignette is drawn at all. The manual check in Task 9 needs this. */
+  enabled: boolean;
+}
+
+export function createOverlay(layer: Container, pane: Size): Overlay {
+  const g = new Graphics();
+  layer.addChild(g);
+  let current = pane;
+
+  const overlay: Overlay = {
+    get enabled() {
+      return g.visible;
+    },
+    set enabled(on: boolean) {
+      g.visible = on;
+    },
+    resize(next) {
+      current = next;
+      g.clear();
+      for (const band of vignetteBands(current)) {
+        g.rect(band.x, band.y, band.width, band.height).fill({
+          color: VIGNETTE.color,
+          alpha: band.alpha,
+        });
+      }
+    },
+  };
+  overlay.resize(pane);
+  return overlay;
 }
 
 const BACKGROUND = 0x12140f;
@@ -86,14 +156,33 @@ export async function createStage(host: HTMLElement, grid: Size): Promise<Stage>
   const staticLayer = new Container();
   const tickLayer = new Container();
   const frameLayer = new Container();
-  app.stage.addChild(staticLayer, tickLayer, frameLayer);
+  const overlayLayer = new Container();
+  // The HUD is added to `app.stage` by its own factory, after this runs, so it
+  // lands above the overlay without either of them having to name the other.
+  app.stage.addChild(staticLayer, tickLayer, frameLayer, overlayLayer);
 
   const stage: Stage = {
     app,
     staticLayer,
     tickLayer,
     frameLayer,
+    overlayLayer,
     geometry: fit(grid, { width: app.screen.width, height: app.screen.height }),
+    geometryFor: (pane) => fit(grid, pane),
+    refresh() {
+      const next = stage.geometryFor({ width: host.clientWidth, height: host.clientHeight });
+      // Origin Y as well as X and the size. A camera pans vertically, and a
+      // check that only looked at two of the three would swallow that.
+      if (
+        next.size === stage.geometry.size &&
+        next.originX === stage.geometry.originX &&
+        next.originY === stage.geometry.originY
+      ) {
+        return;
+      }
+      stage.geometry = next;
+      stage.onResize(next);
+    },
     onResize: () => {},
     destroy() {
       observer.disconnect();
@@ -103,12 +192,7 @@ export async function createStage(host: HTMLElement, grid: Size): Promise<Stage>
 
   // `resizeTo` resizes the renderer but knows nothing about the grid fit, so
   // the geometry is recomputed here rather than read per draw.
-  const observer = new ResizeObserver(() => {
-    const next = fit(grid, { width: host.clientWidth, height: host.clientHeight });
-    if (next.size === stage.geometry.size && next.originX === stage.geometry.originX) return;
-    stage.geometry = next;
-    stage.onResize(next);
-  });
+  const observer = new ResizeObserver(() => stage.refresh());
   observer.observe(host);
 
   return stage;

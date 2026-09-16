@@ -1,6 +1,8 @@
 import { Container, Graphics } from "pixi.js";
 import type { WorldSnapshot } from "../sim/types.ts";
-import { CROP_HEIGHT, TERRAIN, cropColor, cropStage } from "./palette.ts";
+import { CROP_HEIGHT, cropColor, cropStage } from "./palette.ts";
+import { RIM_COLOR, RIM_WIDTH, fieldRim, groundShade } from "./texture.ts";
+import { sway } from "./motion.ts";
 import { toPixel, type Geometry } from "./geometry.ts";
 
 /**
@@ -24,6 +26,13 @@ import { toPixel, type Geometry } from "./geometry.ts";
 export interface TileLayer {
   /** Called when the world's tick changed. Cheap when nothing grew. */
   update(snapshot: WorldSnapshot): void;
+  /**
+   * Called every frame with the wall clock. Writes `rotation` and nothing else.
+   *
+   * Separate from `update` because they run on different clocks and at
+   * different rates: crops change on a tick, and wind does not speed up at 4x.
+   */
+  animate(nowMs: number): void;
   /** Rebuild against a new fit. */
   resize(geometry: Geometry, snapshot: WorldSnapshot): void;
 }
@@ -41,6 +50,9 @@ export function createTileLayer(
   snapshot: WorldSnapshot,
 ): TileLayer {
   let geo = geometry;
+  // Kept so `animate` can turn a pool index back into a tile coordinate without
+  // being handed a snapshot it does not otherwise need.
+  let gridWidth = snapshot.width;
   const terrain = new Graphics();
   staticLayer.addChild(terrain);
 
@@ -48,18 +60,40 @@ export function createTileLayer(
   tickLayer.addChild(crops);
   const pool = new Map<number, CropSprite>();
 
+  /**
+   * Ground, then the field's edge on top of it.
+   *
+   * Two passes rather than one, because the rim of a soil tile has to sit over
+   * the grass tile beside it as well as its own — drawn tile by tile in one
+   * pass, whichever came later would paint over the other's line.
+   *
+   * Still one `Graphics` and still only on resize. The grain costs a hash per
+   * tile at build time and nothing at all per frame.
+   */
   function drawTerrain(snap: WorldSnapshot): void {
     terrain.clear();
     for (let y = 0; y < snap.height; y++) {
       for (let x = 0; x < snap.width; x++) {
         const tile = snap.tiles[y * snap.width + x];
         if (!tile) continue;
-        const shade = TERRAIN[tile.terrain];
         const p = toPixel(geo, { x, y });
         terrain.rect(p.x, p.y, geo.size, geo.size);
-        terrain.fill((x + y) % 2 === 0 ? shade.base : shade.alt);
+        terrain.fill(groundShade(tile.terrain, x, y));
       }
     }
+
+    const w = Math.max(1, Math.round(geo.size * RIM_WIDTH));
+    for (let y = 0; y < snap.height; y++) {
+      for (let x = 0; x < snap.width; x++) {
+        const rim = fieldRim(snap.tiles, snap.width, snap.height, x, y);
+        const p = toPixel(geo, { x, y });
+        if (rim.north) terrain.rect(p.x, p.y, geo.size, w);
+        if (rim.south) terrain.rect(p.x, p.y + geo.size - w, geo.size, w);
+        if (rim.west) terrain.rect(p.x, p.y, w, geo.size);
+        if (rim.east) terrain.rect(p.x + geo.size - w, p.y, w, geo.size);
+      }
+    }
+    terrain.fill(RIM_COLOR);
   }
 
   /**
@@ -81,7 +115,22 @@ export function createTileLayer(
     sprite.stage = stage;
   }
 
+  /**
+   * Wind, one write per crop per frame.
+   *
+   * The sprite is already positioned at the bottom-centre of its tile with its
+   * shape drawn relative to that, so its own origin is the pivot a stalk turns
+   * about. That is the whole reason this is a transform and not a redraw, and
+   * the reason Decision 2 could promise animation would cost no geometry.
+   */
+  function animate(nowMs: number): void {
+    for (const [i, sprite] of pool) {
+      sprite.g.rotation = sway(i % gridWidth, Math.floor(i / gridWidth), nowMs, sprite.stage);
+    }
+  }
+
   function update(snap: WorldSnapshot): void {
+    gridWidth = snap.width;
     const seen = new Set<number>();
     for (let i = 0; i < snap.tiles.length; i++) {
       const crop = snap.tiles[i]?.crop;
@@ -124,5 +173,5 @@ export function createTileLayer(
   drawTerrain(snapshot);
   update(snapshot);
 
-  return { update, resize };
+  return { update, animate, resize };
 }

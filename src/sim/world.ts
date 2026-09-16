@@ -508,6 +508,8 @@ export class World {
       return fail("inventory full");
     }
     addItem(bot.inventory, tile.crop.item, 1);
+    // Emitted before the crop is cleared, so the event carries what was taken.
+    this.emit({ kind: "harvest", botId: bot.id, pos: { ...bot.pos }, item: tile.crop.item });
     tile.crop = null;
     return ok(true);
   }
@@ -598,34 +600,38 @@ export class World {
   }
 
   /**
-   * Take the machine on the tile in `dir` away.
+   * Take the machine on the tile in `dir` away, through the same predicate the
+   * build menu's remove mode asks.
    *
    * Removal exists mostly because a belt is a wall: a player who has fenced
    * themselves out of their own field needs something that is not a new game.
+   * Milestone 6's playtest found that this — a script, needing a research the
+   * fenced-in bot could no longer pay for — was the *only* way out, so
+   * milestone 7's Task 0 gave the same rules to the player's hands and moved
+   * them into `canRemove`, where both callers can reach them.
    *
-   * It refuses anything with something to lose. There is no ground for items to
-   * spill onto in this game, so removing a full crate would simply delete what
-   * was in it, and a machine part-way through a conversion has already eaten its
-   * input — an empty inventory is not the same as nothing to lose.
+   * They are no longer quite the same rules. The arm still refuses a machine
+   * with anything to lose and the hands no longer do — see `canRemove`, where
+   * the case that forced them apart is written down.
    */
   private doRemove(bot: Bot, dir: Direction): Outcome {
     const target = add(bot.pos, DIR[dir]);
     const machine = this.machineAt(target);
-    const refuse = (why: string): Outcome => {
+    // Asked here rather than left to `canRemove`, because a script pointed at a
+    // direction and should be told about that direction. The cursor's version
+    // of this same question is about a tile and words it differently.
+    if (!machine) return fail(`no machine to the ${dir}`);
+
+    const why = this.canRemove(target, "arm");
+    if (why) {
+      // A world-side signal as well as the script's error, the way `doPlace`
+      // refuses: somebody watching the canvas is a reader too. The hands-phase
+      // path emits nothing, because a player who clicked is already looking at
+      // the tile and at the reason in the tooltip.
       this.emit({ kind: "refused", botId: bot.id, pos: { ...bot.pos }, command: "remove" });
       return fail(why);
-    };
-    if (!machine) return fail(`no machine to the ${dir}`);
-    if (machine.kind === "console") return refuse("the Research Console cannot be removed");
-    if (total(machine.inventory) > 0) return refuse(`${machine.kind} is not empty`);
-    if (machine.progress > 0) return refuse(`${machine.kind} is working`);
-
-    this.machines.delete(machine.id);
-    // Ids are never reused, so a left-behind flag would never fire again — but
-    // it would sit in a set that only grows, and a leak that small is still a
-    // leak.
-    this.starved.delete(machine.id);
-    this.jammed.delete(machine.id);
+    }
+    this.takeMachine(machine);
     return ok(true);
   }
 
@@ -666,6 +672,85 @@ export class World {
     if (kind === "console") return "cannot place a second console";
     if (!this.research.unlocked.has(kind)) return `${kind} not researched`;
     return this.tileBlocked(pos);
+  }
+
+  /**
+   * Why the machine on this tile cannot be taken away, or null if it can.
+   *
+   * The same shape as `canPlace`, for the same reason and with the same two
+   * callers that must never disagree: the ghost the player is dragging around
+   * and the arm a script is driving.
+   *
+   * **The arm refuses anything with something to lose; the hands do not.** That
+   * asymmetry is the fix for the soft-lock and is worth the paragraph.
+   *
+   * There is no ground for items to spill onto in this game, so removing a full
+   * crate deletes what was in it, and a machine part-way through a conversion
+   * has already eaten its input — an empty inventory is not the same as nothing
+   * to lose. Decision 10 of the milestone 7 plan therefore refused both callers
+   * and accepted a named hole: a cage of belts that are *carrying* something
+   * takes two steps to dismantle, the first being `withdraw` into the caged
+   * bot's own cargo.
+   *
+   * That route needs the bot to have room, and `builder.test.ts` now drives the
+   * case where it does not — a bot at `BOT_CAPACITY` behind four belts at
+   * `capacityOf("conveyor")`. Every exit is shut at once, which is a world that
+   * cannot be recovered, and the design's "no crash is fatal" outranks item
+   * conservation when the two are actually in conflict.
+   *
+   * So the two callers are told apart by what they *are*: an arm is a line of
+   * code, which must never silently delete a player's harvest, and hands are a
+   * person who has read what the tile holds. The reading is not optional — the
+   * ghost's tooltip names the exact contents before the click, which is
+   * `removalCost` in `inspector.ts` and a test rather than a screenshot.
+   */
+  canRemove(pos: Vec, by: "hands" | "arm"): string | null {
+    const machine = this.machineAt(pos);
+    if (!machine) return "nothing to remove";
+    if (machine.kind === "console") return "the Research Console cannot be removed";
+    if (by === "arm") {
+      if (total(machine.inventory) > 0) return `${machine.kind} is not empty`;
+      if (machine.progress > 0) return `${machine.kind} is working`;
+    }
+    return null;
+  }
+
+  /**
+   * Take a machine off the map by hand, the player-side pair to `canRemove` the
+   * way `placeMachine` is to `canPlace`.
+   *
+   * Free and instant, like every other hands-phase action. `bot.builder.remove`
+   * keeps its tick cost: a script doing this a hundred times is a cost, and a
+   * player clicking once is not.
+   *
+   * Returns what was destroyed, which is usually nothing. It is returned rather
+   * than emitted because the caller is a click and the answer belongs on the
+   * status line beside "fitted planter to bot 1" — and because a function that
+   * can delete a player's items should hand back what it deleted rather than
+   * leave the caller to have looked first.
+   */
+  removeMachine(pos: Vec): Inventory {
+    const why = this.canRemove(pos, "hands");
+    if (why) throw new Error(why);
+    // Not null: `canRemove` answered null, which it only does for a machine.
+    const machine = this.machineAt(pos)!;
+    const lost = { ...machine.inventory };
+    this.takeMachine(machine);
+    return lost;
+  }
+
+  /**
+   * The deletion itself, for both the hands and the arm.
+   *
+   * Ids are never reused, so a left-behind flag would never fire again — but it
+   * would sit in a set that only grows, and a leak that small is still a leak.
+   * One helper rather than two copies is what stops the newer caller from being
+   * the one that forgets.
+   */
+  private takeMachine(machine: Machine): void {
+    this.machines.delete(machine.id);
+    this.starved.delete(machine.id);
+    this.jammed.delete(machine.id);
   }
 
   /** The same question for a spare chassis. */

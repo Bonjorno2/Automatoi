@@ -9,11 +9,16 @@ import type { MachineKind, ModuleName, WorldSnapshot } from "../sim/types.ts";
  *
  * The list is derived from a snapshot rather than tracked, so it cannot fall
  * out of step with what research has actually granted.
+ *
+ * `remove` is the odd one out and knows it: it is a tool rather than stock, and
+ * it is here because milestone 7's Decision 9 chose one more armed mode over a
+ * second way of pointing at a tile.
  */
 export type BuildOption =
   | { kind: "machine"; machine: MachineKind; label: string }
   | { kind: "module"; module: ModuleName; label: string }
-  | { kind: "chassis"; label: string };
+  | { kind: "chassis"; label: string }
+  | { kind: "remove"; label: string };
 
 /** Machine kinds a completed research unlocks, in the order they are researched. */
 const PLACEABLE: { research: MachineKind; label: string }[] = [
@@ -46,6 +51,13 @@ export function buildOptions(snapshot: WorldSnapshot): BuildOption[] {
   const chassis = snapshot.research.spareChassis;
   if (chassis > 0) {
     out.push({ kind: "chassis", label: chassis === 1 ? "Deploy bot" : `Deploy bot (${chassis})` });
+  }
+
+  // Last, and only once there is something it could act on. A tool that can do
+  // nothing is not an offer, and the console is not removable by anyone — so a
+  // world with only a console in it has nothing for this mode to point at.
+  if (snapshot.machines.some((m) => m.kind !== "console")) {
+    out.push({ kind: "remove", label: "Remove" });
   }
 
   return out;

@@ -20,7 +20,13 @@ describe("buildOptions", () => {
     const w = new World({ seed: 1 });
     w.research.unlocked.add("mill");
     w.placeMachine("mill", { x: 20, y: 20 });
-    expect(buildOptions(w.snapshot())).toHaveLength(1);
+    // The assertion this makes is about the mill still being on offer. It was a
+    // length of 1 until milestone 7's Task 0, when placing a machine started
+    // also putting Remove in the list — which is the point of Remove, and not a
+    // reason for this test to be about counting.
+    expect(buildOptions(w.snapshot()).filter((o) => o.kind === "machine")).toMatchObject([
+      { machine: "mill" },
+    ]);
   });
 
   it("offers a spare module, and stops once it is fitted", () => {
@@ -75,6 +81,32 @@ describe("buildOptions", () => {
     ]);
   });
 
+  it("offers Remove only once there is something to remove", () => {
+    // Milestone 7's Task 0. A world that has only its console in it has nothing
+    // this mode could act on, and a tool that can do nothing is not an offer.
+    const w = new World({ seed: 1 });
+    w.research.unlocked.add("crate");
+    expect(buildOptions(w.snapshot()).some((o) => o.kind === "remove")).toBe(false);
+
+    w.placeMachine("crate", { x: 20, y: 20 });
+    expect(buildOptions(w.snapshot()).some((o) => o.kind === "remove")).toBe(true);
+
+    w.removeMachine({ x: 20, y: 20 });
+    expect(buildOptions(w.snapshot()).some((o) => o.kind === "remove")).toBe(false);
+  });
+
+  it("puts Remove last, because it is a tool and the rest is stock", () => {
+    const w = new World({ seed: 1 });
+    w.research.unlocked.add("mill");
+    w.research.spareChassis = 1;
+    w.placeMachine("mill", { x: 20, y: 20 });
+    expect(buildOptions(w.snapshot()).map((o) => o.kind)).toEqual([
+      "machine",
+      "chassis",
+      "remove",
+    ]);
+  });
+
   it("never offers the console", () => {
     const w = new World({ seed: 1 });
     for (const r of ["crate", "mill", "oven", "planter", "scanner", "chassis", "radio"] as const) {
@@ -124,6 +156,22 @@ describe("the sim decides where things go, not the menu", () => {
     w.research.spareChassis = 1;
     expect(w.canDeploy({ x: 20, y: 20 })).toBeNull();
     expect(w.canDeploy({ x: 16, y: 16 })).toBe("tile occupied");
+  });
+
+  it("canRemove gives the same reason removeMachine throws", () => {
+    // The remove ghost's colour and the click's outcome, one rule asked twice —
+    // the same property canPlace carries above, for the mode that destroys
+    // something rather than the one that builds it.
+    const w = new World({ seed: 1 });
+    w.research.unlocked.add("crate");
+    w.placeMachine("crate", { x: 20, y: 20 });
+    for (const pos of [{ x: 20, y: 20 }, { x: 16, y: 16 }, { x: 2, y: 2 }]) {
+      // "hands", because that is who the ghost belongs to. The arm's answers
+      // are a different set and are tested where the arm is.
+      const reason = w.canRemove(pos, "hands");
+      if (reason === null) expect(() => w.removeMachine(pos)).not.toThrow();
+      else expect(() => w.removeMachine(pos)).toThrow(reason);
+    }
   });
 
   it("accepts grass as readily as soil", () => {

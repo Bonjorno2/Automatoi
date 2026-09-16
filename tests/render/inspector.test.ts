@@ -1,4 +1,9 @@
-import { armedMessage, describePlacement, describeTile } from "../../src/render/inspector";
+import {
+  armedMessage,
+  describePlacement,
+  describeTile,
+  removalCost,
+} from "../../src/render/inspector";
 import { World } from "../../src/sim/world";
 import { MACHINE_CAPACITY, WHEAT_GROWTH_TICKS } from "../../src/sim/config";
 import type { Direction } from "../../src/sim/types";
@@ -172,11 +177,12 @@ describe("describeTile on the new machines", () => {
  * modes with no visible difference except the tooltip's wording.
  */
 describe("describePlacement", () => {
-  const armed = (label: string, facing: Direction | null, reason: string | null) => ({
-    label,
-    facing,
-    reason,
-  });
+  const armed = (
+    label: string,
+    facing: Direction | null,
+    reason: string | null,
+    mode: "place" | "remove" = "place",
+  ) => ({ label, facing, reason, mode });
 
   it("says what is held and that a legal tile can take it", () => {
     const w = new World({ seed: 1 });
@@ -249,18 +255,120 @@ describe("describePlacement", () => {
     );
     expect(lines).toHaveLength(2);
   });
+
+  it("names the machine remove mode is about to take, and the verb", () => {
+    // Milestone 7's Task 0. The occupied rule already covers this — the only
+    // tile removal can act on holds a machine — so what is tested here is that
+    // the verb changed and the contents are still listed under it.
+    const w = new World({ seed: 1 });
+    w.research.unlocked.add("crate");
+    w.placeMachine("crate", { x: 18, y: 18 });
+
+    expect(describePlacement(w.snapshot(), { x: 18, y: 18 }, armed("Remove", null, null, "remove")))
+      .toEqual(["Remove", "  click to remove", "Storage Crate", "  holding nothing", "soil"]);
+  });
+
+  it("names the cost when removing would destroy something", () => {
+    // The guard that makes `canRemove(pos, "hands")` defensible. The sim will
+    // now delete a loaded machine, because a cage of loaded belts could
+    // otherwise brick a world; what stops that being a misclick is this line,
+    // directly under the verb and above the machine's own description.
+    const w = new World({ seed: 1 });
+    w.research.unlocked.add("crate");
+    w.placeMachine("crate", { x: 18, y: 18 }).inventory = { wheat: 12 };
+
+    const lines = describePlacement(
+      w.snapshot(),
+      { x: 18, y: 18 },
+      armed("Remove", null, null, "remove"),
+    );
+    expect(lines.slice(0, 3)).toEqual(["Remove", "  click to remove", "  destroys 12 wheat"]);
+  });
+
+  it("threatens nothing over a machine with nothing to lose", () => {
+    const w = new World({ seed: 1 });
+    w.research.unlocked.add("crate");
+    w.placeMachine("crate", { x: 18, y: 18 });
+
+    const lines = describePlacement(
+      w.snapshot(),
+      { x: 18, y: 18 },
+      armed("Remove", null, null, "remove"),
+    );
+    expect(lines.some((l) => l.includes("destroys"))).toBe(false);
+  });
+
+  it("says nothing about a cost the player cannot pay, because the click is refused", () => {
+    // A refusal leads, and a cost under it would be describing a click that is
+    // not going to happen.
+    const w = new World({ seed: 1 });
+    const lines = describePlacement(
+      w.snapshot(),
+      { x: 16, y: 16 },
+      armed("Remove", null, "the Research Console cannot be removed", "remove"),
+    );
+    expect(lines.some((l) => l.includes("destroys"))).toBe(false);
+  });
+
+  it("gives the sim's refusal in remove mode too", () => {
+    const w = new World({ seed: 1 });
+    const lines = describePlacement(
+      w.snapshot(),
+      { x: 16, y: 16 },
+      armed("Remove", null, "the Research Console cannot be removed", "remove"),
+    );
+    expect(lines[1]).toBe("  the Research Console cannot be removed");
+  });
+});
+
+describe("removalCost", () => {
+  it("is nothing for a tile with no machine, and for an empty one", () => {
+    const w = new World({ seed: 1 });
+    w.research.unlocked.add("crate");
+    w.placeMachine("crate", { x: 18, y: 18 });
+    expect(removalCost(w.snapshot(), { x: 2, y: 2 })).toBeNull();
+    expect(removalCost(w.snapshot(), { x: 18, y: 18 })).toBeNull();
+  });
+
+  it("lists every item, because a crate rarely holds one thing", () => {
+    const w = new World({ seed: 1 });
+    w.research.unlocked.add("crate");
+    w.placeMachine("crate", { x: 18, y: 18 }).inventory = { wheat: 3, bread: 1 };
+    expect(removalCost(w.snapshot(), { x: 18, y: 18 })).toBe("destroys 3 wheat, 1 bread");
+  });
+
+  it("counts the batch a machine has already eaten its input for", () => {
+    // A mill part-way through a conversion has something to lose that its
+    // inventory does not show, which is why `canRemove` refuses the arm on
+    // `progress` as well as on contents.
+    const w = new World({ seed: 1 });
+    w.research.unlocked.add("mill");
+    w.placeMachine("mill", { x: 18, y: 18 }).inventory = { wheat: 3 };
+    ticks(w, 2);
+    expect(removalCost(w.snapshot(), { x: 18, y: 18 })).toBe(
+      "destroys the batch it is working on",
+    );
+  });
 });
 
 describe("armedMessage", () => {
   it("says what is held and how to stop holding it", () => {
-    expect(armedMessage({ label: "Place Conveyor", facing: "north" })).toBe(
+    expect(armedMessage({ label: "Place Conveyor", facing: "north", mode: "place" })).toBe(
       "placing Conveyor (facing north) — R to turn, Esc to stop",
     );
   });
 
   it("offers no turn for a machine with no front", () => {
-    expect(armedMessage({ label: "Place Crate", facing: null })).toBe(
+    expect(armedMessage({ label: "Place Crate", facing: null, mode: "place" })).toBe(
       "placing Crate — Esc to stop",
+    );
+  });
+
+  it("leads with the verb when the tool destroys something", () => {
+    // Not "placing Remove". The banner is the only thing on screen that tells a
+    // player holding this what their next click does.
+    expect(armedMessage({ label: "Remove", facing: null, mode: "remove" })).toBe(
+      "removing — click a machine to take it back, Esc to stop",
     );
   });
 

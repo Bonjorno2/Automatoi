@@ -3,14 +3,19 @@ import { ScriptStore } from "./script-store.ts";
 import { createConsolePanel } from "./console-panel.ts";
 import { createSnippetBook } from "./snippet-book.ts";
 import { GameSession } from "./session.ts";
-import { connectResize, createStage } from "../render/stage.ts";
+import { connectResize, createOverlay, createStage } from "../render/stage.ts";
 import { createTileLayer } from "../render/tiles.ts";
 import { createActorLayer } from "../render/actors.ts";
+import { createAnimatedLayer } from "../render/animated.ts";
 import { createMarkLayer, heldMarks } from "../render/marks.ts";
+import { createEffectLayer } from "../render/effects.ts";
 import { armedMessage, createInspector, type Placement } from "../render/inspector.ts";
 import { CLOCKWISE } from "../sim/world.ts";
 import { FACES } from "../sim/config.ts";
 import { createHud, createSidePanel } from "../render/hud.ts";
+import { fitView, panBy, viewGeometry, zoomAbout, type View } from "../render/camera.ts";
+import { keyTarget } from "../render/keys.ts";
+import type { Size } from "../render/geometry.ts";
 import type { BuildOption } from "./build-menu.ts";
 import type { ModuleName } from "../sim/types.ts";
 
@@ -49,19 +54,148 @@ const stage = await createStage(worldEl, grid);
 let snap = session.world.snapshot();
 const tiles = createTileLayer(stage.staticLayer, stage.tickLayer, stage.geometry, snap);
 const actors = createActorLayer(stage.frameLayer, stage.geometry);
+const animated = createAnimatedLayer(actors.overlayContainer, stage.geometry);
 const marks = createMarkLayer(stage.frameLayer);
+const effects = createEffectLayer(stage.frameLayer);
 const inspector = createInspector(worldEl, stage.frameLayer, grid, stage.geometry);
+const overlay = createOverlay(stage.overlayLayer, {
+  width: stage.app.screen.width,
+  height: stage.app.screen.height,
+});
 const hud = createHud(stage.app.stage, { width: stage.app.screen.width, height: stage.app.screen.height });
 const sidePanel = createSidePanel(document.querySelector<HTMLElement>("#panel")!, pick);
+
+/**
+ * The camera, which is a view and nothing else.
+ *
+ * Per Decision 5 it produces a `Geometry` and every layer already consumes one,
+ * so zooming is a resize that happened for a different reason. The inspector's
+ * hit-testing follows for free, which is the property the decision exists to
+ * buy — and the thing that would break if this were a scaled container.
+ */
+let view = fitView(grid, paneSize());
+stage.geometryFor = (pane) => viewGeometry(view, grid, pane);
+
+function paneSize(): Size {
+  return { width: stage.app.screen.width, height: stage.app.screen.height };
+}
+
+function setView(next: View): void {
+  view = next;
+  stage.refresh();
+}
 
 // Three of the layers cache the fit they were built with. Without this the
 // terrain redraws at a new tile size and the bots stay at the old one.
 connectResize(stage, {
   tiles,
-  actors,
+  // Both caches of the fit behind one call, because they are one layer's worth
+  // of sprites split across two modules and must never disagree about a tile.
+  actors: {
+    resize: (g) => {
+      actors.resize(g);
+      animated.resize(g);
+    },
+  },
   hud,
+  overlay,
   snapshot: () => snap,
-  pane: () => ({ width: stage.app.screen.width, height: stage.app.screen.height }),
+  pane: paneSize,
+});
+
+/**
+ * The camera's controls.
+ *
+ * Wheel zooms about the cursor, middle-drag or space-drag pans, `Home` goes
+ * back to the fit — which is today's view and must stay one keystroke away.
+ *
+ * Left-drag is deliberately not a pan: it is already how a player places a
+ * machine and selects a bot, and stealing it would make every misdrag a
+ * cancelled placement.
+ */
+{
+  const rect = (): DOMRect => worldEl.getBoundingClientRect();
+  let spaceHeld = false;
+  let dragging: { x: number; y: number } | null = null;
+
+  worldEl.addEventListener(
+    "wheel",
+    (e) => {
+      e.preventDefault();
+      const r = rect();
+      const steps = -Math.sign(e.deltaY);
+      setView(zoomAbout(view, grid, paneSize(), { x: e.clientX - r.left, y: e.clientY - r.top }, steps));
+    },
+    { passive: false },
+  );
+
+  worldEl.addEventListener("pointerdown", (e) => {
+    if (e.button !== 1 && !(e.button === 0 && spaceHeld)) return;
+    e.preventDefault();
+    dragging = { x: e.clientX, y: e.clientY };
+    worldEl.setPointerCapture(e.pointerId);
+  });
+  worldEl.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    setView(panBy(view, grid, paneSize(), e.clientX - dragging.x, e.clientY - dragging.y));
+    dragging = { x: e.clientX, y: e.clientY };
+  });
+  const endDrag = (): void => {
+    dragging = null;
+  };
+  worldEl.addEventListener("pointerup", endDrag);
+  worldEl.addEventListener("pointercancel", endDrag);
+
+  window.addEventListener("keydown", (e) => {
+    const where = keyTarget(e.target);
+    // Not while typing: Monaco is a different element, and a player writing a
+    // script should not send the camera home with the Home key.
+    if (where === "typing") return;
+
+    if (e.key === "Home") {
+      setView(fitView(grid, paneSize()));
+      return;
+    }
+    if (e.code !== "Space") return;
+
+    // Space is the one key the page and the camera both have a claim on: it is
+    // how a browser activates a focused button. The platform wins there, which
+    // is what keeps the page usable from the keyboard alone — and is why a
+    // pointer click on a control hands focus back, below, so that a player who
+    // clicked Run can still hold space and drag.
+    if (where !== "world") return;
+    spaceHeld = true;
+    e.preventDefault();
+  });
+  window.addEventListener("keyup", (e) => {
+    if (e.code === "Space") spaceHeld = false;
+  });
+  // A held Space is a modifier, and a modifier that survives losing focus is a
+  // cursor stuck in pan mode with no way to notice.
+  window.addEventListener("blur", () => {
+    spaceHeld = false;
+    dragging = null;
+  });
+}
+
+/**
+ * A control clicked with the pointer hands focus back to the page.
+ *
+ * Milestone 7's finding 2, the half that a guard alone does not fix: after
+ * clicking Run, `Space` belongs to the Run button, so holding it to pan presses
+ * Run again instead. Blurring makes the camera's keys work the moment the
+ * player's hand leaves the button, which is what they expect.
+ *
+ * Only for a pointer-driven click. `detail` is 0 when a click was synthesised
+ * by Enter or Space on a focused control, so a player navigating by keyboard
+ * keeps the focus they were relying on.
+ */
+document.querySelector<HTMLElement>("#side")!.addEventListener("click", (e) => {
+  if (e.detail === 0) return;
+  const el = e.target as HTMLElement | null;
+  // `keyTarget` classifies a `select` as typing, which is what keeps this from
+  // closing the speed dropdown the instant it opens.
+  if (el && keyTarget(el) === "control") el.blur();
 });
 
 /**
@@ -84,34 +218,79 @@ function pick(option: BuildOption): void {
     return;
   }
 
-  const placing: Placement =
-    option.kind === "machine"
-      ? {
-          option: option.label,
-          label: `Place ${option.label}`,
-          // Only a kind with a front carries one, so `R` does nothing to a
-          // crate rather than silently turning something with no direction.
-          facing: FACES[option.machine] ? "north" : null,
-          reason: (tile) => world.canPlace(option.machine, tile),
-          apply: (tile) => void world.placeMachine(option.machine, tile, placing.facing ?? "north"),
-          rotate: () => {
-            if (placing.facing) placing.facing = CLOCKWISE[placing.facing];
-          },
-        }
-      : {
-          option: option.label,
-          label: "Deploy bot",
-          facing: null,
-          reason: (tile) => world.canDeploy(tile),
-          // Selecting the new bot is the point: milestone 5 gives it its own
-          // script, and the player almost certainly wants to write that next.
-          apply: (tile) => {
-            selectedBotId = world.deployBot(tile).id;
-          },
-          rotate: () => {},
-        };
-  inspector.placing = placing;
+  inspector.placing = armFor(option);
   sidePanel.setActive(option.label);
+}
+
+/**
+ * The armed mode an option puts the canvas into.
+ *
+ * Every branch is the same four answers — what it says, where it is allowed,
+ * what the click does, what `R` does — so that the ghost, the banner and the
+ * outcome cannot be three different opinions. Remove is a branch here rather
+ * than an interaction of its own, per Decision 9 of the milestone 7 plan.
+ */
+function armFor(option: Exclude<BuildOption, { kind: "module" }>): Placement {
+  const world = session.world;
+
+  if (option.kind === "machine") {
+    const placing: Placement = {
+      option: option.label,
+      label: `Place ${option.label}`,
+      mode: "place",
+      // Only a kind with a front carries one, so `R` does nothing to a crate
+      // rather than silently turning something with no direction.
+      facing: FACES[option.machine] ? "north" : null,
+      reason: (tile) => world.canPlace(option.machine, tile),
+      apply: (tile) => void world.placeMachine(option.machine, tile, placing.facing ?? "north"),
+      rotate: () => {
+        if (placing.facing) placing.facing = CLOCKWISE[placing.facing];
+      },
+    };
+    return placing;
+  }
+
+  if (option.kind === "remove") {
+    return {
+      option: option.label,
+      label: "Remove",
+      mode: "remove",
+      facing: null,
+      // The sim's refusals, unedited: "the Research Console cannot be removed"
+      // is more use than anything this file could invent. `"hands"` is the
+      // caller saying which of the two rule sets it is — the hands may destroy
+      // what a machine holds and the builder arm may not, which is what stops a
+      // cage of loaded belts from bricking a world.
+      reason: (tile) => world.canRemove(tile, "hands"),
+      apply: (tile) => {
+        const lost = world.removeMachine(tile);
+        // Said after the fact as well as before it. The tooltip named the cost
+        // while the cursor was over the tile; this is what the player can still
+        // read once the tile is bare and the tooltip has moved on.
+        const spilled = Object.entries(lost)
+          .filter(([, n]) => (n ?? 0) > 0)
+          .map(([item, n]) => `${n} ${item}`);
+        statusEl.textContent = spilled.length
+          ? `removed — ${spilled.join(", ")} destroyed`
+          : "removed";
+      },
+      rotate: () => {},
+    };
+  }
+
+  return {
+    option: option.label,
+    label: "Deploy bot",
+    mode: "place",
+    facing: null,
+    reason: (tile) => world.canDeploy(tile),
+    // Selecting the new bot is the point: milestone 5 gives it its own script,
+    // and the player almost certainly wants to write that next.
+    apply: (tile) => {
+      selectedBotId = world.deployBot(tile).id;
+    },
+    rotate: () => {},
+  };
 }
 
 inspector.onPlace = (tile) => {
@@ -276,17 +455,30 @@ function frame(): void {
 }
 
 function draw(): void {
+  const now = performance.now();
   snap = session.world.snapshot();
   // Crops change on a tick and never between ticks.
   if (snap.time !== drawnTick) {
     tiles.update(snap);
     drawnTick = snap.time;
   }
+  // Wind, every frame and on the wall clock. Per Decision 4 it does not speed
+  // up at 4x, for the same reason a mark's decay does not: a human's eye is
+  // the audience and it is not running at 4x either.
+  tiles.animate(now);
   // Actors every frame: the whole point of alpha is that they move between ticks.
   actors.update(snap, session.clock.alpha, selectedBotId);
+  // The belt tread, which is the one thing in the renderer that truly redraws.
+  animated.update(snap, now);
   // Drained every frame, not every tick: an undrained event is a lost signal,
   // and marks decay against the wall clock rather than the sim's.
-  marks.update(session.world.drainEvents(), heldMarks(snap), performance.now(), stage.geometry);
+  //
+  // Drained **once**, into both readers. Two calls to `drainEvents` would give
+  // the second one an empty list, and whichever layer ran second would silently
+  // never see anything.
+  const events = session.world.drainEvents();
+  marks.update(events, heldMarks(snap), now, stage.geometry);
+  effects.update(events, snap, now, stage.geometry);
   inspector.update(snap, stage.geometry);
   hud.update(snap, {
     paused: session.clock.paused,
@@ -320,6 +512,8 @@ if (import.meta.env.DEV) {
     editor,
     scripts,
     frame,
+    // Task 9 asks whether the vignette was doing anything, which needs it off.
+    overlay,
     perf: () => ({ pass: mean(passMs), draw: mean(drawMs), frame: mean(frameMs) }),
   });
 }
