@@ -48,6 +48,16 @@
         gap: 0.75rem;
       }
       #status { margin: 0; color: #888; font-size: 11px; }
+      /* The armed banner. Loud on purpose: it is the answer to "why is my
+         cursor a ghost", and it names the key that makes it stop. */
+      #placing {
+        margin: 0.25rem 0 0;
+        padding: 0.15rem 0.4rem;
+        color: #1a1a12;
+        background: #f0d878;
+        border-radius: 2px;
+        font-size: 11px;
+      }
       #controls { display: flex; flex-wrap: wrap; gap: 0.35rem; }
       button, select {
         font: inherit;
@@ -176,6 +186,7 @@
       <div id="panel"></div>
       <ul id="log"></ul>
       <p id="status">starting…</p>
+      <p id="placing" hidden></p>
     </aside>
     <script type="module" src="/src/editor/main.ts"></script>
   </body>

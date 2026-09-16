@@ -20,6 +20,7 @@ const PLACEABLE: { research: MachineKind; label: string }[] = [
   { research: "crate", label: "Crate" },
   { research: "mill", label: "Mill" },
   { research: "oven", label: "Oven" },
+  { research: "conveyor", label: "Conveyor" },
 ];
 
 export function buildOptions(snapshot: WorldSnapshot): BuildOption[] {
@@ -50,12 +51,7 @@ export function buildOptions(snapshot: WorldSnapshot): BuildOption[] {
   return out;
 }
 
-/**
- * What a placement would do to a tile, phrased for a player rather than a log.
- *
- * The sim's own refusal strings are the source; this only decorates them, so
- * there is exactly one place that decides whether a tile is legal.
- */
-export function placementHint(reason: string | null, label: string): string {
-  return reason === null ? label : reason;
-}
+// `placementHint` lived here and was never called by anything. Milestone 6's
+// Task 6 needed the tooltip to say more than one line — the placement *and*
+// what is already on the tile — so the job moved to `describePlacement` in the
+// inspector, beside `describeTile`, which is the other half of what it prints.

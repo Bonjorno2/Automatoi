@@ -122,8 +122,16 @@ const PIPS_PER_BELT = 4;
  * Built from the sim's own direction vector rather than from four hand-drawn
  * triangles, so there is one place that knows what "east" means on screen and it
  * is the same place the sim gets it from.
+ *
+ * Exported because the placement ghost draws it too: what the ghost promises and
+ * what lands on the tile should be the same shape, not two shapes that agree.
  */
-function drawArrow(g: Graphics, size: number, dir: Direction): void {
+export function drawArrow(
+  g: Graphics,
+  size: number,
+  dir: Direction,
+  colour: number = MACHINE.conveyor.trim,
+): void {
   const v = DIR[dir];
   const across = { x: -v.y, y: v.x };
   const tip = size * 0.3;
@@ -136,7 +144,7 @@ function drawArrow(g: Graphics, size: number, dir: Direction): void {
     -v.y * back + across.y * half,
     -v.x * back - across.x * half,
     -v.y * back - across.y * half,
-  ]).fill({ color: MACHINE.conveyor.trim, alpha: 0.85 });
+  ]).fill({ color: colour, alpha: 0.85 });
 }
 
 /**

@@ -7,7 +7,9 @@ import { connectResize, createStage } from "../render/stage.ts";
 import { createTileLayer } from "../render/tiles.ts";
 import { createActorLayer } from "../render/actors.ts";
 import { createMarkLayer, heldMarks } from "../render/marks.ts";
-import { createInspector } from "../render/inspector.ts";
+import { armedMessage, createInspector, type Placement } from "../render/inspector.ts";
+import { CLOCKWISE } from "../sim/world.ts";
+import { FACES } from "../sim/config.ts";
 import { createHud, createSidePanel } from "../render/hud.ts";
 import type { BuildOption } from "./build-menu.ts";
 import type { ModuleName } from "../sim/types.ts";
@@ -21,6 +23,10 @@ const isolated = crossOriginIsolated && typeof SharedArrayBuffer === "function";
 
 // Not `status`: that name is already taken by the DOM's global `window.status`.
 const statusEl = document.querySelector<HTMLElement>("#status")!;
+// Its own element rather than #status: the status line carries messages the
+// player asked for ("fitted planter to bot 1"), and overwriting those every
+// frame with a mode banner would lose them.
+const placingEl = document.querySelector<HTMLElement>("#placing")!;
 if (!isolated) {
   statusEl.textContent = "NOT ISOLATED — SharedArrayBuffer unavailable";
   throw new Error("cross-origin isolation required");
@@ -78,22 +84,33 @@ function pick(option: BuildOption): void {
     return;
   }
 
-  inspector.placing =
+  const placing: Placement =
     option.kind === "machine"
       ? {
+          option: option.label,
           label: `Place ${option.label}`,
+          // Only a kind with a front carries one, so `R` does nothing to a
+          // crate rather than silently turning something with no direction.
+          facing: FACES[option.machine] ? "north" : null,
           reason: (tile) => world.canPlace(option.machine, tile),
-          apply: (tile) => void world.placeMachine(option.machine, tile),
+          apply: (tile) => void world.placeMachine(option.machine, tile, placing.facing ?? "north"),
+          rotate: () => {
+            if (placing.facing) placing.facing = CLOCKWISE[placing.facing];
+          },
         }
       : {
+          option: option.label,
           label: "Deploy bot",
+          facing: null,
           reason: (tile) => world.canDeploy(tile),
           // Selecting the new bot is the point: milestone 5 gives it its own
           // script, and the player almost certainly wants to write that next.
           apply: (tile) => {
             selectedBotId = world.deployBot(tile).id;
           },
+          rotate: () => {},
         };
+  inspector.placing = placing;
   sidePanel.setActive(option.label);
 }
 
@@ -279,7 +296,13 @@ function draw(): void {
       : undefined,
   });
   sidePanel.update(snap, selectedBotId);
-  sidePanel.setActive(inspector.placing?.label.replace(/^Place /, "") ?? null);
+  sidePanel.setActive(inspector.placing?.option ?? null);
+  // Milestone 5's finding 2: armed and inspecting were two modes with no
+  // difference the player could see without hovering a tile and reading the
+  // wording of a tooltip. This is on screen whether or not they are hovering,
+  // and it is the only place that says Escape is the way out.
+  placingEl.textContent = armedMessage(inspector.placing);
+  placingEl.hidden = inspector.placing === null;
 }
 
 function loop(): void {

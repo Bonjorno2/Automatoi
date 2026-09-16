@@ -1,4 +1,4 @@
-import { World } from "../../src/sim/world";
+import { CLOCKWISE, World } from "../../src/sim/world";
 import {
   CAPACITY,
   CONVEYOR_TICKS,
@@ -355,6 +355,27 @@ describe("what a belt may take from behind it", () => {
     ticks(w, CONVEYOR_TICKS * 6);
     expect(beside.inventory).toEqual({});
     expect(mill.inventory).toEqual({ flour: 3 });
+  });
+});
+
+describe("turning a belt", () => {
+  it("cycles four ways and comes back", () => {
+    // Beside DIR in world.ts for the same reason DIR is exported at all: the
+    // renderer, the build menu and the builder arm all need to agree with the
+    // sim about what turning means, and a second copy of this would drift.
+    let dir: Direction = "north";
+    const seen: Direction[] = [];
+    for (let i = 0; i < 4; i++) {
+      dir = CLOCKWISE[dir];
+      seen.push(dir);
+    }
+    expect(seen).toEqual(["east", "south", "west", "north"]);
+  });
+
+  it("turns every direction into a different one", () => {
+    for (const dir of ["north", "east", "south", "west"] as Direction[]) {
+      expect(CLOCKWISE[dir]).not.toBe(dir);
+    }
   });
 });
 

@@ -68,6 +68,20 @@ export const DIR: Record<Direction, Vec> = {
   west: { x: -1, y: 0 },
 };
 
+/**
+ * A quarter turn, exported for the same reason `DIR` is.
+ *
+ * Rotating a belt is a thing the build menu does, the builder arm will do, and
+ * the ghost has to draw. A second copy of what "turn right" means is a second
+ * thing to keep in step with this one.
+ */
+export const CLOCKWISE: Record<Direction, Direction> = {
+  north: "east",
+  east: "south",
+  south: "west",
+  west: "north",
+};
+
 const add = (a: Vec, b: Vec): Vec => ({ x: a.x + b.x, y: a.y + b.y });
 const sub = (a: Vec, b: Vec): Vec => ({ x: a.x - b.x, y: a.y - b.y });
 

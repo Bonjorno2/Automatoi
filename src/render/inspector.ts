@@ -1,8 +1,9 @@
 import { Container, Graphics } from "pixi.js";
 import { CROP_GROWTH, WHEAT_GROWTH_TICKS } from "../sim/config.ts";
-import type { MachineKind, Vec, WorldSnapshot } from "../sim/types.ts";
+import type { Direction, MachineKind, Vec, WorldSnapshot } from "../sim/types.ts";
 import { toPixel, toTile, type Geometry, type Size } from "./geometry.ts";
 import { COLOR } from "./palette.ts";
+import { drawArrow } from "./actors.ts";
 
 /**
  * What a machine is called, to a player. Per Decision 7 of the milestone 4
@@ -96,10 +97,61 @@ function describeBotActivity(bot: WorldSnapshot["bots"][number]): string {
  * drift from `canPlace` the first time a rule changed.
  */
 export interface Placement {
+  /** The build-menu option this came from, so the menu can show which is armed. */
+  option: string;
   label: string;
+  /** Which way it would go down, for a kind with a front. Null for the rest. */
+  facing: Direction | null;
   reason(tile: Vec): string | null;
   /** Called only for a tile whose `reason` is null. */
   apply(tile: Vec): void;
+  /** Turn it a quarter. Does nothing for a kind with no front. */
+  rotate(): void;
+}
+
+/** The parts of a placement its text is made of. */
+type ArmedText = { label: string; facing: Direction | null };
+
+/**
+ * What the tooltip says while the player is holding something over a tile.
+ *
+ * Milestone 5's finding 2, second half. Placement stays armed after a click —
+ * that is what makes laying a line of belts bearable — but armed and inspecting
+ * were two modes with no difference on screen except the tooltip's wording, and
+ * the natural thing to do after placing a machine is to look at it. So the
+ * tooltip now describes **both**: what would go here, and what is already here.
+ *
+ * Only for a tile something is standing on. Empty ground is left alone: a crop
+ * report nobody asked for, while they are aiming at something, is noise.
+ */
+export function describePlacement(
+  snapshot: WorldSnapshot,
+  tile: Vec,
+  placing: ArmedText & { reason: string | null },
+): string[] {
+  const head = [
+    placing.facing ? `${placing.label} (facing ${placing.facing})` : placing.label,
+    `  ${placing.reason ?? "click to place"}`,
+  ];
+  const occupied =
+    snapshot.machines.some((m) => m.pos.x === tile.x && m.pos.y === tile.y) ||
+    snapshot.bots.some((b) => b.pos.x === tile.x && b.pos.y === tile.y);
+  return occupied ? [...head, ...describeTile(snapshot, tile)] : head;
+}
+
+/**
+ * The banner that says the canvas is armed, and how to stop.
+ *
+ * Milestone 5's finding 2, first half: "armed" lived only in the wording of a
+ * tooltip the player had to be hovering a tile to read, and nothing anywhere
+ * said that Escape was the way out.
+ */
+export function armedMessage(placing: ArmedText | null): string {
+  if (!placing) return "";
+  const what = placing.label.replace(/^Place /, "");
+  const facing = placing.facing ? ` (facing ${placing.facing})` : "";
+  const turn = placing.facing ? "R to turn, " : "";
+  return `placing ${what}${facing} — ${turn}Esc to stop`;
 }
 
 export interface Inspector {
@@ -160,6 +212,13 @@ export function createInspector(
           .rect(p.x + 1, p.y + 1, geo.size - 2, geo.size - 2)
           .fill({ color: colour, alpha: 0.35 })
           .stroke({ width: 2, color: colour });
+        if (placing.facing) {
+          // The same arrow the belt itself is drawn with, so what the ghost
+          // promises and what lands are the same shape rather than two of them.
+          outline.translateTransform(p.x + geo.size / 2, p.y + geo.size / 2);
+          drawArrow(outline, geo.size, placing.facing, colour);
+          outline.resetTransform();
+        }
       } else {
         // An outline rather than a fill: a fill hides the crop being asked about.
         outline
@@ -168,7 +227,7 @@ export function createInspector(
       }
 
       const lines = placing
-        ? [placing.label, `  ${reason ?? "click to place"}`]
+        ? describePlacement(snapshot, hovered, { ...placing, reason })
         : describeTile(snapshot, hovered);
       tooltip.hidden = lines.length === 0;
       tooltip.textContent = lines.join("\n");
@@ -222,7 +281,13 @@ export function createInspector(
   });
 
   window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && inspector.placing) inspector.placing = null;
+    if (!inspector.placing) return;
+    if (e.key === "Escape") inspector.placing = null;
+    // Not while typing in the editor: Monaco is a different element, and a
+    // player writing `bot.harvester` should not turn a belt they forgot about.
+    else if (e.key.toLowerCase() === "r" && e.target === document.body) {
+      inspector.placing.rotate();
+    }
   });
 
   return inspector;
