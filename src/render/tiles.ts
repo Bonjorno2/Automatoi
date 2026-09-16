@@ -2,6 +2,7 @@ import { Container, Graphics } from "pixi.js";
 import type { WorldSnapshot } from "../sim/types.ts";
 import { CROP_HEIGHT, cropColor, cropStage } from "./palette.ts";
 import { RIM_COLOR, RIM_WIDTH, fieldRim, groundShade } from "./texture.ts";
+import { sway } from "./motion.ts";
 import { toPixel, type Geometry } from "./geometry.ts";
 
 /**
@@ -25,6 +26,13 @@ import { toPixel, type Geometry } from "./geometry.ts";
 export interface TileLayer {
   /** Called when the world's tick changed. Cheap when nothing grew. */
   update(snapshot: WorldSnapshot): void;
+  /**
+   * Called every frame with the wall clock. Writes `rotation` and nothing else.
+   *
+   * Separate from `update` because they run on different clocks and at
+   * different rates: crops change on a tick, and wind does not speed up at 4x.
+   */
+  animate(nowMs: number): void;
   /** Rebuild against a new fit. */
   resize(geometry: Geometry, snapshot: WorldSnapshot): void;
 }
@@ -42,6 +50,9 @@ export function createTileLayer(
   snapshot: WorldSnapshot,
 ): TileLayer {
   let geo = geometry;
+  // Kept so `animate` can turn a pool index back into a tile coordinate without
+  // being handed a snapshot it does not otherwise need.
+  let gridWidth = snapshot.width;
   const terrain = new Graphics();
   staticLayer.addChild(terrain);
 
@@ -104,7 +115,22 @@ export function createTileLayer(
     sprite.stage = stage;
   }
 
+  /**
+   * Wind, one write per crop per frame.
+   *
+   * The sprite is already positioned at the bottom-centre of its tile with its
+   * shape drawn relative to that, so its own origin is the pivot a stalk turns
+   * about. That is the whole reason this is a transform and not a redraw, and
+   * the reason Decision 2 could promise animation would cost no geometry.
+   */
+  function animate(nowMs: number): void {
+    for (const [i, sprite] of pool) {
+      sprite.g.rotation = sway(i % gridWidth, Math.floor(i / gridWidth), nowMs, sprite.stage);
+    }
+  }
+
   function update(snap: WorldSnapshot): void {
+    gridWidth = snap.width;
     const seen = new Set<number>();
     for (let i = 0; i < snap.tiles.length; i++) {
       const crop = snap.tiles[i]?.crop;
@@ -147,5 +173,5 @@ export function createTileLayer(
   drawTerrain(snapshot);
   update(snapshot);
 
-  return { update, resize };
+  return { update, animate, resize };
 }

@@ -313,17 +313,22 @@ function frame(): void {
 }
 
 function draw(): void {
+  const now = performance.now();
   snap = session.world.snapshot();
   // Crops change on a tick and never between ticks.
   if (snap.time !== drawnTick) {
     tiles.update(snap);
     drawnTick = snap.time;
   }
+  // Wind, every frame and on the wall clock. Per Decision 4 it does not speed
+  // up at 4x, for the same reason a mark's decay does not: a human's eye is
+  // the audience and it is not running at 4x either.
+  tiles.animate(now);
   // Actors every frame: the whole point of alpha is that they move between ticks.
   actors.update(snap, session.clock.alpha, selectedBotId);
   // Drained every frame, not every tick: an undrained event is a lost signal,
   // and marks decay against the wall clock rather than the sim's.
-  marks.update(session.world.drainEvents(), heldMarks(snap), performance.now(), stage.geometry);
+  marks.update(session.world.drainEvents(), heldMarks(snap), now, stage.geometry);
   inspector.update(snap, stage.geometry);
   hud.update(snap, {
     paused: session.clock.paused,
