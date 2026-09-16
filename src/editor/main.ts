@@ -25,7 +25,7 @@ import {
 import { keyTarget } from "../render/keys.ts";
 import type { Size } from "../render/geometry.ts";
 import type { BuildOption } from "./build-menu.ts";
-import type { ModuleName } from "../sim/types.ts";
+import type { Direction, ModuleName } from "../sim/types.ts";
 
 /**
  * Cross-origin isolation is checked before anything else. Without it
@@ -261,6 +261,22 @@ function pick(option: BuildOption): void {
  * outcome cannot be three different opinions. Remove is a branch here rather
  * than an interaction of its own, per Decision 9 of the milestone 7 plan.
  */
+/**
+ * The facing the player last chose, kept across re-arming.
+ *
+ * Milestone 8's finding 1: the ghost started facing north every time, so laying
+ * the natural shape — a line rightward — put down six dead ends before anybody
+ * thought about `R`. The banner said "facing north" the whole time and was not
+ * read, because the thing the hand is doing is drag a line to the right and the
+ * thing the screen is saying is a compass bearing.
+ *
+ * Deliberately *not* inferred from the direction of the second click, which was
+ * the other candidate: guessing means the first belt of every line is still
+ * wrong, and a wrong guess that corrects itself is worse than a default that
+ * stays put.
+ */
+let lastFacing: Direction = "north";
+
 function armFor(option: Exclude<BuildOption, { kind: "module" }>): Placement {
   const world = session.world;
 
@@ -271,12 +287,14 @@ function armFor(option: Exclude<BuildOption, { kind: "module" }>): Placement {
       mode: "place",
       // Only a kind with a front carries one, so `R` does nothing to a crate
       // rather than silently turning something with no direction.
-      facing: FACES[option.machine] ? "north" : null,
+      facing: FACES[option.machine] ? lastFacing : null,
       reason: (tile) => world.canPlace(option.machine, tile),
       apply: (tile) => void world.placeMachine(option.machine, tile, placing.facing ?? "north"),
       rotate: (turn) => {
         const table = turn === "ccw" ? COUNTER_CLOCKWISE : CLOCKWISE;
-        if (placing.facing) placing.facing = table[placing.facing];
+        if (!placing.facing) return;
+        placing.facing = table[placing.facing];
+        lastFacing = placing.facing;
       },
     };
     return placing;

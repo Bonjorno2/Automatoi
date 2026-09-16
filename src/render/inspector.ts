@@ -288,6 +288,38 @@ export function armedMessage(placing: ArmedText | null): string {
 }
 
 /**
+ * What colour the ghost is, which is the strongest channel it has.
+ *
+ * Milestone 8's finding 2. Milestone 7 let the player's hands destroy a
+ * machine's contents and rested the argument on the cost being under the cursor
+ * first — and it was, as the third line of a six-line tooltip, under two lines
+ * identical to the harmless case, with the banner and the ghost saying nothing.
+ * Every channel a hand is actually watching was silent and the one that spoke
+ * was text in the middle of a tooltip.
+ *
+ * So removal has three colours rather than two, and the third is the one the
+ * decision was always about. The distinction is already computed — it is
+ * `removalCost(...) !== null` — so this adds a colour and no new question.
+ *
+ * Amber rather than a second red: red means "this will not work", it has meant
+ * that since milestone 5, and a destructive click that *will* work is a
+ * different fact. It is `COLOR.starved`'s family, which is the palette's
+ * existing word for "look at this".
+ *
+ * Pure, so which colour appears when is a test rather than a screenshot — the
+ * same move `describePlacement` made for the wording.
+ */
+export function ghostColour(
+  mode: "place" | "remove",
+  reason: string | null,
+  costly: boolean,
+): number {
+  if (reason !== null) return 0xe0584a;
+  if (mode === "remove" && costly) return COLOR.starved;
+  return 0x6fbf5a;
+}
+
+/**
  * The remove ghost's mark, inset from the tile's edge so the ghost's own border
  * stays readable around it.
  *
@@ -356,8 +388,13 @@ export function createInspector(
 
       if (placing) {
         // A filled ghost, because the question is "what goes here", not "what
-        // is here". Green means the click will work; red carries the reason.
-        const colour = reason === null ? 0x6fbf5a : 0xe0584a;
+        // is here". Green means the click will work; red carries the reason;
+        // amber means it will work and cost something.
+        const colour = ghostColour(
+          placing.mode,
+          reason,
+          removalCost(snapshot, hovered) !== null,
+        );
         outline
           .rect(p.x + 1, p.y + 1, geo.size - 2, geo.size - 2)
           .fill({ color: colour, alpha: 0.35 })
