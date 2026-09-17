@@ -236,82 +236,84 @@ interface ResearchStatus {
     cost: number;
 }
 
-// --- the player API ---------------------------------------------------
+// --- the player API, always present ------------------------------------
 interface BotApi {
+    /**
+     * Step one tile. Costs 2 ticks.
+     *
+     * Answers `false` rather than throwing when the way is blocked — the world's
+     * edge, a machine, another bot — so a loop can turn around instead of dying.
+     *
+     * ```js
+     * if (!bot.move("east")) bot.move("south");
+     * ```
+     */
     move(dir: Direction): boolean;
+    /**
+     * Do nothing for `ticks` ticks, and cost exactly that many.
+     *
+     * The way to poll without spinning: a `while` loop with no world call in it
+     * burns the per-tick CPU budget and gets the bot hung.
+     */
     wait(ticks: number): void;
+    /** Where this bot is standing. Costs no ticks, like every read. */
     pos(): {
         x: number;
         y: number;
     };
-    /** Keyed by item, so a beginner writes `bot.inventory().wheat ?? 0`. */
+    /**
+     * What this bot is carrying, keyed by item, so a beginner writes
+     * `bot.inventory().wheat ?? 0`. Costs no ticks.
+     *
+     * A chassis holds 10 items **in total**, not 10 of
+     * each. At that point `harvest()` starts answering `false`.
+     */
     inventory(): Record<string, number | undefined>;
+    /** Write a line to this bot's console panel. Costs no ticks and never blocks. */
     log(message: string): void;
     /**
      * Machine verbs. Unlike the module namespaces below these live on `bot`
      * directly: a crate is a machine standing on a tile, not a chassis module,
      * so there is no hardware namespace to hang them on. They fail with the
      * sim's own message when no crate is adjacent.
+     *
+     * Both cost 1 tick and answer with **how many actually moved**,
+     * which can be fewer than asked and can be 0: a deposit is capped by the
+     * machine's room for that item (16 of each, 4
+     * on a belt) and a withdraw by the room left on the chassis. A partial
+     * transfer is the answer rather than a refusal, so check the number.
+     *
+     * ```js
+     * const moved = bot.deposit("north", "wheat", bot.inventory().wheat ?? 0);
+     * if (moved === 0) bot.log("crate is full");
+     * ```
      */
     deposit(dir: Direction, item: Item, count: number): number;
     withdraw(dir: Direction, item: Item, count: number): number;
-    /**
-     * Module namespaces, declared optional so the shipped `.d.ts` is honest
-     * about what a given chassis may not have and `bot.scanner?.scan(2)`
-     * typechecks.
-     *
-     * Deliberate asymmetry: they are optional in the *type* but always present
-     * at *runtime*. Making them genuinely undefined would replace the design's
-     * promised "Bot 1 has no Scanner module" with a bare TypeError from the
-     * engine, because the call would never reach the sim that knows how to say
-     * that. The cost is that `if (bot.scanner)` is true whatever the chassis
-     * carries; read `modules` from a bot view for real feature detection.
-     *
-     * Do not "fix" this by dropping the `?` or by returning undefined.
-     */
-    harvester?: {
-        harvest(): boolean;
-    };
-    planter?: {
-        plant(item: Item): boolean;
-    };
-    scanner?: {
-        scan(radius: number): ScanTile[];
-    };
-    radio?: {
-        send(channel: string, payload: unknown): number;
-        receive(channel?: string): Message;
-    };
-    /**
-     * The builder arm: the first verbs that change the world's layout rather than
-     * moving through it.
-     *
-     * `facing` is which way the new machine points and defaults to `dir`, so the
-     * natural loop lays a line pointing the way the bot is walking:
-     *
-     * ```js
-     * for (let i = 0; i < 5; i++) {
-     *   bot.builder.place("conveyor", "north");
-     *   bot.move("north");
-     * }
-     * ```
-     *
-     * Both throw the sim's own reason when they refuse — "tile occupied",
-     * "conveyor not researched", "crate is not empty" — so a script that might
-     * build over something should be ready to catch one.
-     */
-    builder?: {
-        place(machine: MachineKind, dir: Direction, facing?: Direction): boolean;
-        remove(dir: Direction): boolean;
-    };
 }
 
 interface ColonyApi {
+    /**
+     * Every bot in the colony, this one included, as read-only views: position,
+     * inventory, fitted modules, and whether a command is in flight. Costs no
+     * ticks.
+     *
+     * `busy` means "has a command running", which is true of a bot working and
+     * equally true of a bot deadlocked against another — it is not a liveness
+     * check.
+     */
     bots(): Array<MirrorState & {
         id: number;
     }>;
+    /** The world's tick count. Costs no ticks, and is the same number for every bot. */
     time(): number;
     research: {
+        /**
+         * Ask the Research Console for something. Costs no ticks; the console pays
+         * for it in harvested goods, and a queued item arrives whenever the goods do.
+         *
+         * Write-only on its own — `status()` is how a script learns it landed.
+         */
         queue(name: ResearchName): void;
         /**
          * What has finished, what is queued, and how far the head of the queue has
@@ -328,6 +330,156 @@ interface ColonyApi {
          */
         status(): ResearchStatus;
     };
+}
+
+// --- hardware, one block per thing that has to be owned -----------------
+// The editor loads only the blocks whose gate is met, so autocomplete on
+// `bot.` lists what this chassis carries. See src/editor/api-surface.ts.
+// Anything reading this file whole — a typecheck, a test — gets them all.
+//#gate module:harvester
+interface BotApi {
+    /**
+     * Module namespaces, declared optional so the shipped `.d.ts` is honest
+     * about what a given chassis may not have and `bot.scanner?.scan(2)`
+     * typechecks.
+     *
+     * Deliberate asymmetry: they are optional in the *type* but always present
+     * at *runtime*. Making them genuinely undefined would replace the design's
+     * promised "Bot 1 has no Scanner module" with a bare TypeError from the
+     * engine, because the call would never reach the sim that knows how to say
+     * that. The cost is that `if (bot.scanner)` is true whatever the chassis
+     * carries; read `modules` from a bot view for real feature detection.
+     *
+     * Do not "fix" this by dropping the `?` or by returning undefined.
+     */
+    harvester?: {
+        /**
+         * Take the mature crop under the bot. Costs 3 ticks.
+         *
+         * Answers `false` and never throws: `false` for bare ground, for a crop
+         * still growing, and — since milestone 10's playtest — for a full chassis.
+         * A wheat tile ripens 30 ticks after it is planted.
+         *
+         * ```js
+         * while (true) {
+         *   bot.harvester.harvest();
+         *   bot.move("east");
+         * }
+         * ```
+         */
+        harvest(): boolean;
+    };
+}
+//#endgate
+
+//#gate module:planter
+interface BotApi {
+    planter?: {
+        /**
+         * Sow one seed from this bot's own inventory into the soil under it. Costs
+         * 3 ticks.
+         *
+         * Answers `false` without spending anything when the item is not a seed,
+         * when the tile is grass or already planted, or when the bot is not
+         * carrying one — so harvest before you plant.
+         *
+         * ```js
+         * if (bot.harvester.harvest()) bot.planter.plant("wheat");
+         * ```
+         */
+        plant(item: Item): boolean;
+    };
+}
+//#endgate
+
+//#gate module:scanner
+interface BotApi {
+    scanner?: {
+        /**
+         * Read the square of tiles within `radius` of the bot — `(2r+1)²` of them,
+         * each with its terrain, crop, bot id and machine. Costs 1 tick
+         * however wide it is.
+         *
+         * **Radius 6 is the largest that fits.** A result crosses back through a
+         * 16384-byte channel, and at radius 7 it does not fit: the call
+         * throws `result too large to return — ask for less at once`, which a
+         * planner should catch and retry narrower. Measured, in milestone 10's
+         * playtest, after a radius-8 scan killed a bot outright.
+         *
+         * ```js
+         * for (const tile of bot.scanner.scan(2)) {
+         *   if (tile.crop) bot.log("crop at " + tile.x + "," + tile.y);
+         * }
+         * ```
+         */
+        scan(radius: number): ScanTile[];
+    };
+}
+//#endgate
+
+//#gate module:radio
+interface BotApi {
+    radio?: {
+        /**
+         * Broadcast on a channel to every other bot that has a radio, and answer
+         * with how many heard it. Costs 1 tick.
+         *
+         * Zero back means nobody was listening — the payload is gone, not queued
+         * for a bot that has not been built yet.
+         */
+        send(channel: string, payload: unknown): number;
+        /**
+         * Take the next message, optionally only from one channel. Costs
+         * 1 tick when one is already queued and **blocks this bot
+         * indefinitely** when none is.
+         *
+         * Blocking is per bot: one bot parked here never stalls another. There is
+         * no way to ask without blocking, so the bot that waits should be the one
+         * with nothing else to do.
+         *
+         * ```js
+         * while (true) {
+         *   const order = bot.radio.receive("haul");
+         *   bot.log("bot " + order.from + " wants " + JSON.stringify(order.payload));
+         * }
+         * ```
+         */
+        receive(channel?: string): Message;
+    };
+}
+//#endgate
+
+//#gate module:builder
+interface BotApi {
+    /**
+     * The builder arm: the first verbs that change the world's layout rather than
+     * moving through it.
+     *
+     * `facing` is which way the new machine points and defaults to `dir`, so the
+     * natural loop lays a line pointing the way the bot is walking:
+     *
+     * ```js
+     * for (let i = 0; i < 5; i++) {
+     *   bot.builder.place("conveyor", "north");
+     *   bot.move("north");
+     * }
+     * ```
+     *
+     * Both throw the sim's own reason when they refuse — "tile occupied",
+     * "conveyor not researched", "crate is not empty" — so a script that might
+     * build over something should be ready to catch one. Each costs
+     * 4 ticks, which is what makes a long belt run a real expense in
+     * a script's own budget rather than a free stamp.
+     */
+    builder?: {
+        place(machine: MachineKind, dir: Direction, facing?: Direction): boolean;
+        remove(dir: Direction): boolean;
+    };
+}
+//#endgate
+
+//#gate research:fabricator
+interface ColonyApi {
     /**
      * The Fabricator, if one has been researched. Builds a bot and starts it.
      *
@@ -355,6 +507,7 @@ interface ColonyApi {
         spawn(script: () => void): number;
     };
 }
+//#endgate
 
 // Player scripts see these as globals, not as imports.
 declare const bot: BotApi;

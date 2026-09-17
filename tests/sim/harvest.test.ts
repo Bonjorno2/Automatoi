@@ -32,14 +32,24 @@ describe("harvest", () => {
     expect(run(w, 1, { kind: "harvest" })).toEqual({ ok: true, value: false });
   });
 
-  it("errors when the inventory is full", () => {
+  it("refuses when the inventory is full, and leaves the crop standing", () => {
+    // Milestone 10's playtest: a refusal rather than an error, which is the same
+    // answer this command already gave for bare soil. The crop surviving is the
+    // half that must not change — a refused harvest must never eat the wheat.
     const w = worldWithWheatUnderBot();
     w.getBot(1).inventory = { wheat: BOT_CAPACITY };
-    expect(run(w, 1, { kind: "harvest" })).toEqual({
-      ok: false,
-      error: "inventory full",
-    });
+    expect(run(w, 1, { kind: "harvest" })).toEqual({ ok: true, value: false });
     expect(w.tileAt(w.getBot(1).pos)!.crop).not.toBeNull();
+  });
+
+  it("counts a full harvest as getting nowhere, so the panel can say stuck", () => {
+    // The replacement signal for the error this used to throw. Without this the
+    // change would have removed a signal instead of moving it.
+    const w = worldWithWheatUnderBot();
+    w.getBot(1).inventory = { wheat: BOT_CAPACITY };
+    run(w, 1, { kind: "harvest" });
+    run(w, 1, { kind: "harvest" });
+    expect(w.getBot(1).stalled).toBe(2);
   });
 
   it("errors when the bot has no harvester", () => {

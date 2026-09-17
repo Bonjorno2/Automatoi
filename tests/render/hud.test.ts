@@ -104,14 +104,14 @@ describe("fieldLines", () => {
     // bread, and it runs out one hauling round after the chassis research
     // completes. Every balance measurement in milestones 3-5 was driven against
     // seed 1's field, so a change here should have to be argued for.
-    expect(fieldLines(new World({ seed: 1 }).snapshot())).toEqual(["wheat — 119 ready"]);
+    expect(fieldLines(new World({ seed: 1 }).snapshot())).toEqual(["wheat — 120 ready"]);
   });
 
   it("drops by one when a bot harvests", () => {
     const w = new World({ seed: 1 });
     w.getBot(1).pos = ripeTile(w);
     expect(run(w, 1, { kind: "harvest" })).toEqual({ ok: true, value: true });
-    expect(fieldLines(w.snapshot())).toEqual(["wheat — 118 ready"]);
+    expect(fieldLines(w.snapshot())).toEqual(["wheat — 119 ready"]);
   });
 
   it("counts a planted tile as growing rather than as ready", () => {
@@ -123,7 +123,7 @@ describe("fieldLines", () => {
     w.getBot(1).modules.add("planter");
     w.getBot(1).inventory = { wheat: 1 };
     expect(run(w, 1, { kind: "plant", item: "wheat" })).toEqual({ ok: true, value: true });
-    expect(fieldLines(w.snapshot())).toEqual(["wheat — 119 ready, 1 growing"]);
+    expect(fieldLines(w.snapshot())).toEqual(["wheat — 120 ready, 1 growing"]);
   });
 
   it("moves a crop from growing to ready when it matures", () => {
@@ -133,7 +133,7 @@ describe("fieldLines", () => {
     w.getBot(1).inventory = { wheat: 1 };
     run(w, 1, { kind: "plant", item: "wheat" });
     ticks(w, WHEAT_GROWTH_TICKS);
-    expect(fieldLines(w.snapshot())).toEqual(["wheat — 120 ready"]);
+    expect(fieldLines(w.snapshot())).toEqual(["wheat — 121 ready"]);
   });
 
   it("says the field is empty rather than saying nothing at all", () => {

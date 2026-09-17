@@ -116,7 +116,10 @@ describe("full", () => {
     bot.inventory = { wheat: BOT_CAPACITY };
     w.tileAt(bot.pos)!.crop = { item: "wheat", growth: WHEAT_GROWTH_TICKS };
     w.drainEvents();
-    expect(run(w, 1, { kind: "harvest" })).toEqual({ ok: false, error: "inventory full" });
+    // The event is the point of this test and it still fires. Milestone 10 made
+    // the outcome a refusal rather than an error, which makes the event *more*
+    // load-bearing: it is now the whole of the world-side signal.
+    expect(run(w, 1, { kind: "harvest" })).toEqual({ ok: true, value: false });
     expect(drain(w, "full")).toHaveLength(1);
   });
 });

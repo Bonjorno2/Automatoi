@@ -2,7 +2,15 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Automatori</title>
+    <title>Automatoi</title>
+    <!--
+      Before anything that needs a SharedArrayBuffer, which is everything. On a
+      host that cannot set COOP/COEP — GitHub Pages — this registers a service
+      worker that sets them and reloads once. Where the server already sends
+      them, it does nothing at all. Classic, not a module: it has to run and
+      finish deciding before the app's first import.
+    -->
+    <script src="./coi-serviceworker.js"></script>
     <style>
       /*
         Milestone 7's Task 8. The page is a frame around the canvas, so it
@@ -265,6 +273,35 @@
         border-color: #c89a90;
         color: #fff;
       }
+      /* The key. Wide, monospaced and quietly the most precious thing on the
+         page, so it gets the accent and a field you can click once to copy. */
+      .key-out {
+        width: 100%;
+        font: inherit;
+        font-size: var(--fs);
+        letter-spacing: 0.08em;
+        padding: 0.3rem 0.4rem;
+        color: var(--accent);
+        background: var(--bg-sunk);
+        border: 1px solid var(--accent-dim);
+        border-radius: 3px;
+      }
+      .key-hint { margin-top: var(--sp-1); font-size: 10px; }
+      .key-in { display: flex; gap: var(--sp-1); margin-top: var(--sp-1); }
+      .key-field {
+        flex: 1;
+        min-width: 0;
+        font: inherit;
+        font-size: var(--fs-sm);
+        padding: 0.25rem 0.4rem;
+        color: var(--text);
+        background: var(--bg-raised);
+        border: 1px solid var(--line-bright);
+        border-radius: 3px;
+      }
+      .key-in button { flex: none; }
+      .key-said { margin: var(--sp-1) 0 0; font-size: 10px; color: var(--grow); }
+      .key-said.key-bad { color: #f48771; }
       #log {
         margin: 0;
         padding: var(--sp-2);
@@ -280,46 +317,105 @@
       #log li { padding: 0.1rem 0; border-bottom: 1px solid #1c1f21; }
       #log li:last-child { border-bottom: 0; }
       .hint { color: var(--text-dim); font-size: var(--fs-sm); margin: 0; }
-      #book {
-        position: fixed;
-        top: 2.5rem;
-        left: 2rem;
-        width: 26rem;
-        max-height: 80vh;
-        overflow-y: auto;
-        padding: 0.9rem;
-        background: #252526;
-        border: 1px solid #454545;
-        border-radius: 6px;
-        box-shadow: 0 10px 30px rgb(0 0 0 / 0.5);
-        z-index: 10;
-      }
-      #book h2 { margin: 0 0 0.2rem; font-size: 13px; }
+      /*
+        The codebook. It lives in the column rather than floating over the
+        canvas, because the chip the game offers is a chip of this book and the
+        offer must not be a thing that appears and vanishes — the player has to
+        be able to come back to it. A floating panel cannot be both.
+      */
+      #codebook { max-height: 60vh; overflow-y: auto; }
       .chip {
         display: block;
         width: 100%;
         text-align: left;
-        margin-top: 0.6rem;
-        padding: 0.5rem 0.6rem;
-        background: #2d2d2d;
+        margin-top: var(--sp-1);
+        padding: 0.4rem 0.5rem;
+        background: var(--bg-raised);
+        border: 1px solid var(--line);
       }
+      .chip:hover { background: #2a2e32; border-color: var(--line-bright); }
       .chip strong { color: #dcdcaa; }
       .chip-need {
         color: #c586c0;
         font-style: normal;
-        font-size: 11px;
-        margin-left: 0.5rem;
+        font-size: 10px;
+        margin-left: var(--sp-1);
       }
-      .chip-blurb { display: block; color: #999; font-size: 11px; margin: 0.15rem 0 0.35rem; }
+      .chip-blurb { display: block; color: var(--text-dim); font-size: 10px; margin: 0.15rem 0 0.3rem; }
       .chip pre {
         margin: 0;
-        padding: 0.4rem 0.5rem;
-        background: #1e1e1e;
+        padding: 0.3rem 0.4rem;
+        background: var(--bg-sunk);
         border-radius: 3px;
         color: #9cdcfe;
-        font-size: 11px;
+        font-size: 10px;
         white-space: pre-wrap;
         overflow-x: auto;
+      }
+      /* A line of descent: one program, and what it grew into. */
+      .ladder {
+        margin-top: var(--sp-2);
+        padding-top: var(--sp-2);
+        border-top: 1px solid var(--line);
+      }
+      .ladder-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: var(--sp-1);
+        font-size: var(--fs-sm);
+      }
+      .ladder-head strong { color: var(--text); font-weight: 600; }
+      .rung-nav { display: flex; align-items: center; gap: 0.2rem; flex: none; }
+      .rung-nav button {
+        padding: 0 0.3rem;
+        font-size: var(--fs-sm);
+        line-height: 1.2;
+        background: transparent;
+        border-color: var(--line);
+        color: var(--text-dim);
+      }
+      .rung-nav button:hover:not(:disabled) { color: var(--accent); border-color: var(--accent-dim); }
+      .rung-count { color: var(--text-dim); font-size: 10px; min-width: 1.8rem; text-align: center; }
+      .rung-title { margin: 0.15rem 0 0; color: #dcdcaa; font-size: var(--fs-sm); }
+      /* A rung you can see and have not earned. Named, because naming it is the
+         most useful hint the game has. */
+      .rung-locked {
+        margin: 0.15rem 0 0;
+        padding: 0.3rem 0.4rem;
+        background: var(--bg-sunk);
+        border: 1px dashed var(--line-bright);
+        border-radius: 3px;
+        color: var(--text-dim);
+        font-size: 10px;
+      }
+      /* What the game is offering right now: the accent the build menu uses for
+         its offers, because that is what this is. */
+      .chip-suggest {
+        border-color: var(--accent-dim);
+        background: #24211a;
+      }
+      .chip-suggest:hover { background: #2f2a1d; border-color: var(--accent); }
+      .book-why { margin: var(--sp-1) 0 0; color: var(--accent); font-size: var(--fs-sm); }
+      /* What clicking this chip will do, said before it does it. The suggested
+         one replaces the script, which is a thing a player must be told. */
+      .chip-take {
+        display: block;
+        margin-top: var(--sp-1);
+        color: var(--text-dim);
+        font-style: normal;
+        font-size: 10px;
+      }
+      .chip-suggest .chip-take { color: #c8b84a; }
+      .book-hint { margin-top: var(--sp-1); font-size: 10px; }
+      /* Quieter than the offer it refuses, and always the same one click. */
+      .suggest-dismiss {
+        margin-top: var(--sp-1);
+        padding: 0.15rem 0.4rem;
+        font-size: 10px;
+        color: var(--text-dim);
+        background: transparent;
+        border-color: var(--line);
       }
     </style>
   </head>
@@ -328,7 +424,7 @@
     <div id="editor"></div>
     <aside id="side">
       <header id="masthead">
-        <h1>AUTOMATORI</h1>
+        <h1>AUTOMATOI</h1>
         <span class="camera-hint">wheel zooms · space-drag pans · Home resets</span>
       </header>
       <div id="controls">
@@ -347,6 +443,15 @@
       </div>
       <p class="hint">Ctrl+S restarts this bot's script.</p>
       <div id="panel"></div>
+      <!-- Above the console and below the panel: the console is what the bot
+           said, and this is what the game has to say about it. One section, not
+           two — the chip the game offers is a chip of this book, and this is
+           where the player comes back for it. -->
+      <section class="group" id="codebook"></section>
+      <!-- Under the codebook because it is the codebook, encoded: what the
+           player has learned and what they have researched, short enough to
+           read down a phone. -->
+      <section class="group" id="progress"></section>
       <ul id="log"></ul>
       <p id="status">starting…</p>
       <p id="placing" hidden></p>

@@ -1,7 +1,21 @@
-import { clearRuntimeErrors, markRuntimeError, mountEditor } from "./editor.ts";
+import {
+  apiComplaints,
+  apiLib,
+  clearRuntimeErrors,
+  markRuntimeError,
+  mountEditor,
+  setApiSurface,
+} from "./editor.ts";
+import { ownedGates } from "./api-surface.ts";
 import { LIBRARY, ScriptStore } from "./script-store.ts";
 import { createConsolePanel } from "./console-panel.ts";
-import { createSnippetBook } from "./snippet-book.ts";
+import { createCodebook } from "./codebook.ts";
+import { createSuggester } from "./suggestions.ts";
+import { createKeyPanel, sayAboutKey } from "./key-panel.ts";
+import { insertInline } from "./insert.ts";
+import { decodeKey, encodeKey, factsFrom, keyCost, partition } from "./progress-key.ts";
+import type { KeyContents } from "./progress-key.ts";
+import type { ResearchName } from "../sim/types.ts";
 import { GameSession } from "./session.ts";
 import { connectResize, createOverlay, createStage } from "../render/stage.ts";
 import { createTileLayer } from "../render/tiles.ts";
@@ -44,7 +58,19 @@ const placingEl = document.querySelector<HTMLElement>("#placing")!;
 // that only raises questions.
 const libraryButton = document.querySelector<HTMLButtonElement>("#library")!;
 if (!isolated) {
-  statusEl.textContent = "NOT ISOLATED — SharedArrayBuffer unavailable";
+  // On a stranger's machine this is the entire game, so it says what happened
+  // rather than naming the browser feature that is missing. The service worker
+  // that supplies the headers on a static host needs one reload to take effect,
+  // and a private window or a blocked worker is the case where it never will.
+  statusEl.textContent = "this page could not start";
+  document.querySelector("#world")!.innerHTML =
+    '<p style="padding:2rem;max-width:32rem;line-height:1.6">' +
+    "<strong>Automatoi could not start.</strong><br><br>" +
+    "The game runs each bot's script in a worker that shares memory with the page, " +
+    "which browsers only allow on an isolated page. Reloading once usually fixes it. " +
+    "If it does not, the page is most likely in a browser or a private window that " +
+    "refuses service workers." +
+    "</p>";
   throw new Error("cross-origin isolation required");
 }
 
@@ -346,6 +372,19 @@ function armFor(option: Exclude<BuildOption, { kind: "module" }>): Placement {
   };
 }
 
+/**
+ * Alt-click a tile and its address lands in the code at the cursor.
+ *
+ * Bare numbers rather than `{ x: 4, y: 7 }`, because the thing a player is
+ * usually part-way through typing is an argument list — `bot.pos().x > 16` or a
+ * comparison — and a wrapped object would have to be unwrapped again. The status
+ * line says what happened, since the canvas gives no other sign.
+ */
+inspector.onPick = (tile) => {
+  insertInline(editor, `${tile.x}, ${tile.y}`);
+  statusEl.textContent = `picked ${tile.x}, ${tile.y}`;
+};
+
 inspector.onPlace = (tile) => {
   const placing = inspector.placing;
   // Clicking an illegal tile does nothing at all. It does not cancel, because
@@ -374,6 +413,27 @@ const panel = createConsolePanel(document.querySelector("#log")!, statusEl);
 const pauseButton = document.querySelector<HTMLButtonElement>("#pause")!;
 
 /**
+ * What the game has to say about how things are going, and the book it says it
+ * out of.
+ *
+ * Runs are recorded only from `run`, which is the player pressing Run or Ctrl+S.
+ * A bot the fabricator started is deliberately not recorded: its source is in no
+ * buffer, so a chip offered about it would be inserted into some other bot's
+ * script. World events are not filtered that way — a spawned bot pressed against
+ * a wall is still the player's problem, and the chip that fixes it goes in the
+ * script that spawned it.
+ */
+const suggester = createSuggester();
+const codebook = createCodebook(
+  document.querySelector<HTMLElement>("#codebook")!,
+  editor,
+  {
+    onTake: (id) => suggester.take(id),
+    onRefuse: (id) => suggester.retire(id),
+  },
+);
+
+/**
  * Which run each bot's panel belongs to. Restarting settles the outgoing script
  * as "stopped", and that callback lands *after* the new one has started —
  * without this the player would press Ctrl+S and watch their fresh run be
@@ -400,15 +460,24 @@ async function run(): Promise<void> {
   }
   const mine = (generations.get(botId) ?? 0) + 1;
   generations.set(botId, mine);
-  scripts.stash(editor.getValue());
+  // Read once. The buffer is editable while the script runs, and the two reads
+  // this used to do could disagree about what was stashed and what was started.
+  const source = editor.getValue();
+  scripts.stash(source);
   panel.start(botId);
+  suggester.started(botId, source);
   clearRuntimeErrors(editor);
 
-  await session.runScript(botId, editor.getValue(), {
+  await session.runScript(botId, source, {
     onLog: (m) => { if (mine === generations.get(botId)) panel.log(botId, m); },
     onSettle: (outcome) => {
       if (mine !== generations.get(botId)) return;
       panel.settle(botId, outcome);
+      // The source that actually ran, not `editor.getValue()` — by the time a
+      // long script settles the player may well have typed a loop into the
+      // buffer, and suggesting one then would be the game reading a screen it
+      // was not looking at.
+      suggester.ran(botId, source, outcome.status);
       // Only mark the editor if it is still showing the bot that failed.
       if (outcome.status === "error" && selectedBotId === botId) {
         markRuntimeError(editor, outcome.line, outcome.message ?? "error");
@@ -418,9 +487,85 @@ async function run(): Promise<void> {
   // A script that never ends never gets here; that is the normal case.
 }
 
-const book = createSnippetBook(editor);
-document.body.append(book.element);
-document.querySelector("#book-toggle")!.addEventListener("click", () => book.toggle());
+document.querySelector("#book-toggle")!.addEventListener("click", () => codebook.toggle());
+
+/**
+ * The progress key: this game's only save, and the first one it has ever had.
+ *
+ * `localStorage` holds the last key as well as the scripts, so a reload keeps
+ * what the player had without their having to type anything. **The stored thing
+ * is the key string itself, not a second format** — one encoder, one decoder,
+ * and no way for the convenience copy to drift from the thing you can write
+ * down.
+ */
+const KEY_STORAGE = "automatori:key";
+const progressEl = document.querySelector<HTMLElement>("#progress")!;
+const keyPanel = createKeyPanel(progressEl, (typed) => useKey(typed, true));
+
+function currentContents(): KeyContents {
+  return {
+    facts: factsFrom({
+      vocabulary: suggester.vocabulary(),
+      research: session.world.research.unlocked,
+      offered: suggester.offered(),
+    }),
+    // What is on screen has not been stashed yet if the player is mid-edit, so
+    // the buffer they are looking at is read from the editor rather than from
+    // the store. A key that lagged the screen by one idle timeout would be a key
+    // that quietly saved the wrong thing.
+    //
+    // Then untouched buffers are dropped: a key carries what the player wrote,
+    // and the opening script and the library's explain-itself comment are not
+    // that. See `ScriptStore.isUntouched`.
+    buffers: scripts
+      .all()
+      .map((b) => {
+        const mine = scripts.editingLibrary ? b.botId === null : b.botId === selectedBotId;
+        return mine ? { ...b, source: editor.getValue() } : b;
+      })
+      .filter((b) => !ScriptStore.isUntouched(b.botId, b.source)),
+  };
+}
+
+/** Take a key, whether typed by the player or found in storage on boot. */
+function useKey(typed: string, fromPlayer: boolean): void {
+  const { facts, buffers, error } = decodeKey(typed);
+  if (error) {
+    // A bad key found in storage says nothing: the player did not type it and
+    // cannot act on it. A bad key they typed is the only thing they want to hear.
+    if (fromPlayer) sayAboutKey(progressEl, error, false);
+    return;
+  }
+
+  const { vocabulary, research, offered } = partition(facts);
+  suggester.restore({ vocabulary, offered });
+  for (const name of research) session.world.unlockResearch(name as ResearchName);
+
+  if (buffers.length) {
+    const showing = scripts.load(buffers);
+    if (showing !== null) {
+      editor.setValue(showing);
+      clearRuntimeErrors(editor);
+    }
+  }
+
+  if (fromPlayer) {
+    const learned = vocabulary.length + offered.length;
+    const code = buffers.length === 1 ? "1 script" : `${buffers.length} scripts`;
+    sayAboutKey(
+      progressEl,
+      `key accepted — ${research.length} researched, ${learned} learned, ${code}`,
+      true,
+    );
+  }
+}
+
+try {
+  const stored = globalThis.localStorage?.getItem(KEY_STORAGE);
+  if (stored) useKey(stored, false);
+} catch {
+  // No storage, no restored progress, and nothing worth saying about it.
+}
 libraryButton.addEventListener("click", () => editLibrary());
 
 document.querySelector("#run")!.addEventListener("click", () => void run());
@@ -459,6 +604,31 @@ window.addEventListener("keydown", (e) => {
  * bot 1 until there was a second bot to address.
  */
 const scripts = new ScriptStore(session.firstBotId);
+
+/**
+ * Show what was saved, and keep saving it.
+ *
+ * Both halves were found by reloading the page rather than by reading the code.
+ *
+ * The editor mounts long before the store exists — it needs a container and the
+ * store needs a session — so it opens on `OPENING_SCRIPT` whatever is in
+ * storage, and without this line a returning player is quietly handed the
+ * beginner's two-liner with their own work sitting in `localStorage` behind it.
+ *
+ * And `stash` used to be reached only by pressing Run or selecting another bot,
+ * so a player who typed for ten minutes and reloaded lost all of it. Saving on
+ * an idle pause is what everything else that holds text does, and the store
+ * skips the write when the string has not actually changed.
+ */
+editor.setValue(scripts.sourceFor(session.firstBotId));
+
+const SAVE_AFTER_IDLE_MS = 500;
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+editor.onDidChangeModelContent(() => {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => scripts.stash(editor.getValue()), SAVE_AFTER_IDLE_MS);
+});
+
 // Every worker starts with whatever is in the library buffer right now — but
 // only once it has been researched, so a beginner's error lines are untouched by
 // a feature they have not bought (and cannot yet see).
@@ -598,6 +768,10 @@ function draw(): void {
   const events = session.world.drainEvents();
   marks.update(events, heldMarks(snap), now, stage.geometry);
   effects.update(events, snap, now, stage.geometry);
+  // A third reader of the same drain, for the same reason there are two: calling
+  // `drainEvents` again would hand this an empty list and the bump nobody
+  // counted would be the bump that mattered.
+  suggester.saw(events);
   inspector.update(snap, stage.geometry);
   hud.update(snap, {
     paused: session.clock.paused,
@@ -607,6 +781,25 @@ function draw(): void {
       : undefined,
   });
   sidePanel.update(snap, selectedBotId);
+  syncApiSurface();
+  suggester.world(snap);
+  codebook.update({
+    // Nothing is *suggested* while the library is on screen: a chip inserted
+    // there would be advice about one bot, written into every bot. The book
+    // itself stays — it is a book, and the library is where you reach for one.
+    suggestion:
+      selectedBotId === null || scripts.editingLibrary ? null : suggester.suggest(selectedBotId),
+    offered: suggester.offered(),
+    vocabulary: suggester.vocabulary(),
+    // The chassis whose script is open, matching what autocomplete is offering.
+    // The library sees the fleet's union, for the reason `syncApiSurface` gives.
+    modules: new Set(
+      (scripts.editingLibrary ? snap.bots : snap.bots.filter((b) => b.id === selectedBotId))
+        .flatMap((b) => b.modules),
+    ),
+    machines: new Set(snap.machines.map((m) => m.kind)),
+  });
+  syncKey();
   // The research is the only gate: the button appears when the buffer becomes
   // real, and the prelude stays empty until then.
   libraryButton.hidden = !snap.research.unlocked.includes("library");
@@ -617,6 +810,62 @@ function draw(): void {
   // and it is the only place that says Escape is the way out.
   placingEl.textContent = armedMessage(inspector.placing);
   placingEl.hidden = inspector.placing === null;
+}
+
+/**
+ * Keep autocomplete in step with the hardware the player actually owns.
+ *
+ * The design says namespaces are the tutorial and that autocomplete on `bot.`
+ * lists what you have. It did not: the whole `.d.ts` went in at boot, so a new
+ * save offered `bot.builder` and `colony.fabricator` to a chassis carrying a
+ * harvester. Fitting a scanner now makes `bot.scanner` appear as you watch.
+ *
+ * Driven from `draw` rather than from an event, for the same reason every other
+ * panel here is: the things it depends on — a module fitted, a research landing,
+ * a different bot selected — arrive through three different paths, and a
+ * snapshot read every frame cannot miss one. The cost of being wrong is a lying
+ * completion list, so this is the one place to prefer polling.
+ *
+ * Idempotent by the key, and idempotent again inside `setApiSurface`.
+ */
+let apiKey = "";
+
+function syncApiSurface(): void {
+  // The library is every bot's prelude, so it sees the union of the fleet's
+  // hardware. Gating it to one chassis would squiggle a helper in the file it is
+  // written in while it compiles perfectly in the bot that runs it.
+  const chassis = scripts.editingLibrary
+    ? snap.bots
+    : snap.bots.filter((b) => b.id === selectedBotId);
+  const owned = ownedGates(chassis.flatMap((b) => b.modules), snap.research.unlocked);
+  const key = [...owned].sort().join(",");
+  if (key === apiKey) return;
+  apiKey = key;
+  setApiSurface(owned);
+}
+
+/**
+ * Keep the key on screen equal to the progress behind it, and store it.
+ *
+ * Driven from `draw` like every other panel here, for the reason `syncApiSurface`
+ * gives: the things that change a key — a research landing, a script starting —
+ * arrive by different paths and a snapshot read every frame cannot miss one.
+ * Writing to storage is skipped unless the string actually changed, so this is a
+ * string compare in the common case rather than a disk write every 16ms.
+ */
+let shownKey = "";
+
+function syncKey(): void {
+  const contents = currentContents();
+  const key = encodeKey(contents);
+  if (key === shownKey) return;
+  shownKey = key;
+  keyPanel.update(key, keyCost(contents));
+  try {
+    globalThis.localStorage?.setItem(KEY_STORAGE, key);
+  } catch {
+    // The key is still on screen to be written down, which is the point of it.
+  }
 }
 
 function loop(): void {
@@ -637,6 +886,16 @@ if (import.meta.env.DEV) {
     // Task 9 asks whether the vignette was doing anything, which needs it off.
     overlay,
     perf: () => ({ pass: mean(passMs), draw: mean(drawMs), frame: mean(frameMs) }),
+    // Milestone 10: what the editor thinks this bot can do, and what it objects
+    // to. `api().has("scanner")` before and after fitting one is the check.
+    api: () => {
+      const lib = apiLib();
+      return {
+        gates: apiKey,
+        has: (name: string) => lib.includes(`${name}?: {`),
+        complaints: () => apiComplaints(editor),
+      };
+    },
   });
 }
 

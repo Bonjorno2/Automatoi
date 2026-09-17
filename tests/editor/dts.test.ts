@@ -3,7 +3,8 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, copyFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { generate } from "../../scripts/generate-dts.ts";
+import { generate, substitute } from "../../scripts/generate-dts.ts";
+import { BOT_CAPACITY, TICK_COST } from "../../src/sim/config.ts";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
 const committed = join(root, "src/editor/generated/player-api.d.ts");
@@ -38,6 +39,21 @@ describe("the generated player API", () => {
   it("is current with BotApi", () => {
     expect(readFileSync(committed, "utf8")).toBe(generate());
   }, 60_000);
+
+  it("quotes the sim's own numbers rather than restating them", () => {
+    const text = readFileSync(committed, "utf8");
+    // `%ticks.move%` resolved, and every other placeholder with it. A survivor
+    // means the generator shipped a literal percent sign into the hover text.
+    expect(text).not.toMatch(/%[A-Za-z_][\w.]*%/);
+    expect(text).toContain(`Step one tile. Costs ${TICK_COST.move} ticks.`);
+    expect(text).toContain(`A chassis holds ${BOT_CAPACITY} items`);
+  });
+
+  it("refuses a placeholder nobody defined", () => {
+    // The guard that makes the above worth having: a typo in api.ts fails the
+    // build rather than reaching a player as `%ticks.mvoe%`.
+    expect(() => substitute("/** costs %ticks.nope% */")).toThrow("no number named ticks.nope");
+  });
 
   it("accepts the design's opening script", () => {
     expect(checkScript(`bot.harvester!.harvest();\nbot.move("east");\n`)).toBe("");

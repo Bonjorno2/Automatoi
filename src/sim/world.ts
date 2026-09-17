@@ -167,7 +167,25 @@ export class World {
       }
     }
     // Bot first so it is always id 1; the console becomes id 2.
-    this.addBot({ x: centre.x + 1, y: centre.y }, ["harvester"]);
+    const start = { x: centre.x + 1, y: centre.y };
+    /**
+     * The tile the bot starts on always has wheat on it.
+     *
+     * Milestone 10's first playtest: `WILD_WHEAT_CHANCE` is 0.7, so six seeds in
+     * twenty start the bot on bare soil — and seed 1, the one the game ships,
+     * is one of them. **Every new player's very first `harvest()` found
+     * nothing**, the fleet list read `idle · empty`, and the design's own first
+     * ten minutes says "the bot harvests and steps east".
+     *
+     * A guarantee rather than a nudge to the chance, because a 70% chance of the
+     * opening working is not an opening. Everything else about the field stays
+     * random.
+     */
+    this.tiles[start.y * this.width + start.x]!.crop = {
+      item: "wheat",
+      growth: WHEAT_GROWTH_TICKS,
+    };
+    this.addBot(start, ["harvester"]);
     this.addMachine("console", centre);
   }
 
@@ -563,13 +581,34 @@ export class World {
 
   private doHarvest(bot: Bot): Outcome {
     const tile = this.tileAt(bot.pos);
+    // **Capacity is asked first, and the order is the whole signal.**
+    //
+    // A full harvest was an error until milestone 10's playtest — the one place
+    // in this command where the two halves disagreed, since "nothing to take"
+    // refused and "nowhere to put it" threw, so a full bot stopped dead mid-loop
+    // with its script killed. Nothing else in the API behaves that way: a `move`
+    // into a wall answers false, a `deposit` with no room answers 0. The design's
+    // own "Failure is content" table already puts the matching case — "crate
+    // full" — in the world and explicitly not in the editor.
+    //
+    // Making it a refusal removes a signal unless something replaces it, and
+    // driving the page proved the obvious candidates do not. `stalled` resets on
+    // every successful `move`, so the canonical `harvest(); move();` loop never
+    // accumulates one. And while this check sat *below* the crop check, a full
+    // bot walking over ground it had already cleared reported "refused" — 36 of
+    // them and not a single `full` — because the tile was empty and the sim
+    // answered about the tile rather than about the bot.
+    //
+    // Asked first, "I am full" is the answer whatever the bot is standing on, so
+    // the marker follows it for as long as the condition lasts. That is what the
+    // design means by a world-side signal.
+    if (total(bot.inventory) >= BOT_CAPACITY) {
+      this.emit({ kind: "full", botId: bot.id, pos: { ...bot.pos } });
+      return ok(false);
+    }
     if (!tile?.crop || tile.crop.growth < ripeAt(tile.crop.item)) {
       this.emit({ kind: "refused", botId: bot.id, pos: { ...bot.pos }, command: "harvest" });
       return ok(false);
-    }
-    if (total(bot.inventory) >= BOT_CAPACITY) {
-      this.emit({ kind: "full", botId: bot.id, pos: { ...bot.pos } });
-      return fail("inventory full");
     }
     addItem(bot.inventory, tile.crop.item, 1);
     // Emitted before the crop is cleared, so the event carries what was taken.
@@ -903,11 +942,48 @@ export class World {
 
   // ---- research ----
 
+  /**
+   * Ask for a research. Asking twice is not an error.
+   *
+   * **It used to be, and milestone 10's opening playtest is why it is not.** Both
+   * "already queued" and "already researched" threw, so a script with a
+   * `colony.research.queue("planter")` at the top — which is what the opening
+   * teaches, and what any sensible farm loop looks like — **died on line 1 the
+   * second time the player pressed Run.** Pressing Run twice is the most likely
+   * single action in this game.
+   *
+   * Same shape as cycle five's finding 1: a documented call, used at a perfectly
+   * reasonable argument, killing the script. Wanting a thing you already asked
+   * for is not a mistake, it is the definition of idempotent, and an unknown name
+   * still throws because that one really is a typo.
+   */
   queueResearch(name: ResearchName): void {
     if (!(name in RESEARCH_COST)) throw new Error(`unknown research ${name}`);
-    if (this.research.unlocked.has(name)) throw new Error(`${name} already researched`);
-    if (this.research.queue.includes(name)) throw new Error(`${name} already queued`);
+    if (this.research.unlocked.has(name)) return;
+    if (this.research.queue.includes(name)) return;
     this.research.queue.push(name);
+  }
+
+  /**
+   * Grant a research outright, as a restored progress key does.
+   *
+   * The same two steps the console performs when it finishes one — unlock it,
+   * then `grant` whatever it hands out — so a key that says "scanner" leaves a
+   * spare scanner to fit rather than a permission with no hardware behind it.
+   *
+   * Deliberately **not** a cheat hatch with a nicer name: it emits no `research`
+   * event, because nothing just happened in the world, and the suggestion rules
+   * key off that event. A restored colony should not be told its scanner has
+   * arrived; it had one before the page was closed.
+   *
+   * Silent about research it already has, because restoring is idempotent and a
+   * player typing their key twice has done nothing wrong.
+   */
+  unlockResearch(name: ResearchName): void {
+    if (!(name in RESEARCH_COST)) throw new Error(`unknown research ${name}`);
+    if (this.research.unlocked.has(name)) return;
+    this.research.unlocked.add(name);
+    this.grant(name);
   }
 
   installModule(botId: number, module: ModuleName): void {

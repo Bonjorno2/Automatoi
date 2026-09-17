@@ -81,7 +81,9 @@ describe("carrying items that are not wheat", () => {
     w.tileAt(bot.pos)!.crop = { item: "wheat", growth: WHEAT_GROWTH_TICKS };
     w.drainEvents();
     // Ten items already: a bot full of bread is as full as a bot full of wheat.
-    expect(run(w, 1, { kind: "harvest" })).toEqual({ ok: false, error: "inventory full" });
+    // Milestone 10 made that a refusal rather than an error; what this test is
+    // about is the capacity being shared, and that is unchanged.
+    expect(run(w, 1, { kind: "harvest" })).toEqual({ ok: true, value: false });
   });
 
   it("deposits and withdraws like any other item", () => {
