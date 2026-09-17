@@ -45,6 +45,7 @@ describe("the fact list", () => {
       "c:getting-started/0", "c:getting-started/1", "c:getting-started/2",
       "c:getting-started/3", "c:getting-started/4", "c:getting-started/5",
       "c:getting-started/6", "c:getting-started/7",
+      "c:growing/1",
     ]);
   });
 

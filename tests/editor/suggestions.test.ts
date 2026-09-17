@@ -272,6 +272,42 @@ describe("suggestions", () => {
       expect(s.suggest(1)?.id).toBe("new-hardware:planter");
     });
 
+    /**
+     * The planter is the one research that lands on top of a working farm.
+     *
+     * It arrives while the opening's finale is still running, and the beginner's
+     * chip is a whole program that replaces the buffer. Taking it cost a player
+     * who had just been walked through turning, depositing and queueing all
+     * three — for a loop that spends a wheat on every wheat it takes and so
+     * delivers nothing to the console, ever. The game's own advice, followed the
+     * moment it was given, undid the introduction that had just finished.
+     */
+    describe("the planter, on top of a farm that already works", () => {
+      it("says put some back, to a player who has been depositing", () => {
+        const suggestion = landed("planter").suggest(1);
+        expect(suggestion?.chip).toBe("A field that lasts");
+      });
+
+      it("still teaches plant to somebody who never learned to deposit", () => {
+        // A player who refused the opening outright. The zero-sum loop is the
+        // right thing to say to them: they are being shown what plant does.
+        const s = createSuggester();
+        s.retire("intro:0");
+        s.world(worldWith(false));
+        s.saw([researched("planter")]);
+        expect(s.suggest(1)?.chip).toBe("Harvest, then replant");
+      });
+
+      it("is one refusal, whichever rung it raised", () => {
+        // Two ids for one moment would mean a player who said "no thanks" to the
+        // planter being asked about the planter again in the same breath.
+        const s = landed("planter");
+        expect(s.suggest(1)?.id).toBe("new-hardware:planter");
+        s.retire("new-hardware:planter");
+        expect(s.suggest(1)).toBeNull();
+      });
+    });
+
     it("says nothing about research the book has no chip for", () => {
       // The mill, the oven, the chassis, the library, the fabricator. Adding a
       // chip is what adds the suggestion; the honest answer until then is none.

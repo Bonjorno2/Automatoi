@@ -95,6 +95,8 @@ export const FACTS = [
   "c:getting-started/5",
   "c:getting-started/6",
   "c:getting-started/7",
+  // The second rung of the growing ladder, appended for the same reason.
+  "c:growing/1",
 ] as const;
 
 export type Fact = (typeof FACTS)[number];

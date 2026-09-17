@@ -103,12 +103,29 @@ const FULLS_BEFORE_SPEAKING = 3;
  * answer is that the book has nothing to say about it yet. Adding a chip is what
  * adds the suggestion, which is the coupling this file wants.
  */
-const CHIP_FOR_RESEARCH: Partial<Record<ResearchName, string>> = {
-  planter: "Harvest, then replant",
-  scanner: "Look before you move",
-  crate: "Empty into a crate",
-  radio: "Take orders by radio",
-  builder: "Lay a line of belts",
+const CHIP_FOR_RESEARCH: Partial<Record<ResearchName, Offer>> = {
+  /**
+   * The planter is the one research that lands on top of a working farm.
+   *
+   * It arrives while the opening's finale is still running, and the teaching
+   * chip — harvest, plant, step east — is a *whole program* that replaces the
+   * buffer. A player who took it lost the turn, the deposit and the queue they
+   * had just been walked through, for a loop that is zero-sum by construction
+   * and delivers nothing to the console ever again. The game's advice, taken at
+   * the moment it was offered, undid the introduction that had just finished.
+   */
+  planter: {
+    chip: "Harvest, then replant",
+    upgrade: {
+      once: "deposit",
+      chip: "A field that lasts",
+      why: "The planter has arrived. Put some of what you take back in, without stopping the deliveries.",
+    },
+  },
+  scanner: { chip: "Look before you move" },
+  crate: { chip: "Empty into a crate" },
+  radio: { chip: "Take orders by radio" },
+  builder: { chip: "Lay a line of belts" },
 };
 
 /** What a script has to mention for the game to stop explaining that hardware. */
@@ -130,9 +147,30 @@ const USES: Partial<Record<ResearchName, string>> = {
  */
 const INTRO: readonly Rung[] = LADDERS.find((l) => l.id === "getting-started")?.rungs ?? [];
 
-interface Rule {
-  id: string;
+/**
+ * A better answer for a player who already knows something.
+ *
+ * Not a second rule, because the *moment* is the same one — the hardware landed —
+ * and two rules firing on one event would mean two ids, two dismissals, and a
+ * player who refused the beginner's chip being asked again in the same breath.
+ * What changes is only which rung of the ladder is worth raising, and a ladder
+ * is a line of descent precisely so that there is a higher rung to raise.
+ */
+interface Upgrade {
+  /** The primitive whose absence is the only reason to say the simpler thing. */
+  once: Primitive;
   chip: string;
+  why: string;
+}
+
+/** What a rule raises, before the player's vocabulary is taken into account. */
+interface Offer {
+  chip: string;
+  upgrade?: Upgrade;
+}
+
+interface Rule extends Offer {
+  id: string;
   why: string;
   fires(history: History, colony: Colony): boolean;
 }
@@ -212,12 +250,13 @@ const RULES: readonly Rule[] = [
  * varied with what fired it would be a dismissal that hits whatever came next.
  */
 function hardwareRules(): Rule[] {
-  return Object.entries(CHIP_FOR_RESEARCH).map(([name, chip]) => {
+  return Object.entries(CHIP_FOR_RESEARCH).map(([name, offer]) => {
     const research = name as ResearchName;
     const uses = USES[research];
     return {
       id: `new-hardware:${research}`,
-      chip,
+      chip: offer.chip,
+      upgrade: offer.upgrade,
       why: `The ${research} has arrived. This is what it does.`,
       /**
        * Until the player writes it themselves.
@@ -397,8 +436,11 @@ export function createSuggester(): Suggester {
       const h = historyFor(botId);
       for (const rule of RULES) {
         if (retired.has(rule.id) || !rule.fires(h, colony)) continue;
-        seen.add(rule.chip);
-        return { id: rule.id, chip: rule.chip, why: rule.why, code: codeFor(rule.chip) };
+        // One id whichever rung is raised, so refusing it refuses the moment
+        // rather than one of two phrasings of it.
+        const raise = rule.upgrade && known.has(rule.upgrade.once) ? rule.upgrade : rule;
+        seen.add(raise.chip);
+        return { id: rule.id, chip: raise.chip, why: raise.why, code: codeFor(raise.chip) };
       }
       return null;
     },
@@ -429,8 +471,15 @@ export function createSuggester(): Suggester {
   };
 }
 
-/** Exported for the test that keeps every rule pointing at a chip that exists. */
-export const SUGGESTED_CHIPS: readonly string[] = RULES.map((r) => r.chip);
+/**
+ * Exported for the test that keeps every rule pointing at a chip that exists.
+ *
+ * Both rungs of an upgraded rule, because the one a player actually sees depends
+ * on what they know, and a retitled chip should fail the build either way.
+ */
+export const SUGGESTED_CHIPS: readonly string[] = RULES.flatMap((r) =>
+  r.upgrade ? [r.chip, r.upgrade.chip] : [r.chip],
+);
 
 function codeFor(title: string): string {
   const snippet = SNIPPETS.find((s) => s.title === title);

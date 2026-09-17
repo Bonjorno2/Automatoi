@@ -316,6 +316,20 @@ if (carried > 0) {
       },
     ],
   },
+  /**
+   * **A seed costs a wheat, and that is the whole ladder.**
+   *
+   * `harvest` yields one and `plant` spends one, so a loop that replants every
+   * tile it clears is exactly zero-sum: measured, rung one delivers **nothing**
+   * to the console, ever — 20,000 ticks, 1,920 seeds planted, no research. It is
+   * how planting works and it is not a farm, which is why it now says so and why
+   * there is a rung above it.
+   *
+   * Rung two is the price stated honestly. On seed 1, thirty wheat into the
+   * console: 960 ticks replanting nothing, 1,227 replanting one tile in three,
+   * 1,538 replanting one in two. A field that lasts costs about a third of the
+   * throughput, and a player who would rather have the wheat can change the 3.
+   */
   {
     id: "growing",
     name: "Growing it back",
@@ -323,13 +337,52 @@ if (carried > 0) {
     rungs: [
       {
         title: "Harvest, then replant",
-        blurb: "Planting costs one wheat from your own inventory, so harvest first.",
+        blurb:
+          "Planting costs one wheat from your own inventory, so harvest first. A seed for every crop breaks even — this is how planting works, not a farm.",
         introduces: ["plant", "if", "while"],
         code: `while (true) {
   if (bot.harvester.harvest()) {
     bot.planter.plant("wheat");
   }
   bot.move("east");
+}`,
+      },
+      {
+        /**
+         * The farm the player already has, plus seed — and **not** a fresh loop.
+         *
+         * Offered the moment the planter lands, which on a played-through opening
+         * is while the finale is still running. Rung one replacing that buffer
+         * cost the player their turn, their deposit and their queue and left them
+         * with a bot that can never research anything again: the game's own
+         * advice, taken at the moment it was given, undoing the introduction that
+         * had just finished. Every line here except the counter is the last step
+         * of the opening, unchanged, so taking it reads as an addition.
+         */
+        title: "A field that lasts",
+        blurb:
+          "Your farm loop, plus one seed back for every three you take. Seeds are wheat the console never sees, so a field that keeps growing costs about a third of the deliveries.",
+        prompt: "The planter is fitted. Put some of it back without stopping the deliveries.",
+        introduces: ["pos", "inventory", "deposit", "queue"],
+        code: `colony.research.queue("crate");
+let goingEast = true;
+let taken = 0;
+while (true) {
+  if (bot.harvester.harvest()) {
+    taken++;
+    // One back in three. Every seed is a wheat the console does not get.
+    if (taken % 3 === 0) bot.planter.plant("wheat");
+  }
+  if (!bot.move(goingEast ? "east" : "west")) {
+    bot.move("south");
+    goingEast = !goingEast;
+  }
+  if ((bot.inventory().wheat ?? 0) >= 10) {
+    while (bot.pos().y !== 17) bot.move(bot.pos().y > 17 ? "north" : "south");
+    while (bot.pos().x !== 17) bot.move(bot.pos().x > 17 ? "west" : "east");
+    bot.move("north");
+    bot.deposit("west", "wheat", 10);
+  }
 }`,
       },
     ],

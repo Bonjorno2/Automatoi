@@ -88,6 +88,11 @@ describe("the line dictionary", () => {
       'while (bot.pos().y > 16) bot.move("north");',
       "while (bot.pos().y !== 17) bot.move(bot.pos().y > 17 ? \"north\" : \"south\");",
       "while (bot.pos().x !== 17) bot.move(bot.pos().x > 17 ? \"west\" : \"east\");",
+      'colony.research.queue("crate");',
+      "let taken = 0;",
+      "taken++;",
+      "// One back in three. Every seed is a wheat the console does not get.",
+      'if (taken % 3 === 0) bot.planter.plant("wheat");',
     ]);
   });
 

@@ -141,6 +141,14 @@ export const LINES: readonly string[] = [
   'while (bot.pos().y > 16) bot.move("north");',
   "while (bot.pos().y !== 17) bot.move(bot.pos().y > 17 ? \"north\" : \"south\");",
   "while (bot.pos().x !== 17) bot.move(bot.pos().x > 17 ? \"west\" : \"east\");",
+  // --- the field that lasts ----------------------------------------------
+  // The counter is spelled `taken` rather than reusing `i` above: the name is
+  // what makes the modulo readable, and a line is cheap.
+  'colony.research.queue("crate");',
+  "let taken = 0;",
+  "taken++;",
+  "// One back in three. Every seed is a wheat the console does not get.",
+  'if (taken % 3 === 0) bot.planter.plant("wheat");',
 ];
 
 /** Where each line sits, for the encoder. Built once; the list never changes. */
