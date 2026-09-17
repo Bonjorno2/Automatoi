@@ -1,7 +1,6 @@
 import type { ScriptStatus } from "../bridge/colony.ts";
 import type { WorldEvent } from "../sim/events.ts";
 import type { ResearchName, WorldSnapshot } from "../sim/types.ts";
-import { BOT_CAPACITY } from "../sim/config.ts";
 import { LADDERS, SNIPPETS } from "./snippets.ts";
 import type { Rung } from "./snippets.ts";
 import { hasLoop, mentions, primitivesIn } from "./source.ts";
@@ -71,12 +70,14 @@ interface History {
   bumps: number;
   fulls: number;
   /**
-   * Harvests this run that found nothing to take.
+   * Harvests **in a row** that found nothing to take.
    *
-   * Counted, rather than read off the world, because the field being bare is
-   * only half the story: the half that makes it worth saying is a bot still
-   * walking around trying to farm it. A player who stopped and went to build
-   * something is not stuck and should not be interrupted.
+   * In a row rather than a total for the run, which is what this was first and
+   * what made it useless: a `while (true)` farm crosses grass on every lap, so
+   * a running total climbs for as long as the script runs and crosses any
+   * threshold eventually — including on a field that is perfectly healthy. A
+   * streak answers the question actually being asked, which is whether the bot
+   * is finding anything *now*, and a single crop resets it.
    *
    * A full bot does not add to this. The sim checks cargo before it checks the
    * tile, so a bot with nowhere to put anything reports `full` — which is a
@@ -93,6 +94,8 @@ interface Colony {
   hasCrate: boolean;
   /** Crops still standing anywhere, ripe or growing. Nothing here grows back. */
   cropsLeft: number;
+  /** Soil tiles, which never change — the size of the field the player was given. */
+  soil: number;
   /** Some bot is carrying a planter, so "plant some of it back" is advice it can take. */
   canPlant: boolean;
 }
@@ -114,20 +117,35 @@ const BUMPS_BEFORE_SPEAKING = 8;
 const FULLS_BEFORE_SPEAKING = 3;
 
 /**
- * The point at which the field stops being a farm.
+ * Empty harvests in a row before the game mentions the field.
  *
- * Not a guessed fraction of a field, which is what the first draft of this was.
- * `BOT_CAPACITY` is one delivery — the load the console takes at a time — so a
- * field holding less than that cannot produce another one. That is the honest
- * definition of spent, and it is a number the game already has rather than one
- * invented here.
+ * **Measured, after the first version of this was played and did not fire.**
+ * That one waited for the field to hold less than one delivery — fewer crops
+ * than a bot can carry — which reads well and cannot happen. Only five
+ * researches are priced in wheat; everything after them costs bread, which
+ * needs a mill and an oven. So a player who only harvests and delivers runs the
+ * console's whole appetite out at eighty wheat, and the field stops draining
+ * with about a fifth of it still standing. A threshold below that is a rule
+ * that never speaks.
  *
- * **It matters that this is not zero.** Planting costs a wheat out of the bot's
- * own inventory, so a player told to replant a field that is already bare may
- * have nothing left to plant with and no way back. Speaking while a few crops
- * are still standing is what keeps the advice takeable.
+ * What a sweep actually looks like, harvesting a seed-1 field flat: with 80 or
+ * more crops standing, the longest run of harvests finding nothing was **122**.
+ * Between 40 and 79 it was **858** — the bot crossing most of a lap with an
+ * empty hand, which is the experience this rule is named after. Two hundred
+ * sits clear of a healthy field's worst spell and well under a thinning one's.
  */
-const FIELD_SPENT = BOT_CAPACITY;
+const EMPTY_HANDED = 200;
+
+/**
+ * How bare the field has to be before a dry spell means anything.
+ *
+ * A bot parked away from the soil finds nothing for as long as it is parked,
+ * and telling that player to replant would be answering a question they did not
+ * ask. Soil is the measure because it is the one thing about the field that
+ * never changes: half the tiles they started with is a field visibly running
+ * down, and still deep enough that the wheat to replant it is in reach.
+ */
+const bare = (c: Colony): boolean => c.cropsLeft * 2 < c.soil;
 
 /**
  * The chip that teaches each piece of hardware, the moment it arrives.
@@ -260,7 +278,7 @@ const RULES: readonly Rule[] = [
   {
     id: "the-field-is-spent",
     chip: "A field that lasts",
-    why: "There is almost nothing left to harvest, and none of it grows back on its own. Plant some of what you take.",
+    why: "This bot has been harvesting nothing for a long time. The field is running out, and none of it grows back on its own.",
     /**
      * The end every farm in this game reaches, and the one nothing spoke at.
      *
@@ -274,12 +292,21 @@ const RULES: readonly Rule[] = [
      * exists to prevent.
      *
      * Three things have to be true together, and each rules out a way of being
-     * wrong. The field is spent, or there is nothing to talk about. This bot is
-     * still trying to harvest it, or the player has moved on and is being
-     * interrupted. And some bot has a planter, because the chip calls
-     * `bot.planter.plant` and advice a player cannot take is worse than silence.
+     * wrong. This bot has come up empty two hundred times in a row, which is the
+     * player's own experience of the thing and not a fact about the map. The
+     * field it is working is down to half the soil it was given, so a bot that
+     * simply wandered off is not told to replant. And some bot has a planter,
+     * because the chip calls `bot.planter.plant` and advice a player cannot take
+     * is worse than silence.
+     *
+     * **Ordered above the two rules about a full bot on purpose.** At the very
+     * end the console will not take another wheat, so the bot stands full and
+     * every harvest reports `full` rather than empty — and this rule, which has
+     * the only advice that fixes anything, would be mute exactly when it was
+     * needed. Speaking earlier, while the field is thinning and deliveries are
+     * still landing, is the whole point.
      */
-    fires: (h, c) => h.barren > 0 && c.cropsLeft < FIELD_SPENT && c.canPlant,
+    fires: (h, c) => h.barren >= EMPTY_HANDED && bare(c) && c.canPlant,
   },
   {
     id: "somewhere-to-put-it",
@@ -397,7 +424,13 @@ export function createSuggester(): Suggester {
   const retired = new Set<string>();
   const seen = new Set<string>();
   const known = new Set<Primitive>();
-  const colony: Colony = { landed: new Set(), hasCrate: false, cropsLeft: 0, canPlant: false };
+  const colony: Colony = {
+    landed: new Set(),
+    hasCrate: false,
+    cropsLeft: 0,
+    soil: 0,
+    canPlant: false,
+  };
 
   /**
    * Where the player is in the opening, and whether they have been shown it.
@@ -465,6 +498,8 @@ export function createSuggester(): Suggester {
         // The sim's only word for "there was nothing there". It fires for a
         // `plant` on bad ground too, which is why the command is checked.
         else if (e.kind === "refused" && e.command === "harvest") historyFor(e.botId).barren++;
+        // One crop ends the dry spell. The streak is about now, not about the run.
+        else if (e.kind === "harvest") historyFor(e.botId).barren = 0;
       }
     },
 
@@ -474,8 +509,13 @@ export function createSuggester(): Suggester {
       // Counted rather than filtered: this runs every frame over every tile,
       // and the array a filter would build is thrown away each time.
       let crops = 0;
-      for (const tile of snapshot.tiles) if (tile.crop) crops++;
+      let soil = 0;
+      for (const tile of snapshot.tiles) {
+        if (tile.crop) crops++;
+        if (tile.terrain === "soil") soil++;
+      }
       colony.cropsLeft = crops;
+      colony.soil = soil;
     },
 
     suggest(botId) {
