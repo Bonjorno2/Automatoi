@@ -97,12 +97,25 @@ const decoder = new TextDecoder();
 
 /** Serialise into a frame region. Returns the byte length written. */
 export function writeFrame(bytes: Uint8Array, value: unknown): number {
-  const encoded = encoder.encode(JSON.stringify(value ?? null));
-  if (encoded.length > bytes.length) {
-    throw new Error(`frame too large: ${encoded.length} > ${bytes.length} bytes`);
-  }
+  const encoded = encodeFrame(value, bytes.length);
   bytes.set(encoded);
   return encoded.length;
+}
+
+/**
+ * The half of `writeFrame` that does not touch shared memory.
+ *
+ * Split out so a writer holding a lock can do the slow, throwing part — the
+ * stringify, the encode, the size check — *before* it takes the lock, and hold
+ * it only for the copy. `publishMirror` is the caller that needs this; see the
+ * comment there for what it costs when the work is done the other way round.
+ */
+export function encodeFrame(value: unknown, room: number): Uint8Array {
+  const encoded = encoder.encode(JSON.stringify(value ?? null));
+  if (encoded.length > room) {
+    throw new Error(`frame too large: ${encoded.length} > ${room} bytes`);
+  }
+  return encoded;
 }
 
 /**
