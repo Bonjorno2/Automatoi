@@ -58,7 +58,19 @@ const placingEl = document.querySelector<HTMLElement>("#placing")!;
 // that only raises questions.
 const libraryButton = document.querySelector<HTMLButtonElement>("#library")!;
 if (!isolated) {
-  statusEl.textContent = "NOT ISOLATED — SharedArrayBuffer unavailable";
+  // On a stranger's machine this is the entire game, so it says what happened
+  // rather than naming the browser feature that is missing. The service worker
+  // that supplies the headers on a static host needs one reload to take effect,
+  // and a private window or a blocked worker is the case where it never will.
+  statusEl.textContent = "this page could not start";
+  document.querySelector("#world")!.innerHTML =
+    '<p style="padding:2rem;max-width:32rem;line-height:1.6">' +
+    "<strong>Automatoi could not start.</strong><br><br>" +
+    "The game runs each bot's script in a worker that shares memory with the page, " +
+    "which browsers only allow on an isolated page. Reloading once usually fixes it. " +
+    "If it does not, the page is most likely in a browser or a private window that " +
+    "refuses service workers." +
+    "</p>";
   throw new Error("cross-origin isolation required");
 }
 

@@ -2,7 +2,15 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Automatori</title>
+    <title>Automatoi</title>
+    <!--
+      Before anything that needs a SharedArrayBuffer, which is everything. On a
+      host that cannot set COOP/COEP — GitHub Pages — this registers a service
+      worker that sets them and reloads once. Where the server already sends
+      them, it does nothing at all. Classic, not a module: it has to run and
+      finish deciding before the app's first import.
+    -->
+    <script src="./coi-serviceworker.js"></script>
     <style>
       /*
         Milestone 7's Task 8. The page is a frame around the canvas, so it
@@ -416,7 +424,7 @@
     <div id="editor"></div>
     <aside id="side">
       <header id="masthead">
-        <h1>AUTOMATORI</h1>
+        <h1>AUTOMATOI</h1>
         <span class="camera-hint">wheel zooms · space-drag pans · Home resets</span>
       </header>
       <div id="controls">
