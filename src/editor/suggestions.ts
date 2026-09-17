@@ -1,6 +1,7 @@
 import type { ScriptStatus } from "../bridge/colony.ts";
 import type { WorldEvent } from "../sim/events.ts";
 import type { ResearchName, WorldSnapshot } from "../sim/types.ts";
+import { BOT_CAPACITY } from "../sim/config.ts";
 import { LADDERS, SNIPPETS } from "./snippets.ts";
 import type { Rung } from "./snippets.ts";
 import { hasLoop, mentions, primitivesIn } from "./source.ts";
@@ -69,6 +70,19 @@ interface History {
   current: string | null;
   bumps: number;
   fulls: number;
+  /**
+   * Harvests this run that found nothing to take.
+   *
+   * Counted, rather than read off the world, because the field being bare is
+   * only half the story: the half that makes it worth saying is a bot still
+   * walking around trying to farm it. A player who stopped and went to build
+   * something is not stuck and should not be interrupted.
+   *
+   * A full bot does not add to this. The sim checks cargo before it checks the
+   * tile, so a bot with nowhere to put anything reports `full` — which is a
+   * different rule's business, and the reason these two never collide.
+   */
+  barren: number;
 }
 
 /** What the colony as a whole offers the rules. Not per bot, because none of it is. */
@@ -77,6 +91,10 @@ interface Colony {
   landed: Set<ResearchName>;
   /** A crate is standing somewhere in the world, so there is a place to put things. */
   hasCrate: boolean;
+  /** Crops still standing anywhere, ripe or growing. Nothing here grows back. */
+  cropsLeft: number;
+  /** Some bot is carrying a planter, so "plant some of it back" is advice it can take. */
+  canPlant: boolean;
 }
 
 /** Runs kept per bot. Two is what the loop rule reads; the rest is headroom. */
@@ -94,6 +112,22 @@ const MAX_RUNS = 4;
  */
 const BUMPS_BEFORE_SPEAKING = 8;
 const FULLS_BEFORE_SPEAKING = 3;
+
+/**
+ * The point at which the field stops being a farm.
+ *
+ * Not a guessed fraction of a field, which is what the first draft of this was.
+ * `BOT_CAPACITY` is one delivery — the load the console takes at a time — so a
+ * field holding less than that cannot produce another one. That is the honest
+ * definition of spent, and it is a number the game already has rather than one
+ * invented here.
+ *
+ * **It matters that this is not zero.** Planting costs a wheat out of the bot's
+ * own inventory, so a player told to replant a field that is already bare may
+ * have nothing left to plant with and no way back. Speaking while a few crops
+ * are still standing is what keeps the advice takeable.
+ */
+const FIELD_SPENT = BOT_CAPACITY;
 
 /**
  * The chip that teaches each piece of hardware, the moment it arrives.
@@ -224,6 +258,30 @@ const RULES: readonly Rule[] = [
     fires: (h) => h.bumps >= BUMPS_BEFORE_SPEAKING && looping(h),
   },
   {
+    id: "the-field-is-spent",
+    chip: "A field that lasts",
+    why: "There is almost nothing left to harvest, and none of it grows back on its own. Plant some of what you take.",
+    /**
+     * The end every farm in this game reaches, and the one nothing spoke at.
+     *
+     * The opening's finale serpentines south past the soil and eventually
+     * harvests nothing at all — the first playtest's "busy and achieving
+     * nothing", seen a third time. Milestone 10 built the answer to it and then
+     * left the two unconnected: "A field that lasts" was offered once, when the
+     * planter arrived, at a moment when the field was still full and the advice
+     * read as optional. By the time it was the only thing that mattered, the
+     * codebook had nothing to say — which is the failure the whole suggester
+     * exists to prevent.
+     *
+     * Three things have to be true together, and each rules out a way of being
+     * wrong. The field is spent, or there is nothing to talk about. This bot is
+     * still trying to harvest it, or the player has moved on and is being
+     * interrupted. And some bot has a planter, because the chip calls
+     * `bot.planter.plant` and advice a player cannot take is worse than silence.
+     */
+    fires: (h, c) => h.barren > 0 && c.cropsLeft < FIELD_SPENT && c.canPlant,
+  },
+  {
     id: "somewhere-to-put-it",
     chip: "Empty into a crate",
     why: "This bot is full, so harvest() does nothing. There is a crate to empty into.",
@@ -339,7 +397,7 @@ export function createSuggester(): Suggester {
   const retired = new Set<string>();
   const seen = new Set<string>();
   const known = new Set<Primitive>();
-  const colony: Colony = { landed: new Set(), hasCrate: false };
+  const colony: Colony = { landed: new Set(), hasCrate: false, cropsLeft: 0, canPlant: false };
 
   /**
    * Where the player is in the opening, and whether they have been shown it.
@@ -358,7 +416,7 @@ export function createSuggester(): Suggester {
   const historyFor = (botId: number): History => {
     let h = histories.get(botId);
     if (!h) {
-      h = { runs: [], current: null, bumps: 0, fulls: 0 };
+      h = { runs: [], current: null, bumps: 0, fulls: 0, barren: 0 };
       histories.set(botId, h);
     }
     return h;
@@ -370,6 +428,7 @@ export function createSuggester(): Suggester {
       h.current = source;
       h.bumps = 0;
       h.fulls = 0;
+      h.barren = 0;
       // Counted at the start rather than at the end: a `while (true)` is the
       // most that can be known about a player's vocabulary and it never settles,
       // so waiting for a verdict would mean the best scripts taught the book
@@ -403,11 +462,20 @@ export function createSuggester(): Suggester {
         if (e.kind === "bump") historyFor(e.botId).bumps++;
         else if (e.kind === "full") historyFor(e.botId).fulls++;
         else if (e.kind === "research") colony.landed.add(e.name);
+        // The sim's only word for "there was nothing there". It fires for a
+        // `plant` on bad ground too, which is why the command is checked.
+        else if (e.kind === "refused" && e.command === "harvest") historyFor(e.botId).barren++;
       }
     },
 
     world(snapshot) {
       colony.hasCrate = snapshot.machines.some((m) => m.kind === "crate");
+      colony.canPlant = snapshot.bots.some((b) => b.modules.includes("planter"));
+      // Counted rather than filtered: this runs every frame over every tile,
+      // and the array a filter would build is thrown away each time.
+      let crops = 0;
+      for (const tile of snapshot.tiles) if (tile.crop) crops++;
+      colony.cropsLeft = crops;
     },
 
     suggest(botId) {

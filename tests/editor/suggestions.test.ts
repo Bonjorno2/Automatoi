@@ -14,9 +14,24 @@ const full = (botId: number): WorldEvent =>
 const researched = (name: WorldSnapshot["research"]["unlocked"][number]): WorldEvent =>
   ({ kind: "research", name, pos: { x: 0, y: 0 } });
 
-/** Only the parts of a snapshot the rules read. */
-const worldWith = (crate: boolean): WorldSnapshot =>
-  ({ machines: crate ? [{ kind: "crate" }] : [] } as unknown as WorldSnapshot);
+const refused = (botId: number, command = "harvest"): WorldEvent =>
+  ({ kind: "refused", botId, pos: { x: 0, y: 0 }, command } as WorldEvent);
+
+/**
+ * Only the parts of a snapshot the rules read.
+ *
+ * `crops` defaults to a field nobody has finished, so a test about some other
+ * rule never trips the one about a spent field by saying nothing about crops.
+ */
+const worldWith = (
+  crate: boolean,
+  { crops = 100, planter = false }: { crops?: number; planter?: boolean } = {},
+): WorldSnapshot =>
+  ({
+    machines: crate ? [{ kind: "crate" }] : [],
+    bots: [{ id: 1, modules: planter ? ["planter"] : [] }],
+    tiles: Array.from({ length: crops }, () => ({ crop: { item: "wheat", growth: 9 } })),
+  } as unknown as WorldSnapshot);
 
 const times = <T>(n: number, make: () => T): T[] => Array.from({ length: n }, make);
 
@@ -231,6 +246,92 @@ describe("suggestions", () => {
       const suggestion = stuffed(true).suggest(1);
       expect(suggestion?.id).toBe("somewhere-to-put-it");
       expect(suggestion?.chip).toBe("Empty into a crate");
+    });
+  });
+
+  /**
+   * The end every farm in this game reaches.
+   *
+   * Nothing grows back on its own, so a field is a budget. The chip that spends
+   * it more slowly existed before this rule did and was offered exactly once —
+   * when the planter landed, while the field was still full and the advice read
+   * as optional. These tests are about the other moment, the one where it is the
+   * only thing worth saying.
+   */
+  describe("a field that is nearly spent", () => {
+    const farming = (crops: number, planter = true) => {
+      const s = taught();
+      s.world(worldWith(false, { crops, planter }));
+      s.started(1, LOOP);
+      s.saw([refused(1)]);
+      return s;
+    };
+
+    it("says plant some back, once the field cannot fill another delivery", () => {
+      const suggestion = farming(4).suggest(1);
+      expect(suggestion?.id).toBe("the-field-is-spent");
+      expect(suggestion?.chip).toBe("A field that lasts");
+    });
+
+    it("says nothing while there is still a field to harvest", () => {
+      expect(farming(80).suggest(1)).toBeNull();
+    });
+
+    it("says nothing to a player who has stopped farming", () => {
+      // The field is bare, but this bot is not out there failing to harvest it.
+      // Somebody laying belts is not stuck and should not be interrupted.
+      const s = taught();
+      s.world(worldWith(false, { crops: 2, planter: true }));
+      s.started(1, LOOP);
+      expect(s.suggest(1)).toBeNull();
+    });
+
+    it("says nothing when there is no planter to say it about", () => {
+      // Advice a player cannot take is worse than silence: the chip calls
+      // bot.planter.plant, which a bot without the module does not have.
+      expect(farming(4, false).suggest(1)).toBeNull();
+    });
+
+    it("stops once the player plants something", () => {
+      const s = farming(4);
+      expect(s.suggest(1)?.id).toBe("the-field-is-spent");
+      // A field with crops in it again is a field nobody needs advice about,
+      // which makes taking the advice the thing that retires the rule.
+      s.world(worldWith(false, { crops: 60, planter: true }));
+      expect(s.suggest(1)).toBeNull();
+    });
+
+    it("stays retired once refused", () => {
+      const s = farming(4);
+      s.retire("the-field-is-spent");
+      expect(s.suggest(1)).toBeNull();
+    });
+
+    it("counts each bot's own empty hands", () => {
+      const s = taught();
+      s.world(worldWith(false, { crops: 3, planter: true }));
+      s.started(1, LOOP);
+      s.started(2, LOOP);
+      s.saw([refused(2)]);
+      expect(s.suggest(1)).toBeNull();
+      expect(s.suggest(2)?.id).toBe("the-field-is-spent");
+    });
+
+    it("forgets the empty harvests when a new run starts", () => {
+      const s = farming(4);
+      expect(s.suggest(1)?.id).toBe("the-field-is-spent");
+      s.started(1, LOOP);
+      expect(s.suggest(1)).toBeNull();
+    });
+
+    it("is not raised by a plant that was refused", () => {
+      // `refused` covers every command that answered "no". Only harvest means
+      // the field is empty; plant on bad ground means the player missed.
+      const s = taught();
+      s.world(worldWith(false, { crops: 3, planter: true }));
+      s.started(1, LOOP);
+      s.saw([refused(1, "plant")]);
+      expect(s.suggest(1)).toBeNull();
     });
   });
 
