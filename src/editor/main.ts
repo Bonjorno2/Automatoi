@@ -42,6 +42,30 @@ import type { BuildOption } from "./build-menu.ts";
 import type { Direction, ModuleName } from "../sim/types.ts";
 
 /**
+ * A window with no room for an editor, checked before anything at all.
+ *
+ * The page already says so — the same breakpoint in `index.html` hides the
+ * game and shows a paragraph explaining that the only control this game has is
+ * a keyboard. What is left is not to *start* it: booting Monaco, a renderer and
+ * a worker per bot behind a notice would spend a phone's battery on a game that
+ * phone has just been told it cannot play.
+ *
+ * Widening is a reload rather than a resize. Everything downstream caches the
+ * geometry it was built with, and a tablet turned sideways is better served by
+ * the first frame being correct than by the layout it would inherit here.
+ *
+ * **860px is also written in `index.html`, which must agree with it.**
+ */
+const TOO_NARROW = "(max-width: 860px)";
+const room = window.matchMedia(TOO_NARROW);
+if (room.matches) {
+  room.addEventListener("change", (e) => {
+    if (!e.matches) location.reload();
+  });
+  throw new Error("needs a window with room for an editor");
+}
+
+/**
  * Cross-origin isolation is checked before anything else. Without it
  * `SharedArrayBuffer` is not constructible and the bridge fails deep inside
  * worker startup, where the error says nothing useful.

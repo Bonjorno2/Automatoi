@@ -417,9 +417,65 @@
         background: transparent;
         border-color: var(--line);
       }
+      /*
+        The window this game does not fit in.
+
+        Three columns, one of them a code editor, do not collapse into 375
+        pixels: the field and the codebook survive it and the editor becomes a
+        clipped strip reading half a comment, which is a broken page rather than
+        a game that asked for something it did not get. Since the whole control
+        surface is a keyboard, there is no responsive layout to reach for — the
+        honest version is to say so.
+
+        CSS rather than script, so the visitor whose browser refused the service
+        worker gets this instead of the isolation error, which would tell them
+        about `SharedArrayBuffer` when their actual problem is a phone.
+
+        **860px is also written in `main.ts`, which must agree with it**: this
+        hides the game, and that one declines to start it.
+      */
+      #too-small { display: none; }
+      @media (max-width: 860px) {
+        body { display: block; height: auto; }
+        #world, #editor, #side { display: none; }
+        #too-small {
+          display: block;
+          max-width: 30rem;
+          margin: 0 auto;
+          padding: 3rem var(--sp-4);
+        }
+        #too-small h1 {
+          margin: 0 0 var(--sp-4);
+          font-size: var(--fs-lg);
+          font-weight: 600;
+          letter-spacing: 0.08em;
+          color: var(--accent);
+        }
+        #too-small p { margin: 0 0 var(--sp-3); line-height: 1.7; }
+        #too-small code {
+          padding: 0.1rem 0.3rem;
+          background: var(--bg-sunk);
+          border-radius: 3px;
+          color: #9cdcfe;
+        }
+      }
     </style>
   </head>
   <body>
+    <!-- Shown only by the breakpoint above, and the only thing shown there. -->
+    <section id="too-small">
+      <h1>AUTOMATOI</h1>
+      <p>
+        This is a factory game you play by writing code, so the whole of it is a
+        text editor — and a text editor needs a keyboard and a window with room
+        for it. This screen is too narrow for one.
+      </p>
+      <p>
+        Open it on a laptop and it will teach you the rest. It starts by handing
+        you a single line, <code>bot.move("east")</code>, and asks you to press
+        Run.
+      </p>
+    </section>
     <div id="world"></div>
     <div id="editor"></div>
     <aside id="side">
