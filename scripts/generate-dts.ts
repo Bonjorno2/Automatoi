@@ -122,6 +122,32 @@ function splitMember(text: string, member: string): { rest: string; block: strin
   return { rest: text.slice(0, start) + text.slice(end), block: text.slice(start, end).trimEnd() };
 }
 
+/**
+ * Pull one `type Name = ...;` declaration out, with its doc comment.
+ *
+ * Interfaces are enough for everything the player API returns except a union,
+ * and `MirrorState.script` is one. Without this the generated file would name a
+ * `ScriptState` that is not in it, and Monaco would load a type error as the
+ * game's autocomplete.
+ */
+function extractType(source: string, name: string): string {
+  const at = new RegExp(`^(export )?(declare )?type ${name}\\b`, "m").exec(source);
+  if (at === null) throw new Error(`no type ${name} in emitted declarations`);
+  const end = source.indexOf(";", at.index);
+  if (end === -1) throw new Error(`unterminated type ${name}`);
+
+  // The doc comment travels with it, the way it does for a gated member: hover
+  // text is the whole reason any of this is generated rather than written.
+  let start = at.index;
+  const before = source.slice(0, start).replace(/\s*$/, "");
+  if (before.endsWith("*/")) {
+    const open = before.lastIndexOf("/**");
+    if (open === -1) throw new Error(`unbalanced JSDoc above ${name}`);
+    start = source.lastIndexOf("\n", open) + 1;
+  }
+  return source.slice(start, end + 1);
+}
+
 /** Pull one `interface Name { ... }` block out by matching braces. */
 function extractInterface(source: string, name: string): string {
   const start = source.indexOf(`interface ${name} {`);
@@ -176,6 +202,8 @@ export function generate(): string {
       stripExports(simTypes).trimEnd(),
       "",
       "// --- a bot's readable state -------------------------------------------",
+      stripExports(extractType(protocol, "ScriptState")),
+      "",
       stripExports(extractInterface(protocol, "MirrorState")),
       "",
       "// --- what colony.research.status() answers with ------------------------",

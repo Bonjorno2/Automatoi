@@ -4,7 +4,7 @@ import {
   IDLE, REQUEST, RESULT, REQ_LEN, RES_LEN, RES_OK, STATE,
   createChannel, ctrlOf, mirrorOf, readFrame, reqOf, resOf, writeFrame,
 } from "./protocol.ts";
-import type { HostRequest, MirrorState, ResearchStatus } from "./protocol.ts";
+import type { HostRequest, MirrorState, ResearchStatus, ScriptState } from "./protocol.ts";
 import { RESEARCH_COST, isMachineKind } from "../sim/config.ts";
 import { publishMirror } from "./mirror.ts";
 import { DemandClock } from "./clock.ts";
@@ -249,11 +249,31 @@ export class Colony {
       inventory: { ...bot.inventory },
       modules: [...bot.modules],
       busy: bot.action !== null,
+      stalled: bot.stalled,
+      script: this.scriptStateOf(botId),
     };
+  }
+
+  /**
+   * What this bot's script is doing.
+   *
+   * `"idle"` here, and truthfully: a plain `Colony` is the headless half the sim
+   * tests use and has no workers at all, so it has never started a script and
+   * must not pretend it might have. `ScriptColony` knows better and says so.
+   */
+  protected scriptStateOf(_botId: number): ScriptState {
+    return "idle";
   }
 }
 
-export type ScriptStatus = "done" | "error" | "hung" | "stopped";
+/**
+ * How a run ended.
+ *
+ * Derived from `ScriptState` rather than written out beside it, so the verdicts
+ * a run can settle on and the states a script can *read* cannot drift apart —
+ * the two that are missing are the two no verdict can be.
+ */
+export type ScriptStatus = Exclude<ScriptState, "idle" | "running">;
 
 export interface ScriptOutcome {
   botId: number;
@@ -341,6 +361,15 @@ export class ScriptColony extends Colony {
   /** Read afresh per run, so the page can edit the library while bots run. */
   private readonly library: () => string;
   private readonly onSpawned?: (botId: number) => RunOptions;
+  /**
+   * What each bot's script is doing, for `colony.bots()` to answer with.
+   *
+   * Kept here rather than derived from `workers` at read time, because a worker
+   * is deleted the moment it is stopped and *how* a script ended is the part a
+   * planner wants: a child that threw and a child that was stopped are both
+   * "no worker", and they are not the same news.
+   */
+  private readonly scriptState = new Map<number, ScriptState>();
   readonly clock: Clock;
   private pendingRuns = 0;
   private looping = false;
@@ -368,9 +397,14 @@ export class ScriptColony extends Colony {
     const settle = (o: Settled): void => {
       if (settled) return;
       settled = o;
+      // Only if this run is still the bot's current one. A hot reload settles the
+      // old run as "stopped" *after* the new one has said "running", and the news
+      // a reader wants is the new script's, not the dead one's.
+      if (this.settlers.get(botId) === settle) this.scriptState.set(botId, o.status);
       opts.onSettle?.({ botId, logs, ...o });
     };
     this.settlers.set(botId, settle);
+    this.scriptState.set(botId, "running");
 
     // The watchdog measures idleness from `lastActive`, which is otherwise only
     // touched by attach, serve and stop. A channel that sat idle between runs —
@@ -466,6 +500,10 @@ export class ScriptColony extends Colony {
       });
       void worker.terminate();
     }
+  }
+
+  protected override scriptStateOf(botId: number): ScriptState {
+    return this.scriptState.get(botId) ?? "idle";
   }
 
   async stop(botId: number): Promise<void> {

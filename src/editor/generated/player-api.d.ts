@@ -215,6 +215,16 @@ interface WorldSnapshot {
 }
 
 // --- a bot's readable state -------------------------------------------
+/**
+ * What a bot's code is doing, for a script that is asking about another bot.
+ *
+ * The console panel's own vocabulary, so the game has one word per state rather
+ * than two: `"idle"` means no script has run on this bot, not that the chassis
+ * is standing still. `ScriptStatus` in `colony.ts` is this minus the two states
+ * a settled verdict cannot be.
+ */
+type ScriptState = "idle" | "running" | "done" | "error" | "hung" | "stopped";
+
 interface MirrorState {
     time: number;
     pos: {
@@ -223,7 +233,25 @@ interface MirrorState {
     };
     inventory: Record<string, number | undefined>;
     modules: string[];
+    /**
+     * A command is in flight.
+     *
+     * **Not a liveness check**, and cycle five's finding 5 is what happens when it
+     * is used as one: a bot deadlocked against another is busy for as long as the
+     * deadlock lasts, exactly like a bot doing its job. `script` is the field that
+     * answers that question.
+     */
     busy: boolean;
+    /**
+     * Commands in a row that resolved having achieved nothing — a move into a
+     * machine, a deposit that transferred zero.
+     *
+     * Zero for a bot that is working and zero for a bot that has stopped asking,
+     * so it is worth reading beside `script` rather than instead of it.
+     */
+    stalled: number;
+    /** Whether this bot's script is running, and if not, how it ended. */
+    script: ScriptState;
 }
 
 // --- what colony.research.status() answers with ------------------------
@@ -295,12 +323,20 @@ interface BotApi {
 interface ColonyApi {
     /**
      * Every bot in the colony, this one included, as read-only views: position,
-     * inventory, fitted modules, and whether a command is in flight. Costs no
-     * ticks.
+     * inventory, fitted modules, whether a command is in flight, how long it has
+     * been getting nowhere, and what its script is doing. Costs no ticks.
      *
-     * `busy` means "has a command running", which is true of a bot working and
-     * equally true of a bot deadlocked against another — it is not a liveness
-     * check.
+     * **`busy` is not a liveness check.** It means "has a command running", which
+     * is true of a bot working and equally true of a bot deadlocked against
+     * another. The two fields that tell them apart are `script` — `running`,
+     * `done`, `error`, `hung`, `stopped`, or `idle` for a bot that has never been
+     * given one — and `stalled`, the number of commands in a row that achieved
+     * nothing.
+     *
+     * ```js
+     * const mine = colony.bots().filter((b) => b.id !== me);
+     * if (mine.some((b) => b.script === "error")) bot.log("a child died");
+     * ```
      */
     bots(): Array<MirrorState & {
         id: number;

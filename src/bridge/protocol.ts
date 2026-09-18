@@ -75,13 +75,41 @@ export interface ResearchStatus {
   cost: number;
 }
 
+/**
+ * What a bot's code is doing, for a script that is asking about another bot.
+ *
+ * The console panel's own vocabulary, so the game has one word per state rather
+ * than two: `"idle"` means no script has run on this bot, not that the chassis
+ * is standing still. `ScriptStatus` in `colony.ts` is this minus the two states
+ * a settled verdict cannot be.
+ */
+export type ScriptState = "idle" | "running" | "done" | "error" | "hung" | "stopped";
+
 /** What the host publishes for a bot to read without asking. */
 export interface MirrorState {
   time: number;
   pos: { x: number; y: number };
   inventory: Record<string, number | undefined>;
   modules: string[];
+  /**
+   * A command is in flight.
+   *
+   * **Not a liveness check**, and cycle five's finding 5 is what happens when it
+   * is used as one: a bot deadlocked against another is busy for as long as the
+   * deadlock lasts, exactly like a bot doing its job. `script` is the field that
+   * answers that question.
+   */
   busy: boolean;
+  /**
+   * Commands in a row that resolved having achieved nothing — a move into a
+   * machine, a deposit that transferred zero.
+   *
+   * Zero for a bot that is working and zero for a bot that has stopped asking,
+   * so it is worth reading beside `script` rather than instead of it.
+   */
+  stalled: number;
+  /** Whether this bot's script is running, and if not, how it ended. */
+  script: ScriptState;
 }
 
 export function createChannel(): SharedArrayBuffer {

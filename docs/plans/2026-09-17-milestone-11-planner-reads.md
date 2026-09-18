@@ -64,6 +64,8 @@ Milestone 9 predicted cycle 5 would need no engine work. The playtest proved oth
 
    **Planned edit 1:** `MirrorState` gains two fields in Task 3. `tests/bridge/mirror.test.ts` and `tests/bridge/api.test.ts` both read fields off a view rather than asserting its shape — checked. **Planned edit 2:** `tests/bench/cycle-five.bench.ts` is rewritten in Task 5; it is the playtest and rewriting it is the task. **If anything else breaks, that is information about this plan, not licence to edit.**
 
+   > **Planned edit 1 was named against the wrong two files, and the suite said so.** `tests/bridge/host.test.ts` asserts the whole published mirror with `toEqual`, and that is the assertion that broke in Task 3 — the two files named above were checked and were not the ones with a shape in them. The edit is the two new fields added to that literal, which is the assertion doing its job rather than being in the way, and it is recorded here because a test edit nobody wrote down is how a suite stops meaning anything.
+
 ---
 
 ## One fact to verify before building on it

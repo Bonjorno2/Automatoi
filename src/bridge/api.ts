@@ -194,12 +194,20 @@ export interface BotApi {
 export interface ColonyApi {
   /**
    * Every bot in the colony, this one included, as read-only views: position,
-   * inventory, fitted modules, and whether a command is in flight. Costs no
-   * ticks.
+   * inventory, fitted modules, whether a command is in flight, how long it has
+   * been getting nowhere, and what its script is doing. Costs no ticks.
    *
-   * `busy` means "has a command running", which is true of a bot working and
-   * equally true of a bot deadlocked against another — it is not a liveness
-   * check.
+   * **`busy` is not a liveness check.** It means "has a command running", which
+   * is true of a bot working and equally true of a bot deadlocked against
+   * another. The two fields that tell them apart are `script` — `running`,
+   * `done`, `error`, `hung`, `stopped`, or `idle` for a bot that has never been
+   * given one — and `stalled`, the number of commands in a row that achieved
+   * nothing.
+   *
+   * ```js
+   * const mine = colony.bots().filter((b) => b.id !== me);
+   * if (mine.some((b) => b.script === "error")) bot.log("a child died");
+   * ```
    */
   bots(): Array<MirrorState & { id: number }>;
   /** The world's tick count. Costs no ticks, and is the same number for every bot. */
