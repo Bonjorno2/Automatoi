@@ -8,6 +8,18 @@ export interface SessionOptions {
   seed?: number;
   /** Simulated ticks per real second. */
   hz?: number;
+  /**
+   * How many tiles across and down, defaulting to the world's own 32.
+   *
+   * A measurement hook, and the page reads it from `?size=`. The design doc's
+   * last open question — the renderer was 1.71ms of a 16.6ms budget at 32x32,
+   * "revisit if the world grows by an order of magnitude" — cannot be revisited
+   * without a way to boot a bigger one, and a number typed into a source file
+   * for an afternoon is a number somebody eventually commits.
+   *
+   * The field stays 13x13 whatever this is, because `FIELD_RADIUS` is not this.
+   */
+  size?: number;
 }
 
 /**
@@ -52,7 +64,7 @@ export class GameSession {
   onSpawned: (botId: number) => RunOptions = () => ({});
 
   constructor(opts: SessionOptions = {}) {
-    this.world = new World({ seed: opts.seed ?? 1 });
+    this.world = new World({ seed: opts.seed ?? 1, width: opts.size, height: opts.size });
     this.clock = new RealtimeClock({ hz: opts.hz ?? 20 });
     this.colony = new ScriptColony({
       world: this.world,

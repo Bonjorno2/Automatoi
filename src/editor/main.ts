@@ -99,7 +99,18 @@ if (!isolated) {
 }
 
 const editor = mountEditor(document.querySelector<HTMLElement>("#editor")!);
-const session = new GameSession();
+
+/**
+ * `?size=128` boots a bigger world, for measuring what one costs.
+ *
+ * Read the same way `?perf` is, and absent means the world's own default. An
+ * unreadable or silly value is ignored rather than argued with: this is a probe,
+ * and a probe that throws on the way in tells you nothing.
+ */
+const requestedSize = Number(new URLSearchParams(location.search).get("size"));
+const session = new GameSession({
+  size: Number.isFinite(requestedSize) && requestedSize >= 16 ? Math.floor(requestedSize) : undefined,
+});
 
 const grid = { width: session.world.width, height: session.world.height };
 const worldEl = document.querySelector<HTMLElement>("#world")!;
