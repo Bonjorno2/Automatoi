@@ -502,7 +502,16 @@ export class ScriptColony extends Colony {
     }
   }
 
-  protected override scriptStateOf(botId: number): ScriptState {
+  /**
+   * Public here, protected on `Colony`.
+   *
+   * The fleet list has wanted this word three times — milestone 9's finding 1,
+   * milestone 8's finding 3, cycle five's finding 3 — and could not have it,
+   * because everything drawing a bot reads a world snapshot and a world snapshot
+   * knows nothing about scripts. The page asks this and hands the answer to the
+   * panel, so the renderer still reaches into nothing.
+   */
+  override scriptStateOf(botId: number): ScriptState {
     return this.scriptState.get(botId) ?? "idle";
   }
 

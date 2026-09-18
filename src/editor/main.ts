@@ -804,7 +804,9 @@ function draw(): void {
       ? `pass ${mean(passMs).toFixed(2)}ms  draw ${mean(drawMs).toFixed(2)}ms  frame ${mean(frameMs).toFixed(1)}ms`
       : undefined,
   });
-  sidePanel.update(snap, selectedBotId);
+  // The page is the one place that owns both the colony and the panel, so it is
+  // the only place that can tell the fleet list a bot's script died.
+  sidePanel.update(snap, selectedBotId, (botId) => session.colony.scriptStateOf(botId));
   syncApiSurface();
   suggester.world(snap);
   codebook.update({

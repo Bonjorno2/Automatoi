@@ -4,6 +4,7 @@ import { total } from "../sim/inventory.ts";
 import type { BotSnapshot, Item, ResearchName, WorldSnapshot } from "../sim/types.ts";
 import { buildOptions, type BuildOption } from "../editor/build-menu.ts";
 import { describeBotActivity } from "./inspector.ts";
+import type { ScriptState } from "../bridge/protocol.ts";
 import { botColor } from "./palette.ts";
 import type { Geometry, Size } from "./geometry.ts";
 
@@ -117,11 +118,15 @@ export interface FleetRow {
  * the list and the canvas agree by construction rather than by coincidence. The
  * activity is `describeBotActivity`, called rather than restated, per Fact 2.
  */
-export function fleetRows(snapshot: WorldSnapshot, selectedBotId: number | null): FleetRow[] {
+export function fleetRows(
+  snapshot: WorldSnapshot,
+  selectedBotId: number | null,
+  scriptOf: (botId: number) => ScriptState = () => "idle",
+): FleetRow[] {
   return snapshot.bots.map((bot, index) => ({
     id: bot.id,
     color: botColor(index, bot.action !== null),
-    activity: describeBotActivity(bot),
+    activity: describeBotActivity(bot, scriptOf(bot.id)),
     carrying: describeCargo(bot),
     selected: bot.id === selectedBotId,
   }));
@@ -235,7 +240,16 @@ function fillList(root: HTMLElement, lines: string[], empty: string | null): voi
 
 /** The DOM half: the side panel's cargo bar, research queue and build menu. */
 export interface SidePanel {
-  update(snapshot: WorldSnapshot, selectedBotId: number | null): void;
+  /**
+   * `scriptOf` is how the fleet list learns what a bot's *code* is doing, which
+   * is the one thing on a row that no snapshot carries. The page supplies it
+   * because the page is what owns both the colony and this panel.
+   */
+  update(
+    snapshot: WorldSnapshot,
+    selectedBotId: number | null,
+    scriptOf?: (botId: number) => ScriptState,
+  ): void;
   /** Highlight the option currently being placed, or none. */
   setActive(label: string | null): void;
 }
@@ -281,7 +295,7 @@ export function createSidePanel(
   const build = root.querySelector<HTMLElement>(".build")!;
 
   return {
-    update(snapshot, selectedBotId) {
+    update(snapshot, selectedBotId, scriptOf) {
       const bot = snapshot.bots.find((b) => b.id === selectedBotId);
       const carried = bot ? total(bot.inventory) : 0;
       label.textContent = bot ? `bot ${bot.id}` : "no bot";
@@ -289,7 +303,7 @@ export function createSidePanel(
       fill.classList.toggle("full", carried >= BOT_CAPACITY);
       count.textContent = `${carried}/${BOT_CAPACITY}`;
 
-      renderFleet(fleet, fleetRows(snapshot, selectedBotId), onSelectBot);
+      renderFleet(fleet, fleetRows(snapshot, selectedBotId, scriptOf), onSelectBot);
       fillList(field, fieldLines(snapshot), null);
       renderResearch(research, researchRows(snapshot));
       renderBuild(build, snapshot, onPick, activeLabel);
