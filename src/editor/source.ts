@@ -1,3 +1,5 @@
+import type { ApiClass } from "../render/palette.ts";
+
 /**
  * Reading a player's script for what it actually says.
  *
@@ -95,6 +97,52 @@ export const PRIMITIVE_LABEL: Record<Primitive, string> = {
 };
 
 const EVERY_PRIMITIVE = Object.keys(PATTERN) as Primitive[];
+
+/**
+ * Which API object each primitive is a verb of.
+ *
+ * **Partial, and that is the point** — the same call `CROP` makes in the
+ * palette. `while` and `for` are JavaScript and belong to no object; `bot.move`
+ * and `bot.deposit` belong to the chassis, which is the default below and so
+ * needs no row. What is listed is exactly the set of verbs that live on
+ * *another* object, which is the fact this map exists to recover.
+ */
+const PRIMITIVE_CLASS: Partial<Record<Primitive, ApiClass>> = {
+  harvest: "harvester",
+  plant: "planter",
+  scan: "scanner",
+  send: "radio",
+  receive: "radio",
+  place: "builder",
+  queue: "colony",
+  status: "colony",
+  spawn: "colony",
+};
+
+/**
+ * Which class of object a piece of code is mostly about.
+ *
+ * **The earliest non-chassis call wins.** Two rules are folded together there
+ * and both are deliberate: a module beats the chassis, because *"harvest, then
+ * move"* is a harvesting pattern and every script moves; and among modules the
+ * one written first wins, because that is the line the player would point at if
+ * asked what the chip was for.
+ *
+ * Falls back to the chassis, which is the honest answer for a bare loop as much
+ * as for `bot.move("east")`.
+ */
+export function classOf(source: string): ApiClass {
+  const code = stripNonCode(source);
+  let best: { at: number; cls: ApiClass } | null = null;
+  for (const primitive of EVERY_PRIMITIVE) {
+    const cls = PRIMITIVE_CLASS[primitive];
+    if (!cls) continue;
+    const at = code.search(PATTERN[primitive]);
+    if (at === -1) continue;
+    if (!best || at < best.at) best = { at, cls };
+  }
+  return best?.cls ?? "chassis";
+}
 
 /** Everything this source demonstrably does. */
 export function primitivesIn(source: string): Set<Primitive> {

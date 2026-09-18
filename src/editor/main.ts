@@ -1,6 +1,7 @@
 import {
   apiComplaints,
   apiLib,
+  bindBarKeys,
   clearRuntimeErrors,
   markRuntimeError,
   mountEditor,
@@ -10,6 +11,9 @@ import { ownedGates } from "./api-surface.ts";
 import { LIBRARY, ScriptStore } from "./script-store.ts";
 import { createConsolePanel } from "./console-panel.ts";
 import { createCodebook } from "./codebook.ts";
+import { createBarPanel } from "./bar-panel.ts";
+import { ChipBar } from "./chip-bar.ts";
+import { SavedChips } from "./saved-chips.ts";
 import { createSuggester } from "./suggestions.ts";
 import { createKeyPanel, sayAboutKey } from "./key-panel.ts";
 import { insertInline } from "./insert.ts";
@@ -98,7 +102,7 @@ if (!isolated) {
   throw new Error("cross-origin isolation required");
 }
 
-const editor = mountEditor(document.querySelector<HTMLElement>("#editor")!);
+const editor = mountEditor(document.querySelector<HTMLElement>("#code")!);
 
 /**
  * `?size=128` boots a bigger world, for measuring what one costs.
@@ -459,13 +463,59 @@ const pauseButton = document.querySelector<HTMLButtonElement>("#pause")!;
  * script that spawned it.
  */
 const suggester = createSuggester();
+
+/**
+ * The player's own half of the book, and the bar that reaches into it.
+ *
+ * Both are stores the page owns rather than state a panel keeps, for the reason
+ * the scripts are: two panels read them — the codebook draws the chips and the
+ * bar draws the slots — and a bar holding a copy of what the book holds is two
+ * answers to "what is in slot 3".
+ */
+const savedChips = new SavedChips();
+const chipBar = new ChipBar();
+const barPanel = createBarPanel(
+  document.querySelector<HTMLElement>("#bar")!,
+  editor,
+  chipBar,
+  savedChips,
+);
+bindBarKeys(editor, (i) => barPanel.fire(i));
+
 const codebook = createCodebook(
   document.querySelector<HTMLElement>("#codebook")!,
   editor,
   {
     onTake: (id) => suggester.take(id),
     onRefuse: (id) => suggester.retire(id),
+    // The library is only named in a refusal once it exists: advice a player
+    // cannot take is worse than no advice.
+    onSave: (name, code) => {
+      const result = savedChips.save(name, code, session.world.research.unlocked.has("library"));
+      // The bar is a second panel reading the same store, and a click has to
+      // reach both of them now rather than at the next frame.
+      barPanel.update();
+      return result;
+    },
+    onRename: (id, name) => {
+      savedChips.rename(id, name);
+      barPanel.update();
+    },
+    onDelete: (id) => {
+      savedChips.remove(id);
+      // Factorio's rule, and the reason a slot holds a reference at all: a
+      // shortcut to something deleted clears itself rather than lingering as a
+      // button that inserts code the player threw away.
+      chipBar.forget({ kind: "saved", id });
+      barPanel.update();
+    },
+    onPin: (ref) => {
+      const slot = chipBar.pin(ref);
+      barPanel.update();
+      return slot;
+    },
   },
+  { chips: savedChips, bar: chipBar },
 );
 
 /**
@@ -836,6 +886,7 @@ function draw(): void {
     ),
     machines: new Set(snap.machines.map((m) => m.kind)),
   });
+  barPanel.update();
   syncKey();
   // The research is the only gate: the button appears when the buffer becomes
   // real, and the prelude stays empty until then.

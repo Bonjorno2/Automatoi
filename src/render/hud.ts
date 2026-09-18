@@ -5,7 +5,7 @@ import type { BotSnapshot, Item, ResearchName, WorldSnapshot } from "../sim/type
 import { buildOptions, type BuildOption } from "../editor/build-menu.ts";
 import { describeBotActivity } from "./inspector.ts";
 import type { ScriptState } from "../bridge/protocol.ts";
-import { botColor } from "./palette.ts";
+import { botColor, cssColor, CLASS_COLOR, COMMAND_CLASS, type ApiClass } from "./palette.ts";
 import type { Geometry, Size } from "./geometry.ts";
 
 /**
@@ -90,6 +90,29 @@ export function fieldLines(snapshot: WorldSnapshot): string[] {
 }
 
 /** One bot, as the panel shows it. */
+/**
+ * A command in flight: how far through it is, and which API object it belongs
+ * to.
+ *
+ * The cast bar, and it is the same shape the research queue has had since
+ * milestone 7 — a fraction and a colour — because a player watching a bot work
+ * is asking the same question they ask of a research: *how much longer*. The
+ * sim has always had the numbers. `ActionSnapshot` carries `total` for no other
+ * reason than this: `remaining` alone cannot say how far through a move a bot is.
+ *
+ * The colour is the class, not the bot. Two bots both harvesting cast the same
+ * orange, which is what makes the bar readable as *what is happening* rather
+ * than as one more per-bot identifier — the swatch beside it already answers who.
+ */
+export interface Cast {
+  /** Ticks done over ticks asked for, in [0, 1]. */
+  fraction: number;
+  /** `CLASS_COLOR` for the class the command belongs to. */
+  color: number;
+  /** The class' own name, for a title attribute and for tests. */
+  cls: ApiClass;
+}
+
 export interface FleetRow {
   id: number;
   /** The body colour the canvas draws it with, so the list and the map agree. */
@@ -99,6 +122,26 @@ export interface FleetRow {
   carrying: string;
   /** Whether this is the bot the editor is showing. */
   selected: boolean;
+  /** The command in flight, or null for a bot that is not running one. */
+  cast: Cast | null;
+}
+
+/**
+ * The bar for whatever a bot is doing now.
+ *
+ * Deliberately not derived from `activity`'s text, which quotes the same two
+ * numbers in words. Two readings of one fact is fine; parsing one of them back
+ * out of a sentence is not.
+ */
+export function castOf(bot: BotSnapshot): Cast | null {
+  const action = bot.action;
+  if (!action || action.total <= 0) return null;
+  const cls = COMMAND_CLASS[action.kind];
+  return {
+    fraction: Math.min(1, Math.max(0, (action.total - action.remaining) / action.total)),
+    color: CLASS_COLOR[cls],
+    cls,
+  };
 }
 
 /**
@@ -129,6 +172,7 @@ export function fleetRows(
     activity: describeBotActivity(bot, scriptOf(bot.id)),
     carrying: describeCargo(bot),
     selected: bot.id === selectedBotId,
+    cast: castOf(bot),
   }));
 }
 
@@ -342,29 +386,52 @@ function renderFleet(
   rows: FleetRow[],
   onSelectBot: (botId: number) => void,
 ): void {
-  const key = rows.map((r) => `${r.id}:${r.color}:${r.activity}:${r.carrying}:${r.selected}`).join("|");
-  if (root.dataset.key === key) return;
-  root.dataset.key = key;
+  // The cast's *fraction* is deliberately absent from this key and the class is
+  // not: a bar that grew by rebuilding the list would replace the DOM under the
+  // player's pointer on every tick of every bot, which is the thing this key
+  // exists to prevent. The width is written straight onto the element below.
+  const key = rows
+    .map((r) => `${r.id}:${r.color}:${r.activity}:${r.carrying}:${r.selected}:${r.cast?.cls ?? ""}`)
+    .join("|");
+  if (root.dataset.key !== key) {
+    root.dataset.key = key;
+    root.textContent = "";
+    for (const row of rows) {
+      const li = document.createElement("li");
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = row.selected ? "fleet-row selected" : "fleet-row";
+      button.dataset.bot = String(row.id);
+      const swatch = document.createElement("i");
+      swatch.className = "fleet-swatch";
+      swatch.style.background = cssColor(row.color);
+      const name = document.createElement("span");
+      name.className = "fleet-name";
+      name.textContent = `bot ${row.id}`;
+      const what = document.createElement("span");
+      what.className = "fleet-what";
+      what.textContent = `${row.activity} · ${row.carrying}`;
+      const cast = document.createElement("span");
+      cast.className = "cast";
+      const castFill = document.createElement("i");
+      cast.append(castFill);
+      button.append(swatch, name, what, cast);
+      button.addEventListener("click", () => onSelectBot(row.id));
+      li.append(button);
+      root.append(li);
+    }
+  }
 
-  root.textContent = "";
+  // Every frame, on the elements that are already there.
   for (const row of rows) {
-    const li = document.createElement("li");
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = row.selected ? "fleet-row selected" : "fleet-row";
-    const swatch = document.createElement("i");
-    swatch.className = "fleet-swatch";
-    swatch.style.background = `#${row.color.toString(16).padStart(6, "0")}`;
-    const name = document.createElement("span");
-    name.className = "fleet-name";
-    name.textContent = `bot ${row.id}`;
-    const what = document.createElement("span");
-    what.className = "fleet-what";
-    what.textContent = `${row.activity} · ${row.carrying}`;
-    button.append(swatch, name, what);
-    button.addEventListener("click", () => onSelectBot(row.id));
-    li.append(button);
-    root.append(li);
+    const cast = root.querySelector<HTMLElement>(`[data-bot="${row.id}"] .cast`);
+    const fill = cast?.firstElementChild as HTMLElement | undefined;
+    if (!cast || !fill) continue;
+    cast.hidden = row.cast === null;
+    if (!row.cast) continue;
+    cast.title = `${row.cast.cls} — ${Math.round(row.cast.fraction * 100)}%`;
+    fill.style.width = `${row.cast.fraction * 100}%`;
+    fill.style.background = cssColor(row.cast.color);
   }
 }
 

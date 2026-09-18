@@ -1,5 +1,5 @@
 import { CROP_GROWTH, ITEMS, WHEAT_GROWTH_TICKS } from "../sim/config.ts";
-import type { Inventory, Item, MachineKind, ModuleName, Terrain } from "../sim/types.ts";
+import type { Command, Inventory, Item, MachineKind, ModuleName, Terrain } from "../sim/types.ts";
 
 /**
  * Every colour in the game, and the arithmetic that picks between them.
@@ -98,6 +98,67 @@ export const MODULE: Record<ModuleName, number> = {
   radio: 0xc07fd0,
   builder: 0x9aa4b0,
 };
+
+/**
+ * Which object in the player's API a thing belongs to.
+ *
+ * The script is written against a small object graph — `bot`, the five module
+ * objects hanging off it, and `colony` — and until now the game showed that
+ * structure only in autocomplete. A colour per class is the shortest way to put
+ * it on screen: a player who writes `bot.scanner.scan(2)` and then watches blue
+ * run across their bot has been told, without a word of text, that the thing
+ * they typed after `bot.` is a *thing* with verbs of its own.
+ *
+ * "chassis" is not a module and has no pip on a bot's edge; it is what `bot`
+ * itself can do — move, wait, deposit, withdraw — which is the one class every
+ * bot has and the only one that can never be missing.
+ */
+export type ApiClass = ModuleName | "chassis" | "colony";
+
+/**
+ * The module colours, unchanged, plus the two classes that are not modules.
+ *
+ * Reusing `MODULE` rather than picking five more: the harvester is already
+ * orange on every bot that has one, and a cast bar that ran orange for
+ * harvesting while the pip beside it was some other orange would be two
+ * vocabularies for one fact.
+ */
+export const CLASS_COLOR: Record<ApiClass, number> = {
+  ...MODULE,
+  // Bone, which is what the chassis is drawn in and reads as "the bot itself".
+  chassis: 0x8f9a7a,
+  // Teal, and deliberately far from every module: research and the fabricator
+  // are the colony's business, not any one bot's.
+  colony: 0x7fd0c0,
+};
+
+/**
+ * Which class each command belongs to.
+ *
+ * Total over `Command["kind"]` per milestone 4's Decision 7: a new verb is a row
+ * the compiler asks for, rather than a branch somebody has to remember to add.
+ * Milestone 12 adds one, and it will be asked for its colour before it draws.
+ */
+export const COMMAND_CLASS: Record<Command["kind"], ApiClass> = {
+  move: "chassis",
+  wait: "chassis",
+  // `bot.deposit` and `bot.withdraw` are chassis verbs: an arm is not what makes
+  // them possible, a cargo hold is, and every chassis has one.
+  deposit: "chassis",
+  withdraw: "chassis",
+  harvest: "harvester",
+  plant: "planter",
+  scan: "scanner",
+  send: "radio",
+  receive: "radio",
+  place: "builder",
+  remove: "builder",
+};
+
+/** `0xRRGGBB` as CSS, for the half of this game that is DOM rather than canvas. */
+export function cssColor(color: number): string {
+  return `#${color.toString(16).padStart(6, "0")}`;
+}
 
 /**
  * One body colour per bot, in the order they were deployed.

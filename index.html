@@ -79,7 +79,54 @@
         line-height: 1.35;
         z-index: 2;
       }
-      #editor { height: 100vh; min-width: 0; }
+      #editor { height: 100vh; min-width: 0; display: flex; flex-direction: column; }
+      /* Monaco sizes itself to this element and watches it, so it must be the
+         one that flexes rather than the column around it. */
+      #code { flex: 1; min-height: 0; }
+      /* The bar. Nine slots, and it keeps its height when every one of them is
+         empty: a control that appears once you have used it is a control nobody
+         discovers. */
+      #bar {
+        flex: none;
+        display: grid;
+        grid-template-columns: repeat(9, minmax(0, 1fr));
+        gap: 2px;
+        padding: 2px;
+        background: var(--bg-sunk);
+        border-top: 1px solid var(--line);
+      }
+      .slot {
+        display: flex;
+        align-items: baseline;
+        gap: 0.25rem;
+        min-width: 0;
+        padding: 0.25rem 0.3rem;
+        text-align: left;
+        font-size: 10px;
+        color: var(--text);
+        background: var(--bg-raised);
+        border: 1px solid var(--line);
+        border-left: 3px solid var(--line-bright);
+      }
+      .slot:hover:not(:disabled) { background: #2a2e32; border-color: var(--line-bright); }
+      .slot kbd {
+        flex: none;
+        color: var(--text-dim);
+        font: inherit;
+      }
+      .slot-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      /* An empty slot is visible and inert: it says there is a bar here and that
+         this part of it is yours to fill. */
+      .slot-empty {
+        background: transparent;
+        border-left-color: var(--line);
+        color: var(--text-dim);
+      }
+      .slot-empty .slot-name { opacity: 0.55; }
       #side {
         border-left: 1px solid var(--line);
         padding: var(--sp-3);
@@ -242,6 +289,26 @@
         text-overflow: ellipsis;
         white-space: nowrap;
       }
+      /* The cast bar: how far through its current command a bot is, in the
+         colour of the API object that command belongs to. Its own line under
+         the row rather than a column beside the text, because it is the one
+         thing here that has to be readable at a glance from across the screen. */
+      .cast {
+        flex-basis: 100%;
+        height: 3px;
+        margin-top: 0.15rem;
+        background: var(--bg-sunk);
+        border-radius: 2px;
+        overflow: hidden;
+      }
+      .cast i {
+        display: block;
+        height: 100%;
+        width: 0;
+        /* Matched to the fastest command the sim has, so the bar arrives rather
+           than lags. A tick at 1x is longer than this. */
+        transition: width 90ms linear;
+      }
       .build { margin: 0; padding: 0; list-style: none; }
       .build li { margin-top: 0.2rem; }
       .build button {
@@ -333,7 +400,70 @@
         background: var(--bg-raised);
         border: 1px solid var(--line);
       }
+      /* Wide enough on the left for the class colour to read as a stripe: the
+         same stripe a bar slot carries and the same colour the bot casts it in. */
+      .chip { border-left-width: 3px; }
       .chip:hover { background: #2a2e32; border-color: var(--line-bright); }
+      /* The player's own half of the book. */
+      .book-subtitle {
+        margin: var(--sp-2) 0 var(--sp-1);
+        font-size: var(--fs-sm);
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        color: var(--text-dim);
+        text-transform: lowercase;
+      }
+      .book-save {
+        width: 100%;
+        padding: 0.25rem 0.4rem;
+        font-size: 10px;
+        color: var(--text-dim);
+        background: transparent;
+        border: 1px dashed var(--line-bright);
+      }
+      .book-save:hover { color: var(--accent); border-color: var(--accent-dim); }
+      .book-naming { display: flex; gap: 0.25rem; }
+      .book-naming button { padding: 0.15rem 0.4rem; font-size: 10px; }
+      .book-name {
+        flex: 1;
+        min-width: 0;
+        padding: 0.15rem 0.3rem;
+        font: inherit;
+        font-size: 10px;
+        color: var(--text);
+        background: var(--bg-sunk);
+        border: 1px solid var(--line-bright);
+      }
+      /* Why a save was refused. It stays put rather than flashing — the
+         twelve-line rule is the sentence that sends a player to the library. */
+      .book-refusal {
+        margin: var(--sp-1) 0 0;
+        color: #c586c0;
+        font-size: 10px;
+      }
+      .saved { margin-top: var(--sp-1); }
+      .saved-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: var(--sp-1);
+        font-size: var(--fs-sm);
+      }
+      .saved-head strong {
+        color: #dcdcaa;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .saved-tools { display: flex; gap: 0.2rem; flex: none; }
+      .chip-pin {
+        padding: 0.1rem 0.3rem;
+        font-size: 10px;
+        color: var(--text-dim);
+        background: transparent;
+        border: 1px solid var(--line);
+      }
+      .chip-pin:hover { color: var(--accent); border-color: var(--accent-dim); }
       .chip strong { color: #dcdcaa; }
       .chip-need {
         color: #c586c0;
@@ -477,7 +607,13 @@
       </p>
     </section>
     <div id="world"></div>
-    <div id="editor"></div>
+    <!-- The editor column is the editor and the bar under it: the bar is a tool
+         pointed at the player's own text, so it lives where the text is rather
+         than in the column the game talks to them from. -->
+    <div id="editor">
+      <div id="code"></div>
+      <div id="bar" aria-label="chip bar"></div>
+    </div>
     <aside id="side">
       <header id="masthead">
         <h1>AUTOMATOI</h1>
