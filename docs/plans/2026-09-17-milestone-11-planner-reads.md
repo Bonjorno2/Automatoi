@@ -180,11 +180,72 @@ git commit -m "test(bench): cycle five, played again, with the reads it asked fo
 
 ---
 
+## Findings from Task 5
+
+### 1. The claim is true now, and the difference is not marginal
+
+Cycle 5 ran. `main.js` says `survey()`, `expand(harvestBlock, 1)`, `standAside()` and nothing else, and the colony it produces works. Four consecutive runs, and the spread between them is one tick:
+
+| | 2026-09-16, before the reads | 2026-09-17, with them |
+|---|---|---|
+| crates placed | 1 | **3** |
+| blocks staffed | 0 | **3** |
+| wheat cleared | 1 | **25** |
+| ticks | 6000, timed out | **249** |
+| refusals logged | 129 identical | **none** |
+
+The planner's whole log for a run is three lines, each of them a block going down:
+
+```
+expand: block at 20,19
+expand: block at 18,12
+expand: block at 14,12
+```
+
+**Every one of the three walls is gone, and each went for the reason the fix predicted.** `unservedSpot` no longer proposes the tile the console is standing on, because it asks. `expand` hands each child a `{x, y}` and no part of this file builds source text any more. `ailing()` reads `script` and `stalled` off other bots, which is a question `busy` could not answer.
+
+The design has been claiming this sentence since 2026-09-11 and this is the first time anything has done it.
+
+### 2. Finding 3 is avoided by the script, not fixed by the engine
+
+Sampled at the close of **every** run, without exception:
+
+```
+bot 1 at 15,16 — action wait,  blockedOn nothing, stalled 1
+bot 9 at 15,17 — action move,  blockedOn bot,     stalled 0
+```
+
+That is the first playtest's finding 3 exactly: a bot the planner built, waiting on a tile the planner is standing on, with a command that **never resolves while the other bot stays put**. What changed is not the engine. It is that `standAside` keeps the planner walking to a tile off the field, so the block always clears within a few ticks instead of lasting the session.
+
+So the hazard is intact and the fatality is gone. A player who writes a planner that stops moving will rediscover this, and the sim will still have no way to tell them — `stalled` reads 0 for the blocked bot, because nothing resolved, which is the same hole milestone 8's counter had and cycle five's finding 3 recorded. **This belongs to a later milestone and is not a defect introduced here**, so it is written down rather than fixed: a `blockedOn` that eventually gives up, or a move that answers false after waiting, is a design decision about what blocking means and deserves its own plan.
+
+### 3. A script cannot ask which bot it is running on
+
+New, and found by writing the thing rather than by thinking about it. `ailing()` wants "the bots I built, that are not working", and it cannot express the first half: `colony.bots()` hands out ids, and there is no `bot.id`. The planner therefore includes itself in its own health check, and the only workaround is matching a view's `pos` against `bot.pos()`, which is a coincidence rather than an identity.
+
+Nothing in this milestone caused it — `spawn` has returned the child's id since milestone 9, so a parent *can* remember what it built, and a script that keeps a list works. It is a gap in the API's self-awareness, it is one free read to close, and it is not this milestone's scope.
+
+---
+
 ## Done criteria for milestone 11
 
 - `colony.canPlace` agrees with `bot.builder.place` on every row of Fact 1's table, driven through a real script.
+  > **Met.** Six rows in `tests/bridge/can-place.test.ts`, each asserting the read and an actual `place()` return the same answer: free soil, the console's tile, a tile under a bot, out of bounds, an unresearched kind, a second console.
 - A planner parameterises a child through `spawn` with no `new Function` and no string building anywhere in the bench.
+  > **Met.** `colony.fabricator.spawn(workBlock, at)`. `new Function` survives in `cycle-five.bench.ts` in exactly one place: the header comment saying what it used to do.
 - `colony.bots()` distinguishes a working child from a dead one, and the distinguishing is what `expand` uses to decide.
+  > **Half met, and the half that is missing is the interesting one.** The distinction exists and is tested seven ways in `tests/bridge/liveness.test.ts`. `main` reads it and reports on it — but in a run where nothing dies, it never has to *act* on it, so this playtest did not prove the judgement is a good one. A run with a child killed on purpose would, and is a fair thing for milestone 12's playtest to do.
 - No new verb, no new machine, no new module, and `src/sim/` gains no capability — only callers.
+  > **Met.** `src/sim/` gained one table, `MACHINE_KINDS`, which is a list of what already existed so that a name arriving from a player's script can be checked. No behaviour moved.
 - `npm run typecheck`, `npm test` and `npm run build` pass; the committed `.d.ts` matches its generator.
+  > **Met.** 803 tests across 74 files, and `tests/editor/dts.test.ts` is what checks the last of those.
 - Cycle five's findings 2, 4 and 5 are each either closed with a test or restated here with what is still missing.
+  > **Met.** 2, 4 and 5 are closed. 3 is restated above, with the sample that shows it is still there.
+
+## What milestone 12 inherits
+
+**The engine's two named debts are untouched and are both still the right next thing.** A non-food material, without which milestone 5's finding 5 — machines are free and unlimited — cannot be fixed and no layout decision has a cost; and the Blackbox, which is the half of the debug hardware still missing now that the fleet view can tell a dead script from an idle one. This milestone deliberately built neither.
+
+**Two small holes, both one free read wide:** a script cannot ask which bot it is (finding 3 above), and a bot-on-bot block still never resolves and still reports nothing (finding 2 above). The second is a decision about what blocking means, not a bug fix.
+
+**And the question this still has not answered** is the one the design scores on: whether a player *wants* to write `expand(harvestBlock, 1)`. Cycle 5 now works, which is a thing a machine can check. Whether the sentence feels earned needs a human who did not write it, and has needed one since milestone 3.
