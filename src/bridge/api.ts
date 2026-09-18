@@ -266,6 +266,23 @@ export interface ColonyApi {
    * than in this one. What *is* in scope is `bot`, `colony`, and everything in
    * the shared library — which is where code meant for more than one bot goes.
    *
+   * **The second argument is how a closure would have been used.** It is handed
+   * to the function as its parameter, so one blueprint written once can staff
+   * as many blocks as there are places to put them:
+   *
+   * ```js
+   * for (const home of spots) {
+   *   colony.fabricator.spawn((where) => {
+   *     while (true) workCrate(where.x, where.y);
+   *   }, home);
+   * }
+   * ```
+   *
+   * It travels as JSON, because the function travels as text. What JSON cannot
+   * carry, this does not carry: a `Date` arrives as a string, `undefined` inside
+   * an object is dropped, and a function or a symbol is refused outright — in
+   * *this* bot, on the line that called, before a chassis is spent.
+   *
    * Returns the new bot's id, so the caller can radio it or find it in
    * `colony.bots()`. Refuses with the sim's own reason when there is no
    * fabricator, no spare chassis, or no free tile beside the machine.
@@ -275,11 +292,53 @@ export interface ColonyApi {
    */
   fabricator?: {
     spawn(script: () => void): number;
+    spawn<T>(script: (arg: T) => void, arg: T): number;
   };
 }
 
 /** Posted to the host thread out of band; logging never blocks the script. */
 export type LogMessage = { kind: "log"; botId: number; message: string };
+
+/**
+ * A `spawn` argument, written as a JavaScript expression for the child's source.
+ *
+ * The argument rides in the source rather than in the protocol, because the
+ * function already does: what crosses is `(${script})(${here});`, and the host
+ * stays as unaware of this feature as it was of the last one.
+ *
+ * **A value JSON cannot carry is refused here, in the calling bot.** The
+ * alternative is a child that dies on a line nobody wrote — cycle five's finding
+ * 1 in a third costume — so the parent gets a catchable error at its own call
+ * site and no chassis is spent.
+ *
+ * The two line separators are escaped on the way out. They are legal inside a
+ * JSON string and have not always been legal inside a JavaScript one, and this
+ * is the only place in the game where JSON becomes source.
+ */
+function spawnArgument(rest: unknown[]): string {
+  const value = rest[0];
+  // `f(undefined)` and `f()` are the same call in JavaScript, and refusing the
+  // first would make this game stricter than the language it teaches.
+  if (rest.length === 0 || value === undefined) return "";
+
+  let json: string | undefined;
+  try {
+    json = JSON.stringify(value);
+  } catch (err) {
+    const why = err instanceof Error ? err.message : String(err);
+    throw new Error(`spawn's second argument has to be JSON, and this is not: ${why}`);
+  }
+  if (json === undefined) {
+    throw new Error(
+      `spawn's second argument has to be JSON — a ${typeof value} cannot cross to a new bot`,
+    );
+  }
+  // Built rather than typed: a separator written into this file would end the
+  // line it sits on, which is the very hazard it is here to head off.
+  const ls = String.fromCharCode(0x2028);
+  const ps = String.fromCharCode(0x2029);
+  return json.split(ls).join("\\u2028").split(ps).join("\\u2029");
+}
 
 export function makeApi(
   sab: SharedArrayBuffer,
@@ -354,7 +413,11 @@ export function makeApi(
       // `${script}` rather than a template of the body: a function's own text
       // includes its parameter list and braces, so wrapping it in a call is what
       // makes an arrow, a function expression and a named function all work.
-      spawn: (script) => call({ kind: "spawn", source: `(${script})();` }) as number,
+      spawn: (script: (arg?: never) => void, ...rest: unknown[]) =>
+        call({
+          kind: "spawn",
+          source: `(${script})(${spawnArgument(rest)});`,
+        }) as number,
     },
   };
 

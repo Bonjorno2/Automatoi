@@ -522,6 +522,23 @@ interface ColonyApi {
      * than in this one. What *is* in scope is `bot`, `colony`, and everything in
      * the shared library — which is where code meant for more than one bot goes.
      *
+     * **The second argument is how a closure would have been used.** It is handed
+     * to the function as its parameter, so one blueprint written once can staff
+     * as many blocks as there are places to put them:
+     *
+     * ```js
+     * for (const home of spots) {
+     *   colony.fabricator.spawn((where) => {
+     *     while (true) workCrate(where.x, where.y);
+     *   }, home);
+     * }
+     * ```
+     *
+     * It travels as JSON, because the function travels as text. What JSON cannot
+     * carry, this does not carry: a `Date` arrives as a string, `undefined` inside
+     * an object is dropped, and a function or a symbol is refused outright — in
+     * *this* bot, on the line that called, before a chassis is spent.
+     *
      * Returns the new bot's id, so the caller can radio it or find it in
      * `colony.bots()`. Refuses with the sim's own reason when there is no
      * fabricator, no spare chassis, or no free tile beside the machine.
@@ -531,6 +548,7 @@ interface ColonyApi {
      */
     fabricator?: {
         spawn(script: () => void): number;
+        spawn<T>(script: (arg: T) => void, arg: T): number;
     };
 }
 //#endgate
