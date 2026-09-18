@@ -2,19 +2,24 @@ import { World } from "../../src/sim/world";
 import { measure, describeResult } from "./harness.ts";
 
 /**
- * **Cycle 5, played rather than argued about.**
+ * **Cycle 5, played again, with the reads it asked for.**
  *
  * The design's claim: *"By cycle 5, `main.js` never says `move("east")`. It says
  * `expand(ironLine, 3)`. `expand` is built on `stamp`, on `place`, on `move`. The
- * player wrote every layer and owns the whole abstraction stack."* Milestone 9
- * added that cycle 5 is the first cycle needing **no engine work at all**, which
- * is "either the design being right or the design being untestable, and only a
- * playtest can say which".
+ * player wrote every layer and owns the whole abstraction stack."*
  *
- * This is that playtest. The library below is written the way a player would
- * write it — four layers, each built on the one under it, nothing reaching past
- * the shipped API — and `MAIN` is what the design says `main.js` should look
- * like by now. Whatever breaks is the finding.
+ * The first run of this playtest, on 2026-09-16, said the claim was false: the
+ * stack hit three walls before it placed a second crate, and all three were the
+ * same shape — the engine knew something and no script could ask. Milestone 11
+ * added the three reads. This is the same stack with them, written the way a
+ * player would and reaching past nothing:
+ *
+ * - `unservedSpot` asks `colony.canPlace` instead of walking somewhere and
+ *   failing, which is finding 2.
+ * - `expand` hands each child its own crate through `spawn`'s second argument,
+ *   instead of building source text with `new Function`, which is finding 4.
+ * - `main` asks `colony.bots()` whether anything it built has died or is getting
+ *   nowhere, which is finding 5.
  *
  * There is no iron, so the thing being expanded is a harvest block: a crate with
  * a bot assigned to fill it. That is the same shape as `ironLine` with the only
@@ -34,6 +39,22 @@ function goTo(x, y) {
   }
   return bot.pos().x === x && bot.pos().y === y;
 }
+
+/** Where the planner can see the field, and where it keeps out of the way. */
+const VANTAGE = { x: 18, y: 16 };
+const HOME = { x: 24, y: 16 };
+
+function survey() { return goTo(VANTAGE.x, VANTAGE.y); }
+
+/**
+ * Off the field, where nothing we build ever needs to walk.
+ *
+ * Finding 3 was the planner standing on a tile it never left while a bot it had
+ * built waited on that tile for the rest of the session. A bot-on-bot block
+ * never resolves, so the answer is not to be there — which is a thing a script
+ * can decide, and exactly the kind of thing the design says the player writes.
+ */
+function standAside() { return goTo(HOME.x, HOME.y); }
 
 // ---------------------------------------------------------------- layer 2
 // Blueprints. A blueprint is data: offsets from an origin, and what goes there.
@@ -57,20 +78,45 @@ function stamp(blueprint, at) {
 // ---------------------------------------------------------------- layer 3
 // Demand. What the colony is short of, read from the world.
 
+function look(radius) { return bot.scanner.scan(Math.min(radius, 6)); }
+
 function standingNear(radius) {
-  const tiles = bot.scanner.scan(Math.min(radius, 6));
-  return tiles.filter((t) => t.crop !== null).length;
+  return look(radius).filter((t) => t.crop !== null).length;
 }
 
-/** Somewhere with crops and no machine yet. Returns null when the field is served. */
+/**
+ * Somewhere worth serving that will actually take a crate.
+ *
+ * **This is the line finding 2 was about.** The first run picked the centroid of
+ * the crops it could see, and the centre of a field is where the console and the
+ * bots are — so the centroid was occupied, \`place\` threw, and \`main\` asked the
+ * same question again forty ticks later, 128 times. The tile is now chosen from
+ * the ones the colony says are buildable, which costs no ticks and no walking.
+ */
 function unservedSpot(radius) {
-  const tiles = bot.scanner.scan(Math.min(radius, 6));
+  const tiles = look(radius);
   const crops = tiles.filter((t) => t.crop !== null && t.machine === null);
   if (crops.length < 8) return null;
-  // The middle of the densest thing we can see, roughly.
-  let sx = 0, sy = 0;
-  for (const t of crops) { sx += t.x; sy += t.y; }
-  return { x: Math.round(sx / crops.length), y: Math.round(sy / crops.length) };
+
+  // Keep blocks apart, so a second crate is a second block rather than a
+  // neighbour of the first.
+  const taken = tiles.filter((t) => t.machine !== null);
+  const clear = (t) =>
+    taken.every((m) => Math.max(Math.abs(m.x - t.x), Math.abs(m.y - t.y)) > 3);
+
+  const usable = tiles.filter((t) => clear(t) && colony.canPlace(t, "crate"));
+  if (usable.length === 0) return null;
+
+  // The one with the most standing wheat around it: demand, read rather than
+  // guessed at.
+  let best = null, bestScore = -1;
+  for (const t of usable) {
+    const score = crops.filter(
+      (c) => Math.max(Math.abs(c.x - t.x), Math.abs(c.y - t.y)) <= 3,
+    ).length;
+    if (score > bestScore) { bestScore = score; best = { x: t.x, y: t.y }; }
+  }
+  return bestScore >= 8 ? best : null;
 }
 
 // ---------------------------------------------------------------- layer 4
@@ -79,29 +125,11 @@ function unservedSpot(radius) {
 
 const harvestBlock = [{ dx: 0, dy: 0, machine: "crate" }];
 
-function expand(blueprint, n) {
-  let built = 0;
-  for (let i = 0; i < n; i++) {
-    const at = unservedSpot(6);
-    if (!at) { bot.log("expand: nothing left to serve"); break; }
-    if (!stamp(blueprint, at)) { bot.log("expand: stamp failed"); break; }
-    // Staff it. The child is told where its crate is by having the numbers
-    // baked into its source, because a spawned function is text and closes
-    // over nothing.
-    const cx = at.x, cy = at.y;
-    const source = "while (true) { workCrate(" + cx + ", " + cy + "); }";
-    try {
-      colony.fabricator.spawn(new Function(source));
-    } catch (e) {
-      bot.log("expand: spawn refused: " + e.message);
-      break;
-    }
-    built++;
-  }
-  return built;
+/** What a staffed block's bot does all day, told which block is its own. */
+function workBlock(home) {
+  while (true) workCrate(home.x, home.y);
 }
 
-/** What a staffed block's bot does all day. Deliberately in the library. */
 function workCrate(cx, cy) {
   for (let dy = -3; dy <= 3; dy++) {
     for (let dx = -3; dx <= 3; dx++) {
@@ -113,24 +141,62 @@ function workCrate(cx, cy) {
   }
   if (goTo(cx, cy + 1)) bot.deposit("north", "wheat", bot.inventory().wheat ?? 0);
 }
+
+function expand(blueprint, n) {
+  let built = 0;
+  for (let i = 0; i < n; i++) {
+    const at = unservedSpot(6);
+    if (!at) { bot.log("expand: nothing left to serve"); break; }
+    if (!stamp(blueprint, at)) { bot.log("expand: stamp failed at " + at.x + "," + at.y); break; }
+    try {
+      // Finding 4: the child is handed its own crate, rather than having the
+      // numbers baked into a string that no editor can check.
+      colony.fabricator.spawn(workBlock, at);
+    } catch (e) {
+      bot.log("expand: spawn refused: " + e.message);
+      break;
+    }
+    bot.log("expand: block at " + at.x + "," + at.y);
+    built++;
+  }
+  return built;
+}
+
+/**
+ * Finding 5: which of the bots I built are not working.
+ *
+ * \`busy\` could never answer this — it is true of a bot doing its job and true
+ * of a bot deadlocked against another, which is the pair the first run sampled
+ * and could not tell apart.
+ */
+function ailing() {
+  return colony.bots().filter(
+    (b) => b.script === "error" || b.script === "hung" || b.stalled > 5,
+  );
+}
 `;
 
 /**
  * What the design says `main.js` looks like by cycle 5.
  *
- * No `move`, no `place`, no coordinates. One read of demand and one call to
- * expand, in a loop. This is the sentence the whole abstraction rhythm is
- * building towards.
+ * No `move`, no `place`, no coordinates. Look at the field, expand into it,
+ * keep out of the way, and notice when something we built has stopped working.
+ * This is the sentence the whole abstraction rhythm is building towards.
  */
 const MAIN = `
 colony.research.queue("mill");
 while (true) {
+  survey();
   if (standingNear(6) > 20) expand(harvestBlock, 1);
+  standAside();
+  for (const b of ailing()) bot.log("block bot " + b.id + " is " + b.script + " (stalled " + b.stalled + ")");
   bot.wait(40);
 }
 `;
 
 const standing = (w: World): number => w.snapshot().tiles.filter((t) => t.crop !== null).length;
+const crates = (w: World): number =>
+  [...w.machines.values()].filter((m) => m.kind === "crate").length;
 
 function plannerWorld(): World {
   const world = new World({ seed: 1 });
@@ -148,7 +214,7 @@ function plannerWorld(): World {
 }
 
 describe("cycle 5: a planner that reads demand and expands", () => {
-  it("runs the design's main.js and reports what actually happened", async () => {
+  it("places blocks, staffs them, and clears the field it planned for", async () => {
     const world = plannerWorld();
     const before = standing(world);
     const live = new Map<number, string>();
@@ -165,16 +231,16 @@ describe("cycle 5: a planner that reads demand and expands", () => {
           live.set(b.id, `at ${b.pos.x},${b.pos.y} — action ${b.action?.command.kind ?? "none"}` +
             `, blockedOn ${b.blockedOn ?? "nothing"}, stalled ${b.stalled}`);
         }
-        return before - standing(w) >= 25;
+        return crates(w) >= 2 && before - standing(w) >= 25;
       },
-      timeoutMs: 30_000,
+      timeoutMs: 60_000,
     });
 
     for (const [id, state] of live) console.log(`  bot ${id} ${state}`);
 
     console.log(describeResult("planner", result));
     console.log(`  bots at the end: ${result.bots.length}`);
-    console.log(`  crates placed:   ${[...world.machines.values()].filter((m) => m.kind === "crate").length}`);
+    console.log(`  crates placed:   ${crates(world)}`);
     console.log(`  wheat harvested: ${before - standing(world)}`);
     // Unique lines with a count, because a livelocked planner says the same
     // thing thousands of times and the interesting line is never the first one.
@@ -182,18 +248,10 @@ describe("cycle 5: a planner that reads demand and expands", () => {
     for (const l of result.logs) tally.set(l, (tally.get(l) ?? 0) + 1);
     for (const [line, n] of tally) console.log(`  ${n}x  ${line}`);
 
-    // What cycle 5's machinery can do today: the stack compiles, a blueprint is
-    // stamped by a script, and the block comes with a bot. That much is real.
-    expect(result.bots.length).toBeGreaterThan(1);
-    expect([...world.machines.values()].filter((m) => m.kind === "crate").length)
-      .toBeGreaterThanOrEqual(1);
-
-    // And what it cannot: this run **times out by design**, and that is the
-    // finding rather than a flaky test. The planner retries one occupied tile
-    // forever and its own child deadlocks on a tile the planner never leaves.
-    // When findings 2 and 3 are fixed, this expectation should be inverted to
-    // `toBe(true)` — it is written this way so that fixing them fails here and
-    // forces the file to be updated rather than quietly passing.
-    expect(result.reachedTarget).toBe(false);
+    // The sentence the design has been claiming since 2026-09-11 and had never
+    // once done: a second block, placed and staffed by a script.
+    expect(crates(world), "crates the planner placed").toBeGreaterThanOrEqual(2);
+    expect(result.bots.length, "bots in the colony").toBeGreaterThanOrEqual(3);
+    expect(result.reachedTarget, "the field the planner planned for was cleared").toBe(true);
   }, 180_000);
 });

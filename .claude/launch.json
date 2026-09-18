@@ -20,6 +20,12 @@
       "port": 5176
     },
     {
+      "name": "automatori-planner",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "5178", "--strictPort"],
+      "port": 5178
+    },
+    {
       "name": "automatori-dist",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "preview", "--", "--port", "5177", "--strictPort"],

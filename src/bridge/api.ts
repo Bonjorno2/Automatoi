@@ -194,16 +194,47 @@ export interface BotApi {
 export interface ColonyApi {
   /**
    * Every bot in the colony, this one included, as read-only views: position,
-   * inventory, fitted modules, and whether a command is in flight. Costs no
-   * ticks.
+   * inventory, fitted modules, whether a command is in flight, how long it has
+   * been getting nowhere, and what its script is doing. Costs no ticks.
    *
-   * `busy` means "has a command running", which is true of a bot working and
-   * equally true of a bot deadlocked against another — it is not a liveness
-   * check.
+   * **`busy` is not a liveness check.** It means "has a command running", which
+   * is true of a bot working and equally true of a bot deadlocked against
+   * another. The two fields that tell them apart are `script` — `running`,
+   * `done`, `error`, `hung`, `stopped`, or `idle` for a bot that has never been
+   * given one — and `stalled`, the number of commands in a row that achieved
+   * nothing.
+   *
+   * ```js
+   * const mine = colony.bots().filter((b) => b.id !== me);
+   * if (mine.some((b) => b.script === "error")) bot.log("a child died");
+   * ```
    */
   bots(): Array<MirrorState & { id: number }>;
   /** The world's tick count. Costs no ticks, and is the same number for every bot. */
   time(): number;
+  /**
+   * Whether a machine would go on a tile — **any** tile, not just one this bot
+   * is standing next to. Costs no ticks.
+   *
+   * This is the question a planner has: where to walk, before walking there.
+   * `bot.builder.place` can only ever answer about the four tiles around the
+   * bot, and answers by throwing.
+   *
+   * It pairs with a scan, because a scan tile already has an `x` and a `y`:
+   *
+   * ```js
+   * const spot = bot.scanner.scan(4).find((t) => colony.canPlace(t, "crate"));
+   * ```
+   *
+   * **It is a snapshot, not a reservation.** True means the tile is free now;
+   * another bot can be standing on it by the time you arrive, so the `place`
+   * that follows can still fail and should still be caught. Placing is also what
+   * tells you *why* not — this answers yes or no, and the arm says the rest.
+   *
+   * A kind nobody has researched is `false`. A kind that does not exist is an
+   * error, because that one is a typo.
+   */
+  canPlace(pos: { x: number; y: number }, machine: MachineKind): boolean;
   research: {
     /**
      * Ask the Research Console for something. Costs no ticks; the console pays
@@ -243,6 +274,23 @@ export interface ColonyApi {
    * than in this one. What *is* in scope is `bot`, `colony`, and everything in
    * the shared library — which is where code meant for more than one bot goes.
    *
+   * **The second argument is how a closure would have been used.** It is handed
+   * to the function as its parameter, so one blueprint written once can staff
+   * as many blocks as there are places to put them:
+   *
+   * ```js
+   * for (const home of spots) {
+   *   colony.fabricator.spawn((where) => {
+   *     while (true) workCrate(where.x, where.y);
+   *   }, home);
+   * }
+   * ```
+   *
+   * It travels as JSON, because the function travels as text. What JSON cannot
+   * carry, this does not carry: a `Date` arrives as a string, `undefined` inside
+   * an object is dropped, and a function or a symbol is refused outright — in
+   * *this* bot, on the line that called, before a chassis is spent.
+   *
    * Returns the new bot's id, so the caller can radio it or find it in
    * `colony.bots()`. Refuses with the sim's own reason when there is no
    * fabricator, no spare chassis, or no free tile beside the machine.
@@ -252,11 +300,53 @@ export interface ColonyApi {
    */
   fabricator?: {
     spawn(script: () => void): number;
+    spawn<T>(script: (arg: T) => void, arg: T): number;
   };
 }
 
 /** Posted to the host thread out of band; logging never blocks the script. */
 export type LogMessage = { kind: "log"; botId: number; message: string };
+
+/**
+ * A `spawn` argument, written as a JavaScript expression for the child's source.
+ *
+ * The argument rides in the source rather than in the protocol, because the
+ * function already does: what crosses is `(${script})(${here});`, and the host
+ * stays as unaware of this feature as it was of the last one.
+ *
+ * **A value JSON cannot carry is refused here, in the calling bot.** The
+ * alternative is a child that dies on a line nobody wrote — cycle five's finding
+ * 1 in a third costume — so the parent gets a catchable error at its own call
+ * site and no chassis is spent.
+ *
+ * The two line separators are escaped on the way out. They are legal inside a
+ * JSON string and have not always been legal inside a JavaScript one, and this
+ * is the only place in the game where JSON becomes source.
+ */
+function spawnArgument(rest: unknown[]): string {
+  const value = rest[0];
+  // `f(undefined)` and `f()` are the same call in JavaScript, and refusing the
+  // first would make this game stricter than the language it teaches.
+  if (rest.length === 0 || value === undefined) return "";
+
+  let json: string | undefined;
+  try {
+    json = JSON.stringify(value);
+  } catch (err) {
+    const why = err instanceof Error ? err.message : String(err);
+    throw new Error(`spawn's second argument has to be JSON, and this is not: ${why}`);
+  }
+  if (json === undefined) {
+    throw new Error(
+      `spawn's second argument has to be JSON — a ${typeof value} cannot cross to a new bot`,
+    );
+  }
+  // Built rather than typed: a separator written into this file would end the
+  // line it sits on, which is the very hazard it is here to head off.
+  const ls = String.fromCharCode(0x2028);
+  const ps = String.fromCharCode(0x2029);
+  return json.split(ls).join("\\u2028").split(ps).join("\\u2029");
+}
 
 export function makeApi(
   sab: SharedArrayBuffer,
@@ -318,6 +408,11 @@ export function makeApi(
   const colony: ColonyApi = {
     bots: () => call({ kind: "colony", call: "bots" }) as Array<MirrorState & { id: number }>,
     time: () => call({ kind: "colony", call: "time" }) as number,
+    // `pos` is narrowed to the two fields rather than passed whole: a scan tile
+    // is a legal argument by structure, and sending one back would put its
+    // terrain, crop and machine through the request frame for nothing.
+    canPlace: (pos, machine) =>
+      call({ kind: "can-place", pos: { x: pos.x, y: pos.y }, machine }) as boolean,
     research: {
       queue: (name) => void call({ kind: "research", name }),
       status: () => call({ kind: "research-status" }) as ResearchStatus,
@@ -326,7 +421,11 @@ export function makeApi(
       // `${script}` rather than a template of the body: a function's own text
       // includes its parameter list and braces, so wrapping it in a call is what
       // makes an arrow, a function expression and a named function all work.
-      spawn: (script) => call({ kind: "spawn", source: `(${script})();` }) as number,
+      spawn: (script: (arg?: never) => void, ...rest: unknown[]) =>
+        call({
+          kind: "spawn",
+          source: `(${script})(${spawnArgument(rest)});`,
+        }) as number,
     },
   };
 

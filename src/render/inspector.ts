@@ -5,6 +5,15 @@ import { toPixel, toTile, type Geometry, type Size } from "./geometry.ts";
 import { COLOR } from "./palette.ts";
 import { drawArrow } from "./actors.ts";
 import { keyTarget } from "./keys.ts";
+/**
+ * The one thing the renderer takes from the bridge, and a type only.
+ *
+ * What a *script* is doing is not a fact about the world, so no snapshot carries
+ * it and nothing here can work it out. Restating the union locally was the other
+ * option and is the drift `MACHINE_LABEL` and `canPlace` both exist to refuse:
+ * two lists of the same six words, one of which is eventually wrong.
+ */
+import type { ScriptState } from "../bridge/protocol.ts";
 
 /**
  * What a machine is called, to a player. Per Decision 7 of the milestone 4
@@ -108,6 +117,26 @@ function describeInventory(inv: Record<string, number | undefined>): string {
 const STALLED_AFTER = 3;
 
 /**
+ * What to say instead of "idle" about a bot whose script is not coming back.
+ *
+ * Milestone 9's finding 1 left a residue — *a bot whose script is dead reads
+ * idle* — and it has been named three times without being fixed, because the
+ * word lives in the bridge and everything drawing a bot reads the sim. A world
+ * snapshot cannot tell a bot that finished from a bot that died on line one:
+ * both are standing still with no action.
+ *
+ * `done` is deliberately absent. A script that ran to its end and left the bot
+ * standing there **is** idle, and saying anything else would make the ordinary
+ * case sound like a failure. So is `running`: a script between two commands is
+ * doing nothing at that instant, honestly.
+ */
+const DEAD_SCRIPT: Partial<Record<ScriptState, string>> = {
+  error: "script stopped on an error",
+  hung: "script hung",
+  stopped: "script stopped",
+};
+
+/**
  * What a bot is doing, as a sentence.
  *
  * Exported for the fleet list, which asks the same question the tooltip does.
@@ -117,7 +146,10 @@ const STALLED_AFTER = 3;
  * prevent, one level up. `marks.ts` reads `blockedOn` too, but produces a mark
  * kind rather than a sentence, so it is not a second opinion about wording.
  */
-export function describeBotActivity(bot: WorldSnapshot["bots"][number]): string {
+export function describeBotActivity(
+  bot: WorldSnapshot["bots"][number],
+  script: ScriptState = "idle",
+): string {
   if (bot.blockedOn === "bot") return "blocked by another bot";
   if (bot.blockedOn === "radio") return "waiting for a message";
   // Above `idle`, and above the action, because a bot repeating a move that
@@ -125,7 +157,7 @@ export function describeBotActivity(bot: WorldSnapshot["bots"][number]): string 
   // 8's finding 3: walled in by belts, this read "idle" — the same word as a bot
   // whose script had ended.
   if (bot.stalled >= STALLED_AFTER) return `stuck — ${bot.stalled} commands got nowhere`;
-  if (!bot.action) return "idle";
+  if (!bot.action) return DEAD_SCRIPT[script] ?? "idle";
   const dir = bot.action.dir ? ` ${bot.action.dir}` : "";
   return `${bot.action.kind}${dir} — ${bot.action.remaining} of ${bot.action.total} ticks left`;
 }

@@ -215,6 +215,16 @@ interface WorldSnapshot {
 }
 
 // --- a bot's readable state -------------------------------------------
+/**
+ * What a bot's code is doing, for a script that is asking about another bot.
+ *
+ * The console panel's own vocabulary, so the game has one word per state rather
+ * than two: `"idle"` means no script has run on this bot, not that the chassis
+ * is standing still. `ScriptStatus` in `colony.ts` is this minus the two states
+ * a settled verdict cannot be.
+ */
+type ScriptState = "idle" | "running" | "done" | "error" | "hung" | "stopped";
+
 interface MirrorState {
     time: number;
     pos: {
@@ -223,7 +233,25 @@ interface MirrorState {
     };
     inventory: Record<string, number | undefined>;
     modules: string[];
+    /**
+     * A command is in flight.
+     *
+     * **Not a liveness check**, and cycle five's finding 5 is what happens when it
+     * is used as one: a bot deadlocked against another is busy for as long as the
+     * deadlock lasts, exactly like a bot doing its job. `script` is the field that
+     * answers that question.
+     */
     busy: boolean;
+    /**
+     * Commands in a row that resolved having achieved nothing — a move into a
+     * machine, a deposit that transferred zero.
+     *
+     * Zero for a bot that is working and zero for a bot that has stopped asking,
+     * so it is worth reading beside `script` rather than instead of it.
+     */
+    stalled: number;
+    /** Whether this bot's script is running, and if not, how it ended. */
+    script: ScriptState;
 }
 
 // --- what colony.research.status() answers with ------------------------
@@ -295,18 +323,52 @@ interface BotApi {
 interface ColonyApi {
     /**
      * Every bot in the colony, this one included, as read-only views: position,
-     * inventory, fitted modules, and whether a command is in flight. Costs no
-     * ticks.
+     * inventory, fitted modules, whether a command is in flight, how long it has
+     * been getting nowhere, and what its script is doing. Costs no ticks.
      *
-     * `busy` means "has a command running", which is true of a bot working and
-     * equally true of a bot deadlocked against another — it is not a liveness
-     * check.
+     * **`busy` is not a liveness check.** It means "has a command running", which
+     * is true of a bot working and equally true of a bot deadlocked against
+     * another. The two fields that tell them apart are `script` — `running`,
+     * `done`, `error`, `hung`, `stopped`, or `idle` for a bot that has never been
+     * given one — and `stalled`, the number of commands in a row that achieved
+     * nothing.
+     *
+     * ```js
+     * const mine = colony.bots().filter((b) => b.id !== me);
+     * if (mine.some((b) => b.script === "error")) bot.log("a child died");
+     * ```
      */
     bots(): Array<MirrorState & {
         id: number;
     }>;
     /** The world's tick count. Costs no ticks, and is the same number for every bot. */
     time(): number;
+    /**
+     * Whether a machine would go on a tile — **any** tile, not just one this bot
+     * is standing next to. Costs no ticks.
+     *
+     * This is the question a planner has: where to walk, before walking there.
+     * `bot.builder.place` can only ever answer about the four tiles around the
+     * bot, and answers by throwing.
+     *
+     * It pairs with a scan, because a scan tile already has an `x` and a `y`:
+     *
+     * ```js
+     * const spot = bot.scanner.scan(4).find((t) => colony.canPlace(t, "crate"));
+     * ```
+     *
+     * **It is a snapshot, not a reservation.** True means the tile is free now;
+     * another bot can be standing on it by the time you arrive, so the `place`
+     * that follows can still fail and should still be caught. Placing is also what
+     * tells you *why* not — this answers yes or no, and the arm says the rest.
+     *
+     * A kind nobody has researched is `false`. A kind that does not exist is an
+     * error, because that one is a typo.
+     */
+    canPlace(pos: {
+        x: number;
+        y: number;
+    }, machine: MachineKind): boolean;
     research: {
         /**
          * Ask the Research Console for something. Costs no ticks; the console pays
@@ -496,6 +558,23 @@ interface ColonyApi {
      * than in this one. What *is* in scope is `bot`, `colony`, and everything in
      * the shared library — which is where code meant for more than one bot goes.
      *
+     * **The second argument is how a closure would have been used.** It is handed
+     * to the function as its parameter, so one blueprint written once can staff
+     * as many blocks as there are places to put them:
+     *
+     * ```js
+     * for (const home of spots) {
+     *   colony.fabricator.spawn((where) => {
+     *     while (true) workCrate(where.x, where.y);
+     *   }, home);
+     * }
+     * ```
+     *
+     * It travels as JSON, because the function travels as text. What JSON cannot
+     * carry, this does not carry: a `Date` arrives as a string, `undefined` inside
+     * an object is dropped, and a function or a symbol is refused outright — in
+     * *this* bot, on the line that called, before a chassis is spent.
+     *
      * Returns the new bot's id, so the caller can radio it or find it in
      * `colony.bots()`. Refuses with the sim's own reason when there is no
      * fabricator, no spare chassis, or no free tile beside the machine.
@@ -505,6 +584,7 @@ interface ColonyApi {
      */
     fabricator?: {
         spawn(script: () => void): number;
+        spawn<T>(script: (arg: T) => void, arg: T): number;
     };
 }
 //#endgate

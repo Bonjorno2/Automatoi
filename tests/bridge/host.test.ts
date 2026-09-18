@@ -86,6 +86,10 @@ describe("Colony mirror", () => {
       inventory: {},
       modules: ["harvester"],
       busy: false,
+      stalled: 0,
+      // A plain `Colony` has no workers, so it has never started a script and
+      // says so rather than guessing. `ScriptColony` is where this gets real.
+      script: "idle",
     });
   });
 

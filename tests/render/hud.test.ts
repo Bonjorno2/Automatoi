@@ -10,6 +10,7 @@ import { botColor } from "../../src/render/palette";
 import { World } from "../../src/sim/world";
 import { BOT_CAPACITY, RESEARCH_COST, WHEAT_GROWTH_TICKS } from "../../src/sim/config";
 import type { Vec } from "../../src/sim/types";
+import type { ScriptState } from "../../src/bridge/protocol";
 import { run, ticks } from "../sim/helpers";
 
 describe("researchLines", () => {
@@ -286,5 +287,47 @@ describe("the fleet list tells stuck from idle", () => {
     w.placeMachine("conveyor", { x: w.getBot(1).pos.x + 1, y: w.getBot(1).pos.y }, "north");
     run(w, 1, { kind: "move", dir: "east" });
     expect(fleetRows(w.snapshot(), null)[0]!.activity).toBe("idle");
+  });
+});
+
+/**
+ * Milestone 9's finding 1, left as a residue and named three times since: a bot
+ * whose script is dead read "idle", because the word lives in the bridge and
+ * everything drawing a bot reads a world snapshot.
+ */
+describe("the fleet list tells a dead script from an idle one", () => {
+  const rowFor = (w: World, script: ScriptState): string =>
+    fleetRows(w.snapshot(), null, () => script)[0]!.activity;
+
+  it("says how a script ended, for each way it can end badly", () => {
+    const w = new World({ seed: 1 });
+    expect(rowFor(w, "error")).toBe("script stopped on an error");
+    expect(rowFor(w, "hung")).toBe("script hung");
+    expect(rowFor(w, "stopped")).toBe("script stopped");
+  });
+
+  it("says idle for a script that ran to its end, and for one that never ran", () => {
+    // A script that finished and left the bot standing there *is* idle, and
+    // dressing that up would make the ordinary case sound like a failure.
+    const w = new World({ seed: 1 });
+    expect(rowFor(w, "done")).toBe("idle");
+    expect(rowFor(w, "idle")).toBe("idle");
+    expect(rowFor(w, "running")).toBe("idle");
+  });
+
+  it("does not talk over what the bot is actually doing", () => {
+    // The script's verdict only ever replaces "idle". A bot mid-move, or blocked,
+    // or stuck, has something more useful to say about itself.
+    const w = new World({ seed: 1 });
+    w.issue(1, { kind: "move", dir: "east" });
+    expect(rowFor(w, "stopped")).toContain("move east");
+  });
+
+  it("says idle when nobody supplies a script state at all", () => {
+    // Every other caller — the tooltip, and every test written before this —
+    // passes nothing, and gets exactly what it got before.
+    const w = new World({ seed: 1 });
+    expect(fleetRows(w.snapshot(), null)[0]!.activity).toBe("idle");
+    expect(describeBotActivity(w.snapshot().bots[0]!)).toBe("idle");
   });
 });
