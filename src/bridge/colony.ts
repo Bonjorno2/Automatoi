@@ -1,11 +1,11 @@
 import { World } from "../sim/world";
-import type { CommandResult } from "../sim/types";
+import type { CommandResult, MachineKind, Vec } from "../sim/types";
 import {
   IDLE, REQUEST, RESULT, REQ_LEN, RES_LEN, RES_OK, STATE,
   createChannel, ctrlOf, mirrorOf, readFrame, reqOf, resOf, writeFrame,
 } from "./protocol.ts";
 import type { HostRequest, MirrorState, ResearchStatus } from "./protocol.ts";
-import { RESEARCH_COST } from "../sim/config.ts";
+import { RESEARCH_COST, isMachineKind } from "../sim/config.ts";
 import { publishMirror } from "./mirror.ts";
 import { DemandClock } from "./clock.ts";
 import type { Clock } from "./clock.ts";
@@ -116,6 +116,8 @@ export class Colony {
           return { ok: true, value: null };
         case "research-status":
           return { ok: true, value: this.researchStatus() };
+        case "can-place":
+          return { ok: true, value: this.canPlace(request.machine, request.pos) };
         case "spawn":
           return this.doSpawn(request.source);
       }
@@ -212,6 +214,27 @@ export class Colony {
       progress: research.progress,
       cost: head ? RESEARCH_COST[head] : 0,
     };
+  }
+
+  /**
+   * Whether a machine would go on a tile, for a script that wants to choose
+   * rather than to find out by failing.
+   *
+   * **The sim's own predicate, asked, not a copy of it.** `world.canPlace` is
+   * why the red ghost and the refusing click cannot disagree, and a script is now
+   * a third reader of the same rule. What changes here is only the shape of the
+   * answer: the sim says *why not*, because its callers all want to say so, and a
+   * script gets a boolean, because `if (colony.canPlace(...))` must not be true
+   * exactly when it cannot. The reason is not lost — `bot.builder.place` still
+   * throws the sim's own words at whoever tries anyway.
+   *
+   * An unknown kind throws rather than answering `false`, which is the judgement
+   * `queueResearch` makes about an unknown research name and for the same reason:
+   * a name nobody has is a typo, and a planner told "no" by a typo loops on it.
+   */
+  private canPlace(machine: MachineKind, pos: Vec): boolean {
+    if (!isMachineKind(machine)) throw new Error(`unknown machine ${machine}`);
+    return this.world.canPlace(machine, pos) === null;
   }
 
   private botViews(): BotView[] {

@@ -204,6 +204,29 @@ export interface ColonyApi {
   bots(): Array<MirrorState & { id: number }>;
   /** The world's tick count. Costs no ticks, and is the same number for every bot. */
   time(): number;
+  /**
+   * Whether a machine would go on a tile — **any** tile, not just one this bot
+   * is standing next to. Costs no ticks.
+   *
+   * This is the question a planner has: where to walk, before walking there.
+   * `bot.builder.place` can only ever answer about the four tiles around the
+   * bot, and answers by throwing.
+   *
+   * It pairs with a scan, because a scan tile already has an `x` and a `y`:
+   *
+   * ```js
+   * const spot = bot.scanner.scan(4).find((t) => colony.canPlace(t, "crate"));
+   * ```
+   *
+   * **It is a snapshot, not a reservation.** True means the tile is free now;
+   * another bot can be standing on it by the time you arrive, so the `place`
+   * that follows can still fail and should still be caught. Placing is also what
+   * tells you *why* not — this answers yes or no, and the arm says the rest.
+   *
+   * A kind nobody has researched is `false`. A kind that does not exist is an
+   * error, because that one is a typo.
+   */
+  canPlace(pos: { x: number; y: number }, machine: MachineKind): boolean;
   research: {
     /**
      * Ask the Research Console for something. Costs no ticks; the console pays
@@ -318,6 +341,11 @@ export function makeApi(
   const colony: ColonyApi = {
     bots: () => call({ kind: "colony", call: "bots" }) as Array<MirrorState & { id: number }>,
     time: () => call({ kind: "colony", call: "time" }) as number,
+    // `pos` is narrowed to the two fields rather than passed whole: a scan tile
+    // is a legal argument by structure, and sending one back would put its
+    // terrain, crop and machine through the request frame for nothing.
+    canPlace: (pos, machine) =>
+      call({ kind: "can-place", pos: { x: pos.x, y: pos.y }, machine }) as boolean,
     research: {
       queue: (name) => void call({ kind: "research", name }),
       status: () => call({ kind: "research-status" }) as ResearchStatus,

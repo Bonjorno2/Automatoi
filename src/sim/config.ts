@@ -103,6 +103,30 @@ export function capacityOf(kind: MachineKind): number {
 }
 
 /**
+ * Every machine kind there is, as a value rather than a type.
+ *
+ * A total `Record` and not an array, so the compiler refuses the day a kind is
+ * added and this is not — the same discipline the renderer's own tables carry.
+ * It exists because `colony.canPlace` takes a kind from a player's script, where
+ * the type has been erased and a typo is a string like any other.
+ */
+const MACHINE_KIND: Record<MachineKind, true> = {
+  console: true,
+  crate: true,
+  mill: true,
+  oven: true,
+  conveyor: true,
+  fabricator: true,
+};
+
+export const MACHINE_KINDS = Object.keys(MACHINE_KIND) as MachineKind[];
+
+/** Whether a string a script handed us names a machine at all. */
+export function isMachineKind(name: string): name is MachineKind {
+  return Object.prototype.hasOwnProperty.call(MACHINE_KIND, name);
+}
+
+/**
  * Ticks between belt steps. Every belt in the world steps at once.
  *
  * A guess until Task 9 measures it against milestone 5's hand-hauled baseline.

@@ -9,7 +9,7 @@
  * Every region is a multiple of 4 bytes so the Int32Array view stays aligned.
  */
 
-import type { Command, ResearchName } from "../sim/types";
+import type { Command, MachineKind, ResearchName, Vec } from "../sim/types";
 
 export const CTRL_SLOTS = 8;
 export const CTRL_BYTES = CTRL_SLOTS * 4;
@@ -47,6 +47,15 @@ export type HostRequest =
    * free read like `colony.time()`: it answers at once and costs no ticks.
    */
   | { kind: "research-status" }
+  /**
+   * Whether a machine would go on a tile, asked about anywhere on the map.
+   *
+   * A free read like the two above, and deliberately not a `command`: the point
+   * of it is that a script can ask about a tile it is nowhere near, which no
+   * command can do. Cycle five's finding 2 — a planner whose only way to ask was
+   * to walk somewhere and fail.
+   */
+  | { kind: "can-place"; pos: Vec; machine: MachineKind }
   /**
    * Start another bot at a fabricator.
    *
