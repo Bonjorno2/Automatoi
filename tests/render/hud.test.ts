@@ -1,14 +1,15 @@
 import {
   cargoFraction,
+  commandProgressOf,
   fieldLines,
   fleetRows,
   researchLines,
   stockLines,
 } from "../../src/render/hud";
 import { describeBotActivity } from "../../src/render/inspector";
-import { botColor } from "../../src/render/palette";
+import { botColor, CLASS_COLOR, COMMAND_CLASS } from "../../src/render/palette";
 import { World } from "../../src/sim/world";
-import { BOT_CAPACITY, RESEARCH_COST, WHEAT_GROWTH_TICKS } from "../../src/sim/config";
+import { BOT_CAPACITY, RESEARCH_COST, TICK_COST, WHEAT_GROWTH_TICKS } from "../../src/sim/config";
 import type { Vec } from "../../src/sim/types";
 import type { ScriptState } from "../../src/bridge/protocol";
 import { run, ticks } from "../sim/helpers";
@@ -329,5 +330,60 @@ describe("the fleet list tells a dead script from an idle one", () => {
     const w = new World({ seed: 1 });
     expect(fleetRows(w.snapshot(), null)[0]!.activity).toBe("idle");
     expect(describeBotActivity(w.snapshot().bots[0]!)).toBe("idle");
+  });
+});
+
+/**
+ * The command bar.
+ *
+ * Two claims, and the second is the one the design turns on: a bar is drawn from
+ * the sim's own `remaining`/`total` rather than parsed back out of the sentence
+ * beside it, and its colour is the **class of API object** the command belongs
+ * to — so `bot.harvester.harvest()` runs in the harvester's colour, the same one
+ * its pip is drawn in on the map.
+ */
+describe("commandProgressOf", () => {
+  it("is null for a bot running nothing", () => {
+    const w = new World({ seed: 1 });
+    expect(commandProgressOf(w.snapshot().bots[0]!)).toBeNull();
+  });
+
+  it("fills as the command resolves, from the numbers the sim already has", () => {
+    const w = new World({ seed: 1 });
+    w.issue(1, { kind: "move", dir: "east" });
+
+    // A move costs two ticks, so nothing has happened yet and the bar is empty.
+    expect(commandProgressOf(w.snapshot().bots[0]!)!.fraction).toBe(0);
+    w.tick();
+    expect(commandProgressOf(w.snapshot().bots[0]!)!.fraction).toBe(1 / TICK_COST.move);
+  });
+
+  it("takes its colour from the class the command belongs to, not from the bot", () => {
+    const w = new World({ seed: 1 });
+    w.getBot(1).modules.add("harvester");
+    w.issue(1, { kind: "harvest" });
+    const progress = commandProgressOf(w.snapshot().bots[0]!)!;
+    expect(progress.cls).toBe("harvester");
+    expect(progress.color).toBe(CLASS_COLOR.harvester);
+
+    // And the chassis' own verbs are not any module's colour.
+    const other = new World({ seed: 1 });
+    other.issue(1, { kind: "move", dir: "east" });
+    expect(commandProgressOf(other.snapshot().bots[0]!)!.cls).toBe("chassis");
+  });
+
+  it("gives every command a class, which is what the total Record buys", () => {
+    // Milestone 4's Decision 7: a new verb is a row the compiler asks for. This
+    // asserts the other half — that every row resolves to a colour.
+    for (const kind of Object.keys(COMMAND_CLASS) as (keyof typeof COMMAND_CLASS)[]) {
+      expect(CLASS_COLOR[COMMAND_CLASS[kind]]).toBeTypeOf("number");
+    }
+  });
+
+  it("rides along on every fleet row", () => {
+    const w = new World({ seed: 1 });
+    w.issue(1, { kind: "move", dir: "east" });
+    const row = fleetRows(w.snapshot(), null)[0]!;
+    expect(row.command).toEqual(commandProgressOf(w.snapshot().bots[0]!));
   });
 });

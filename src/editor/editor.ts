@@ -98,6 +98,41 @@ export function clearRuntimeErrors(editor: monaco.editor.IStandaloneCodeEditor):
   if (model) monaco.editor.setModelMarkers(model, OWNER, []);
 }
 
+/**
+ * `Alt`+1…9, delivered as a zero-based index.
+ *
+ * **Through Monaco rather than through `window`**, because the only moment this
+ * binding is worth anything is while the player's hands are in the editor, and a
+ * window listener would be fighting the editor for the keystroke instead of
+ * being handed it.
+ *
+ * `Alt` and not a bare digit for the obvious reason — in a text editor `3` must
+ * always mean three — and not `Ctrl`, because `Ctrl`+digit is the browser's own
+ * tab switcher and there is no winning that argument in every browser at once.
+ *
+ * This is the only keybinding the game adds to the editor besides `Ctrl+S`, and
+ * like that one it is spelled out on screen: every slot shows its digit.
+ */
+export function bindBarKeys(
+  editor: monaco.editor.IStandaloneCodeEditor,
+  fire: (index: number) => void,
+): void {
+  const digits = [
+    monaco.KeyCode.Digit1,
+    monaco.KeyCode.Digit2,
+    monaco.KeyCode.Digit3,
+    monaco.KeyCode.Digit4,
+    monaco.KeyCode.Digit5,
+    monaco.KeyCode.Digit6,
+    monaco.KeyCode.Digit7,
+    monaco.KeyCode.Digit8,
+    monaco.KeyCode.Digit9,
+  ];
+  digits.forEach((code, i) => {
+    editor.addCommand(monaco.KeyMod.Alt | code, () => fire(i));
+  });
+}
+
 export function mountEditor(container: HTMLElement, initial = OPENING_SCRIPT): monaco.editor.IStandaloneCodeEditor {
   const js = monaco.languages.typescript.javascriptDefaults;
 

@@ -1,5 +1,5 @@
 import { OPENING_SCRIPT } from "../../src/editor/opening-script.ts";
-import { PRIMITIVE_LABEL, hasLoop, mentions, primitivesIn } from "../../src/editor/source.ts";
+import { PRIMITIVE_LABEL, classOf, hasLoop, mentions, primitivesIn } from "../../src/editor/source.ts";
 import type { Primitive } from "../../src/editor/source.ts";
 
 /**
@@ -95,5 +95,47 @@ describe("primitivesIn", () => {
        colony.research.queue() colony.research.status() colony.fabricator.spawn()`,
     );
     expect([...found].sort()).toEqual(every.sort());
+  });
+});
+
+/**
+ * Which class of object a chip is about.
+ *
+ * A chip's stripe, a bar slot's stripe and the command bar a bot runs it under are
+ * all this one answer, so it has to be the same answer for the same code every
+ * time.
+ */
+describe("classOf", () => {
+  it("names the module whose verb the code calls", () => {
+    expect(classOf("bot.harvester.harvest();")).toBe("harvester");
+    expect(classOf('bot.planter.plant("wheat");')).toBe("planter");
+    expect(classOf("bot.scanner?.scan(2);")).toBe("scanner");
+    expect(classOf('bot.radio.send("haul", 1);')).toBe("radio");
+    expect(classOf('bot.builder.place("conveyor", "north");')).toBe("builder");
+    expect(classOf('colony.research.queue("planter");')).toBe("colony");
+  });
+
+  it("is the chassis for code that only moves, waits or hauls", () => {
+    expect(classOf('bot.move("east");')).toBe("chassis");
+    expect(classOf('bot.deposit("north", "wheat", 3);')).toBe("chassis");
+    expect(classOf("while (true) { x++; }")).toBe("chassis");
+    expect(classOf("")).toBe("chassis");
+  });
+
+  it("lets a module beat the chassis, because every script moves", () => {
+    // "Harvest, then move" is a harvesting pattern, and a bar of chips that were
+    // all chassis-coloured because they all contain a move would say nothing.
+    expect(classOf('bot.move("east");\nbot.harvester.harvest();')).toBe("harvester");
+  });
+
+  it("takes the first module written when there are several", () => {
+    expect(classOf("bot.harvester.harvest();\nbot.planter.plant('wheat');")).toBe("harvester");
+    expect(classOf("bot.planter.plant('wheat');\nbot.harvester.harvest();")).toBe("planter");
+  });
+
+  it("ignores a call that is only mentioned in a comment", () => {
+    // The same rule the rest of this module lives by: a `for` in a comment is
+    // prose. A chip commented "// like bot.scanner.scan" is not a scanner chip.
+    expect(classOf("// bot.scanner.scan(2);\nbot.harvester.harvest();")).toBe("harvester");
   });
 });
