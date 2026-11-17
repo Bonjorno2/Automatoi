@@ -157,7 +157,7 @@ export function createCodebook(
     chip.type = "button";
     chip.className = suggested ? "chip chip-suggest" : "chip";
     // The class of API object this chip is about, in the colour the bot will
-    // cast it in. The same edge appears on a bar slot and on the fleet row while
+    // run it in. The same edge appears on a bar slot and on the fleet row while
     // it runs, which is the point: three places, one vocabulary.
     chip.style.borderLeftColor = cssColor(CLASS_COLOR[classOf(rung.code)]);
 

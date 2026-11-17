@@ -1,6 +1,6 @@
 import {
   cargoFraction,
-  castOf,
+  commandProgressOf,
   fieldLines,
   fleetRows,
   researchLines,
@@ -334,7 +334,7 @@ describe("the fleet list tells a dead script from an idle one", () => {
 });
 
 /**
- * The cast bar.
+ * The command bar.
  *
  * Two claims, and the second is the one the design turns on: a bar is drawn from
  * the sim's own `remaining`/`total` rather than parsed back out of the sentence
@@ -342,10 +342,10 @@ describe("the fleet list tells a dead script from an idle one", () => {
  * to — so `bot.harvester.harvest()` runs in the harvester's colour, the same one
  * its pip is drawn in on the map.
  */
-describe("castOf", () => {
+describe("commandProgressOf", () => {
   it("is null for a bot running nothing", () => {
     const w = new World({ seed: 1 });
-    expect(castOf(w.snapshot().bots[0]!)).toBeNull();
+    expect(commandProgressOf(w.snapshot().bots[0]!)).toBeNull();
   });
 
   it("fills as the command resolves, from the numbers the sim already has", () => {
@@ -353,23 +353,23 @@ describe("castOf", () => {
     w.issue(1, { kind: "move", dir: "east" });
 
     // A move costs two ticks, so nothing has happened yet and the bar is empty.
-    expect(castOf(w.snapshot().bots[0]!)!.fraction).toBe(0);
+    expect(commandProgressOf(w.snapshot().bots[0]!)!.fraction).toBe(0);
     w.tick();
-    expect(castOf(w.snapshot().bots[0]!)!.fraction).toBe(1 / TICK_COST.move);
+    expect(commandProgressOf(w.snapshot().bots[0]!)!.fraction).toBe(1 / TICK_COST.move);
   });
 
   it("takes its colour from the class the command belongs to, not from the bot", () => {
     const w = new World({ seed: 1 });
     w.getBot(1).modules.add("harvester");
     w.issue(1, { kind: "harvest" });
-    const cast = castOf(w.snapshot().bots[0]!)!;
-    expect(cast.cls).toBe("harvester");
-    expect(cast.color).toBe(CLASS_COLOR.harvester);
+    const progress = commandProgressOf(w.snapshot().bots[0]!)!;
+    expect(progress.cls).toBe("harvester");
+    expect(progress.color).toBe(CLASS_COLOR.harvester);
 
     // And the chassis' own verbs are not any module's colour.
     const other = new World({ seed: 1 });
     other.issue(1, { kind: "move", dir: "east" });
-    expect(castOf(other.snapshot().bots[0]!)!.cls).toBe("chassis");
+    expect(commandProgressOf(other.snapshot().bots[0]!)!.cls).toBe("chassis");
   });
 
   it("gives every command a class, which is what the total Record buys", () => {
@@ -384,6 +384,6 @@ describe("castOf", () => {
     const w = new World({ seed: 1 });
     w.issue(1, { kind: "move", dir: "east" });
     const row = fleetRows(w.snapshot(), null)[0]!;
-    expect(row.cast).toEqual(castOf(w.snapshot().bots[0]!));
+    expect(row.command).toEqual(commandProgressOf(w.snapshot().bots[0]!));
   });
 });

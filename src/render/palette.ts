@@ -119,7 +119,7 @@ export type ApiClass = ModuleName | "chassis" | "colony";
  * The module colours, unchanged, plus the two classes that are not modules.
  *
  * Reusing `MODULE` rather than picking five more: the harvester is already
- * orange on every bot that has one, and a cast bar that ran orange for
+ * orange on every bot that has one, and a command bar that ran orange for
  * harvesting while the pip beside it was some other orange would be two
  * vocabularies for one fact.
  */

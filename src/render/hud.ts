@@ -94,17 +94,17 @@ export function fieldLines(snapshot: WorldSnapshot): string[] {
  * A command in flight: how far through it is, and which API object it belongs
  * to.
  *
- * The cast bar, and it is the same shape the research queue has had since
+ * The command bar, and it is the same shape the research queue has had since
  * milestone 7 — a fraction and a colour — because a player watching a bot work
  * is asking the same question they ask of a research: *how much longer*. The
  * sim has always had the numbers. `ActionSnapshot` carries `total` for no other
  * reason than this: `remaining` alone cannot say how far through a move a bot is.
  *
- * The colour is the class, not the bot. Two bots both harvesting cast the same
+ * The colour is the class, not the bot. Two bots both harvesting run the same
  * orange, which is what makes the bar readable as *what is happening* rather
  * than as one more per-bot identifier — the swatch beside it already answers who.
  */
-export interface Cast {
+export interface CommandProgress {
   /** Ticks done over ticks asked for, in [0, 1]. */
   fraction: number;
   /** `CLASS_COLOR` for the class the command belongs to. */
@@ -123,7 +123,7 @@ export interface FleetRow {
   /** Whether this is the bot the editor is showing. */
   selected: boolean;
   /** The command in flight, or null for a bot that is not running one. */
-  cast: Cast | null;
+  command: CommandProgress | null;
 }
 
 /**
@@ -133,7 +133,7 @@ export interface FleetRow {
  * numbers in words. Two readings of one fact is fine; parsing one of them back
  * out of a sentence is not.
  */
-export function castOf(bot: BotSnapshot): Cast | null {
+export function commandProgressOf(bot: BotSnapshot): CommandProgress | null {
   const action = bot.action;
   if (!action || action.total <= 0) return null;
   const cls = COMMAND_CLASS[action.kind];
@@ -172,7 +172,7 @@ export function fleetRows(
     activity: describeBotActivity(bot, scriptOf(bot.id)),
     carrying: describeCargo(bot),
     selected: bot.id === selectedBotId,
-    cast: castOf(bot),
+    command: commandProgressOf(bot),
   }));
 }
 
@@ -386,12 +386,12 @@ function renderFleet(
   rows: FleetRow[],
   onSelectBot: (botId: number) => void,
 ): void {
-  // The cast's *fraction* is deliberately absent from this key and the class is
-  // not: a bar that grew by rebuilding the list would replace the DOM under the
+  // The command bar's *fraction* is deliberately absent from this key and the
+  // class is not: a bar that grew by rebuilding the list would replace the DOM under the
   // player's pointer on every tick of every bot, which is the thing this key
   // exists to prevent. The width is written straight onto the element below.
   const key = rows
-    .map((r) => `${r.id}:${r.color}:${r.activity}:${r.carrying}:${r.selected}:${r.cast?.cls ?? ""}`)
+    .map((r) => `${r.id}:${r.color}:${r.activity}:${r.carrying}:${r.selected}:${r.command?.cls ?? ""}`)
     .join("|");
   if (root.dataset.key !== key) {
     root.dataset.key = key;
@@ -411,11 +411,11 @@ function renderFleet(
       const what = document.createElement("span");
       what.className = "fleet-what";
       what.textContent = `${row.activity} · ${row.carrying}`;
-      const cast = document.createElement("span");
-      cast.className = "cast";
-      const castFill = document.createElement("i");
-      cast.append(castFill);
-      button.append(swatch, name, what, cast);
+      const bar = document.createElement("span");
+      bar.className = "command-bar";
+      const fill = document.createElement("i");
+      bar.append(fill);
+      button.append(swatch, name, what, bar);
       button.addEventListener("click", () => onSelectBot(row.id));
       li.append(button);
       root.append(li);
@@ -424,14 +424,14 @@ function renderFleet(
 
   // Every frame, on the elements that are already there.
   for (const row of rows) {
-    const cast = root.querySelector<HTMLElement>(`[data-bot="${row.id}"] .cast`);
-    const fill = cast?.firstElementChild as HTMLElement | undefined;
-    if (!cast || !fill) continue;
-    cast.hidden = row.cast === null;
-    if (!row.cast) continue;
-    cast.title = `${row.cast.cls} — ${Math.round(row.cast.fraction * 100)}%`;
-    fill.style.width = `${row.cast.fraction * 100}%`;
-    fill.style.background = cssColor(row.cast.color);
+    const bar = root.querySelector<HTMLElement>(`[data-bot="${row.id}"] .command-bar`);
+    const fill = bar?.firstElementChild as HTMLElement | undefined;
+    if (!bar || !fill) continue;
+    bar.hidden = row.command === null;
+    if (!row.command) continue;
+    bar.title = `${row.command.cls} — ${Math.round(row.command.fraction * 100)}%`;
+    fill.style.width = `${row.command.fraction * 100}%`;
+    fill.style.background = cssColor(row.command.color);
   }
 }
 

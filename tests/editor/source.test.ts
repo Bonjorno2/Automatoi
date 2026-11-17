@@ -101,7 +101,7 @@ describe("primitivesIn", () => {
 /**
  * Which class of object a chip is about.
  *
- * A chip's stripe, a bar slot's stripe and the cast bar a bot runs it under are
+ * A chip's stripe, a bar slot's stripe and the command bar a bot runs it under are
  * all this one answer, so it has to be the same answer for the same code every
  * time.
  */

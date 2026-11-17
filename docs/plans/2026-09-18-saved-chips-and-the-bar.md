@@ -1,6 +1,6 @@
-# The Spellbook: chips you saved, a bar to reach them by, and a cast bar per bot
+# Saved chips and the bar: chips you saved, a bar to reach them by, and a command bar per bot
 
-**Goal:** The codebook becomes somewhere the player *puts* things, not only somewhere the game hands things over. A selection in the editor can be saved as a chip of the player's own; any chip — theirs or the game's — can be pinned to one of nine numbered slots and dropped in at the cursor with `Alt`+digit; and every bot on the fleet list grows a cast bar for the command it is running, coloured by **which class of the player API that command belongs to**.
+**Goal:** The codebook becomes somewhere the player *puts* things, not only somewhere the game hands things over. A selection in the editor can be saved as a chip of the player's own; any chip — theirs or the game's — can be pinned to one of nine numbered slots and dropped in at the cursor with `Alt`+digit; and every bot on the fleet list grows a command bar for the command it is running, coloured by **which class of the player API that command belongs to**.
 
 This is not a new milestone. It is player-facing UX on top of what milestone 10 built, and it deliberately does not touch the sim, the bridge, or the protocol.
 
@@ -10,7 +10,7 @@ This is not a new milestone. It is player-facing UX on top of what milestone 10 
 
 **Prior art surveyed before deciding** (2026-09-18):
 
-- **World of Warcraft** is three surfaces, not one, and the request named the wrong one. The **spellbook** is authored content in school tabs — that is today's codebook exactly. The **macro window** is the player-authored one: name, icon, body, saved per character. The **action bar** is 8 bars of 12 slots holding *references* to both; nothing lives on the bar itself.
+- **World of Warcraft** is three surfaces, not one, and the request named the wrong one. (This plan was first titled "the spellbook" after that request; it was renamed once the work was done, so the plan uses the names the player sees.) The **spellbook** is authored content in school tabs — that is today's codebook exactly. The **macro window** is the player-authored one: name, icon, body, saved per character. The **action bar** is 8 bars of 12 slots holding *references* to both; nothing lives on the bar itself.
 - **WoW's macro caps are a design statement, not an oversight.** 120 account-wide slots, 18 per character, and **255 characters per macro**. The character cap is the most-complained-about number in the system and has never moved; the 255-character cap is the one that carries meaning — a macro is shorthand, and the moment players wanted programs they wrote addons instead. ([Warcraft Wiki: Macro](https://warcraft.wiki.gg/wiki/Macro))
 - **Factorio's blueprint library** is the genre-native version of the same shape: a personal library that persists across saves, books for grouping, export-to-string for sharing, and a quickbar whose slots are **shortcuts, not copies** — edit the library entry and every slot follows; delete it and the links clear themselves. ([Factorio wiki: Blueprint library](https://wiki.factorio.com/Blueprint_library), [Quickbar](https://wiki.factorio.com/Quickbar), [FFF-170](https://www.factorio.com/blog/post/fff-170))
 
@@ -30,7 +30,7 @@ This is not a new milestone. It is player-facing UX on top of what milestone 10 
 
 5. **Nine slots, keyed `Alt`+1…9.** Nine because they are digits on one row and a tenth reachable only as `0` is a keybinding a player has to be taught. `Alt` rather than plain digits because the player's hands are in a text editor, where `3` must always mean three; and rather than `Ctrl`, because `Ctrl`+digit is Chrome's tab switcher. The binding is registered through Monaco so it fires while the editor has focus, which is the only time it is worth having.
 
-6. **The cast bar is coloured by the class of the API object the command belongs to.** `bot.harvester.harvest()` runs orange because the harvester is orange on the map already; `bot.builder.place()` runs slate; `bot.move()` runs in the chassis' own neutral. The colours are not new — `palette.MODULE` has had one per module since milestone 4, and this reuses it rather than inventing a second vocabulary for the same five things.
+6. **The command bar is coloured by the class of the API object the command belongs to.** `bot.harvester.harvest()` runs orange because the harvester is orange on the map already; `bot.builder.place()` runs slate; `bot.move()` runs in the chassis' own neutral. The colours are not new — `palette.MODULE` has had one per module since milestone 4, and this reuses it rather than inventing a second vocabulary for the same five things.
 
    This is the closest thing the game has to WoW's spell schools, and it earns its place for a reason WoW's does not have to justify: **the class is visible in the code the player wrote.** A player who writes `bot.scanner.scan(2)` and sees blue run across a bot has been shown, without a word of text, that the thing they typed after `bot.` is a *thing* with verbs of its own — which is the one piece of JavaScript this game most needs them to notice.
 
@@ -50,14 +50,14 @@ This is not a new milestone. It is player-facing UX on top of what milestone 10 
 
 Recorded after building, not before.
 
-- `npm run typecheck` clean, `npm test` 834 passing (803 before, so 31 new). The new files are `tests/editor/saved-chips.test.ts` and `tests/editor/chip-bar.test.ts`; `classOf` is tested in `tests/editor/source.test.ts` and `castOf` in `tests/render/hud.test.ts`.
+- `npm run typecheck` clean, `npm test` 834 passing (803 before, so 31 new). The new files are `tests/editor/saved-chips.test.ts` and `tests/editor/chip-bar.test.ts`; `classOf` is tested in `tests/editor/source.test.ts` and `commandProgressOf` in `tests/render/hud.test.ts`.
 - **On the page**, driven by hand in the Browser pane. The standing note that the pane runs no `requestAnimationFrame` still holds and still matters: nothing drew until `globalThis.frame()` was called, though the sim's own clock ticks regardless.
   - Selecting two lines and saving them prefilled the name `harvest`, said *"2 lines selected"*, and produced a chip whose stripe read `rgb(216, 112, 60)` — `MODULE.harvester`, from `bot.harvester.harvest()` being the first classed call in it.
   - Pinning put it in slot 1, which then read `1 harvest` with the same orange stripe and a tooltip naming `Alt+1` and quoting the code. The chip's own button changed from `pin` to `Alt+1`.
   - `Alt`+1 with the editor focused inserted the chip at the cursor and Monaco called `preventDefault`, which is the whole argument for binding through the editor rather than through `window`.
   - Renaming the chip to `sweep east` changed what slot 1 showed **without touching the bar**, and deleting it emptied the slot and dropped the link from storage. That is Decision 4 demonstrated rather than asserted.
   - A thirteen-line selection was refused with *"13 lines is a program, not a chip — chips stop at 12"*, and the name field stayed open so nothing was lost.
-  - The cast bar, sampled over eight frames of a harvest loop: `chassis — 50%` in bone `rgb(143, 154, 122)` while moving, `harvester — 0%` then `67%` in orange while harvesting, hidden while idle. Colour and fraction both change with the class of the command in flight, which is what this was for.
+  - The command bar, sampled over eight frames of a harvest loop: `chassis — 50%` in bone `rgb(143, 154, 122)` while moving, `harvester — 0%` then `67%` in orange while harvesting, hidden while idle. Colour and fraction both change with the class of the command in flight, which is what this was for.
 
 ### One bug found on the page, and what it changed
 
